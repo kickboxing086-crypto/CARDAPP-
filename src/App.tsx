@@ -150,6 +150,11 @@ export default function App() {
   // Load initial data and subscribe to storage changes
   useEffect(() => {
     testFirestoreConnection();
+    const initialSession = accountService.getCurrentSession();
+    if (initialSession && initialSession.storeId) {
+      storageService.setStoreId(initialSession.storeId, initialSession.storeName, initialSession.phoneWhatsapp);
+    }
+
     setProducts(storageService.getProducts());
     setOrders(storageService.getOrders());
     setCategories(storageService.getCategories());
@@ -168,7 +173,11 @@ export default function App() {
     });
 
     const unsubscribeAuth = accountService.subscribe(() => {
-      setCurrentUser(accountService.getCurrentSession());
+      const sess = accountService.getCurrentSession();
+      setCurrentUser(sess);
+      if (sess && sess.storeId) {
+        storageService.setStoreId(sess.storeId, sess.storeName, sess.phoneWhatsapp);
+      }
     });
 
     return () => {
@@ -464,8 +473,17 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: UserAccount) => {
+    accountService.switchSession(user);
+    storageService.setStoreId(user.storeId, user.storeName, user.phoneWhatsapp);
     setCurrentUser(user);
+    setCartItems([]);
+    setActiveOrderId(null);
+    setProducts(storageService.getProducts());
+    setOrders(storageService.getOrders());
+    setCategories(storageService.getCategories());
+    setSettings(storageService.getSettings());
     setIsLoginModalOpen(false);
+
     if (user.role === 'super_admin') {
       setIsSuperAdminModalOpen(true);
       setIsCeoModalOpen(false);
@@ -763,6 +781,7 @@ export default function App() {
           setIsCeoModalOpen(false);
           setCurrentView('menu');
         }}
+        onLogout={handleLogout}
       />
 
       {/* SUPER ADMIN MODAL (SAMUEL_ADM1 - GERADOR DE CONTAS E BANCO DE DADOS) */}
@@ -772,9 +791,19 @@ export default function App() {
           onClose={() => setIsSuperAdminModalOpen(false)}
           currentUser={currentUser}
           onLogout={handleLogout}
-          onSwitchToStore={() => {
+          onSwitchToStore={(targetAccount: UserAccount) => {
+            accountService.switchSession(targetAccount);
+            storageService.setStoreId(targetAccount.storeId, targetAccount.storeName, targetAccount.phoneWhatsapp);
+            setCurrentUser(targetAccount);
+            setCartItems([]);
+            setActiveOrderId(null);
+            setProducts(storageService.getProducts());
+            setOrders(storageService.getOrders());
+            setCategories(storageService.getCategories());
+            setSettings(storageService.getSettings());
             setIsSuperAdminModalOpen(false);
             setIsCeoModalOpen(true);
+            setCurrentView('menu');
           }}
         />
       )}

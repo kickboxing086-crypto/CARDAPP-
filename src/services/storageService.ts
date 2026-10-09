@@ -5,8 +5,9 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  Unsubscribe,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db } from '../firebase';
 import { Product, Order, StoreSettings, OrderStatus, Category } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -15,16 +16,80 @@ import {
   INITIAL_CATEGORIES,
 } from '../data/initialData';
 
-const STORE_ID = 'default_store';
+let broadcastChannel: BroadcastChannel | null = null;
+try {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    broadcastChannel = new BroadcastChannel('cardapp_orders_realtime_sync');
+    broadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'ORDER_CREATED' || event.data?.type === 'DATA_UPDATED') {
+        storageService.notifyChange();
+      }
+    };
+  }
+} catch {
+  // ignore
+}
 
-const PRODUCTS_KEY = 'cardapp_products_v3';
-const ORDERS_KEY = 'cardapp_orders_v3';
-const SETTINGS_KEY = 'cardapp_settings_v3';
-const CATEGORIES_KEY = 'cardapp_categories_v3';
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key && e.key.startsWith('cardapp_')) {
+      storageService.notifyChange();
+    }
+  });
+}
+
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
 
 export const storageService = {
+  currentStoreId: 'default_store',
   listeners: [] as (() => void)[],
+  unsubscribers: [] as Unsubscribe[],
+
+  getProductsKey(): string {
+    return `cardapp_products_${this.currentStoreId}`;
+  },
+  getOrdersKey(): string {
+    return `cardapp_orders_${this.currentStoreId}`;
+  },
+  getSettingsKey(): string {
+    return `cardapp_settings_${this.currentStoreId}`;
+  },
+  getCategoriesKey(): string {
+    return `cardapp_categories_${this.currentStoreId}`;
+  },
+
+  setStoreId(storeId: string, initialStoreName?: string, initialPhone?: string) {
+    const cleanId = storeId || 'default_store';
+    const changed = this.currentStoreId !== cleanId;
+    this.currentStoreId = cleanId;
+
+    if (cleanId !== 'default_store' && cleanId !== 'master_admin') {
+      const prodKey = this.getProductsKey();
+      if (localStorage.getItem(prodKey) === null) {
+        localStorage.setItem(prodKey, JSON.stringify([]));
+      }
+      const ordKey = this.getOrdersKey();
+      if (localStorage.getItem(ordKey) === null) {
+        localStorage.setItem(ordKey, JSON.stringify([]));
+      }
+      const setKey = this.getSettingsKey();
+      if (localStorage.getItem(setKey) === null) {
+        const freshSettings: StoreSettings = {
+          ...INITIAL_SETTINGS,
+          storeName: initialStoreName || 'Minha Loja',
+          phoneWhatsapp: initialPhone || '5584986113980',
+          logoBase64: '',
+          tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
+        };
+        localStorage.setItem(setKey, JSON.stringify(freshSettings));
+      }
+    }
+
+    if (changed) {
+      this.initFirestoreSync();
+      this.notifyChange();
+    }
+  },
 
   subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
@@ -45,15 +110,26 @@ export const storageService = {
 
   // Initialize Firestore listeners for live real-time sync across devices
   initFirestoreSync() {
+    this.unsubscribers.forEach((u) => {
+      try {
+        u();
+      } catch {
+        // ignore
+      }
+    });
+    this.unsubscribers = [];
+
+    const targetStore = this.currentStoreId;
+
     try {
       // Live sync for Settings
-      const settingsRef = doc(db, 'stores', STORE_ID, 'settings', 'current');
-      onSnapshot(
+      const settingsRef = doc(db, 'stores', targetStore, 'settings', 'current');
+      const unsubSettings = onSnapshot(
         settingsRef,
         (snap) => {
           if (snap.exists()) {
             const data = snap.data() as StoreSettings;
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+            localStorage.setItem(this.getSettingsKey(), JSON.stringify(data));
             this.notifyChange();
           }
         },
@@ -61,10 +137,11 @@ export const storageService = {
           console.warn('Firestore settings listener offline/fallback:', error);
         }
       );
+      this.unsubscribers.push(unsubSettings);
 
       // Live sync for Orders
-      const ordersRef = collection(db, 'stores', STORE_ID, 'orders');
-      onSnapshot(
+      const ordersRef = collection(db, 'stores', targetStore, 'orders');
+      const unsubOrders = onSnapshot(
         ordersRef,
         (snap) => {
           if (!snap.empty) {
@@ -76,7 +153,7 @@ export const storageService = {
             orders.sort(
               (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
-            localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+            localStorage.setItem(this.getOrdersKey(), JSON.stringify(orders));
             this.notifyChange();
           }
         },
@@ -84,10 +161,11 @@ export const storageService = {
           console.warn('Firestore orders listener offline/fallback:', error);
         }
       );
+      this.unsubscribers.push(unsubOrders);
 
       // Live sync for Products
-      const productsRef = collection(db, 'stores', STORE_ID, 'products');
-      onSnapshot(
+      const productsRef = collection(db, 'stores', targetStore, 'products');
+      const unsubProducts = onSnapshot(
         productsRef,
         (snap) => {
           if (!snap.empty) {
@@ -95,7 +173,7 @@ export const storageService = {
             snap.forEach((d) => {
               products.push(d.data() as Product);
             });
-            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+            localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
             this.notifyChange();
           }
         },
@@ -103,10 +181,11 @@ export const storageService = {
           console.warn('Firestore products listener offline/fallback:', error);
         }
       );
+      this.unsubscribers.push(unsubProducts);
 
       // Live sync for Categories
-      const categoriesRef = collection(db, 'stores', STORE_ID, 'categories');
-      onSnapshot(
+      const categoriesRef = collection(db, 'stores', targetStore, 'categories');
+      const unsubCats = onSnapshot(
         categoriesRef,
         (snap) => {
           if (!snap.empty) {
@@ -114,7 +193,7 @@ export const storageService = {
             snap.forEach((d) => {
               categories.push(d.data() as Category);
             });
-            localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+            localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
             this.notifyChange();
           }
         },
@@ -122,6 +201,7 @@ export const storageService = {
           console.warn('Firestore categories listener offline/fallback:', error);
         }
       );
+      this.unsubscribers.push(unsubCats);
     } catch (e) {
       console.warn('Erro ao inicializar listeners do Firestore:', e);
     }
@@ -130,23 +210,23 @@ export const storageService = {
   // CATEGORIES
   getCategories(): Category[] {
     try {
-      const stored = localStorage.getItem(CATEGORIES_KEY);
+      const stored = localStorage.getItem(this.getCategoriesKey());
       if (stored) return JSON.parse(stored);
     } catch {
       // fallback
     }
-    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(INITIAL_CATEGORIES));
+    localStorage.setItem(this.getCategoriesKey(), JSON.stringify(INITIAL_CATEGORIES));
     return INITIAL_CATEGORIES;
   },
 
   saveCategories(categories: Category[]) {
-    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+    localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
     this.notifyChange();
 
     // Sync to Firestore
     try {
       categories.forEach(async (cat) => {
-        const catRef = doc(db, 'stores', STORE_ID, 'categories', cat.id);
+        const catRef = doc(db, 'stores', this.currentStoreId, 'categories', cat.id);
         await setDoc(catRef, cat).catch(() => {});
       });
     } catch {
@@ -172,10 +252,10 @@ export const storageService = {
 
     // Save to Firestore directly
     try {
-      const catRef = doc(db, 'stores', STORE_ID, 'categories', id);
-      setDoc(catRef, newCat).catch((err) =>
-        handleFirestoreError(err, OperationType.WRITE, `stores/${STORE_ID}/categories/${id}`)
-      );
+      const catRef = doc(db, 'stores', this.currentStoreId, 'categories', id);
+      setDoc(catRef, newCat).catch((err) => {
+        console.warn('Sync addCategory fallback:', err);
+      });
     } catch {
       // ignore
     }
@@ -190,7 +270,7 @@ export const storageService = {
 
     // Delete in Firestore
     try {
-      const catRef = doc(db, 'stores', STORE_ID, 'categories', categoryId);
+      const catRef = doc(db, 'stores', this.currentStoreId, 'categories', categoryId);
       deleteDoc(catRef).catch(() => {});
     } catch {
       // ignore
@@ -200,23 +280,28 @@ export const storageService = {
   // PRODUCTS
   getProducts(): Product[] {
     try {
-      const stored = localStorage.getItem(PRODUCTS_KEY);
-      if (stored) return JSON.parse(stored);
+      const stored = localStorage.getItem(this.getProductsKey());
+      if (stored !== null) return JSON.parse(stored);
     } catch {
       // fallback
     }
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
-    return INITIAL_PRODUCTS;
+    if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
+      localStorage.setItem(this.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
+      return INITIAL_PRODUCTS;
+    }
+    // Para contas novas de clientes/lojistas: começa 100% zerado
+    localStorage.setItem(this.getProductsKey(), JSON.stringify([]));
+    return [];
   },
 
   saveProducts(products: Product[]) {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
     this.notifyChange();
 
     // Sync to Firestore
     try {
       products.forEach(async (prod) => {
-        const prodRef = doc(db, 'stores', STORE_ID, 'products', prod.id);
+        const prodRef = doc(db, 'stores', this.currentStoreId, 'products', prod.id);
         await setDoc(prodRef, prod).catch(() => {});
       });
     } catch {
@@ -235,10 +320,10 @@ export const storageService = {
 
     // Sync to Firestore
     try {
-      const prodRef = doc(db, 'stores', STORE_ID, 'products', newProduct.id);
-      setDoc(prodRef, newProduct).catch((err) =>
-        handleFirestoreError(err, OperationType.WRITE, `stores/${STORE_ID}/products/${newProduct.id}`)
-      );
+      const prodRef = doc(db, 'stores', this.currentStoreId, 'products', newProduct.id);
+      setDoc(prodRef, newProduct).catch((err) => {
+        console.warn('Sync addProduct fallback:', err);
+      });
     } catch {
       // ignore
     }
@@ -255,10 +340,10 @@ export const storageService = {
 
       // Sync to Firestore
       try {
-        const prodRef = doc(db, 'stores', STORE_ID, 'products', product.id);
-        setDoc(prodRef, product).catch((err) =>
-          handleFirestoreError(err, OperationType.UPDATE, `stores/${STORE_ID}/products/${product.id}`)
-        );
+        const prodRef = doc(db, 'stores', this.currentStoreId, 'products', product.id);
+        setDoc(prodRef, product).catch((err) => {
+          console.warn('Sync updateProduct fallback:', err);
+        });
       } catch {
         // ignore
       }
@@ -272,7 +357,7 @@ export const storageService = {
 
     // Sync to Firestore
     try {
-      const prodRef = doc(db, 'stores', STORE_ID, 'products', productId);
+      const prodRef = doc(db, 'stores', this.currentStoreId, 'products', productId);
       deleteDoc(prodRef).catch(() => {});
     } catch {
       // ignore
@@ -282,20 +367,25 @@ export const storageService = {
   // ORDERS
   getOrders(): Order[] {
     try {
-      const stored = localStorage.getItem(ORDERS_KEY);
-      if (stored) {
+      const stored = localStorage.getItem(this.getOrdersKey());
+      if (stored !== null) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) return parsed;
       }
     } catch {
       // fallback
     }
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(INITIAL_ORDERS));
-    return INITIAL_ORDERS;
+    if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
+      localStorage.setItem(this.getOrdersKey(), JSON.stringify(INITIAL_ORDERS));
+      return INITIAL_ORDERS;
+    }
+    // Para contas novas de clientes/lojistas: começa 100% zerado
+    localStorage.setItem(this.getOrdersKey(), JSON.stringify([]));
+    return [];
   },
 
   saveOrders(orders: Order[]) {
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+    localStorage.setItem(this.getOrdersKey(), JSON.stringify(orders));
     this.notifyChange();
   },
 
@@ -342,12 +432,23 @@ export const storageService = {
     this.saveOrders(updated);
     this.setActiveOrderId(newOrder.id);
 
+    // Notifica instantaneamente qualquer aba aberta (ex: tela do CEO)
+    try {
+      broadcastChannel?.postMessage({
+        type: 'ORDER_CREATED',
+        storeId: this.currentStoreId,
+        orderId: newOrder.id,
+      });
+    } catch {
+      // ignore
+    }
+
     // Sync to Firestore
     try {
-      const orderRef = doc(db, 'stores', STORE_ID, 'orders', newOrder.id);
-      setDoc(orderRef, newOrder).catch((err) =>
-        handleFirestoreError(err, OperationType.WRITE, `stores/${STORE_ID}/orders/${newOrder.id}`)
-      );
+      const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', newOrder.id);
+      setDoc(orderRef, newOrder).catch((err) => {
+        console.warn('Sync createOrder fallback:', err);
+      });
     } catch {
       // ignore
     }
@@ -379,12 +480,22 @@ export const storageService = {
       orders[index] = updatedOrder;
       this.saveOrders(orders);
 
+      try {
+        broadcastChannel?.postMessage({
+          type: 'DATA_UPDATED',
+          storeId: this.currentStoreId,
+          orderId,
+        });
+      } catch {
+        // ignore
+      }
+
       // Sync to Firestore
       try {
-        const orderRef = doc(db, 'stores', STORE_ID, 'orders', orderId);
-        setDoc(orderRef, updatedOrder).catch((err) =>
-          handleFirestoreError(err, OperationType.UPDATE, `stores/${STORE_ID}/orders/${orderId}`)
-        );
+        const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', orderId);
+        setDoc(orderRef, updatedOrder).catch((err) => {
+          console.warn('Sync updateOrderStatus fallback:', err);
+        });
       } catch {
         // ignore
       }
@@ -400,9 +511,18 @@ export const storageService = {
       this.clearActiveOrderId();
     }
 
+    try {
+      broadcastChannel?.postMessage({
+        type: 'DATA_UPDATED',
+        storeId: this.currentStoreId,
+      });
+    } catch {
+      // ignore
+    }
+
     // Sync delete to Firestore
     try {
-      const orderRef = doc(db, 'stores', STORE_ID, 'orders', orderId);
+      const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', orderId);
       deleteDoc(orderRef).catch(() => {});
     } catch {
       // ignore
@@ -440,25 +560,34 @@ export const storageService = {
   // STORE SETTINGS
   getSettings(): StoreSettings {
     try {
-      const stored = localStorage.getItem(SETTINGS_KEY);
+      const stored = localStorage.getItem(this.getSettingsKey());
       if (stored) return JSON.parse(stored);
     } catch {
       // fallback
     }
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(INITIAL_SETTINGS));
+    localStorage.setItem(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
     return INITIAL_SETTINGS;
   },
 
   saveSettings(settings: StoreSettings) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(this.getSettingsKey(), JSON.stringify(settings));
     this.notifyChange();
+
+    try {
+      broadcastChannel?.postMessage({
+        type: 'DATA_UPDATED',
+        storeId: this.currentStoreId,
+      });
+    } catch {
+      // ignore
+    }
 
     // Sync to Firestore
     try {
-      const settingsRef = doc(db, 'stores', STORE_ID, 'settings', 'current');
-      setDoc(settingsRef, settings).catch((err) =>
-        handleFirestoreError(err, OperationType.WRITE, `stores/${STORE_ID}/settings/current`)
-      );
+      const settingsRef = doc(db, 'stores', this.currentStoreId, 'settings', 'current');
+      setDoc(settingsRef, settings).catch((err) => {
+        console.warn('Sync saveSettings fallback:', err);
+      });
     } catch {
       // ignore
     }

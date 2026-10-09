@@ -159,6 +159,16 @@ class AccountService {
     return { success: true, message: 'Login realizado com sucesso!', user };
   }
 
+  public switchSession(user: UserAccount) {
+    this.currentSession = user;
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    } catch {
+      // ignore
+    }
+    this.notify();
+  }
+
   public logout() {
     this.currentSession = null;
     try {

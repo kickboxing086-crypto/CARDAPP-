@@ -30,7 +30,7 @@ interface SuperAdminModalProps {
   onClose: () => void;
   currentUser: UserAccount;
   onLogout: () => void;
-  onSwitchToStore: (storeId: string) => void;
+  onSwitchToStore: (account: UserAccount) => void;
 }
 
 export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
@@ -56,6 +56,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [showLastPassword, setShowLastPassword] = useState(false);
   const [copiedLandingLink, setCopiedLandingLink] = useState(false);
   const [copiedLoginLink, setCopiedLoginLink] = useState(false);
+  const [copiedClientMenuLink, setCopiedClientMenuLink] = useState(false);
   const [copiedStoreMessageId, setCopiedStoreMessageId] = useState<string | null>(null);
 
   // Database tools
@@ -390,12 +391,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   type="button"
                   onClick={() => {
                     navigator.clipboard.writeText(CLIENT_URL);
-                    alert('Link do cardápio copiado!');
+                    setCopiedClientMenuLink(true);
+                    setTimeout(() => setCopiedClientMenuLink(false), 2000);
                   }}
-                  className="text-amber-700 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-amber-700 hover:underline cursor-pointer flex items-center gap-1 font-bold"
                 >
-                  <Copy className="w-3 h-3" />
-                  <span>Copiar Link do Cliente</span>
+                  {copiedClientMenuLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedClientMenuLink ? 'Copiado!' : 'Copiar Link do Cliente'}</span>
                 </button>
               </div>
 
@@ -649,7 +651,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onSwitchToStore(lastCreatedAccount.storeId)}
+                        onClick={() => onSwitchToStore(lastCreatedAccount)}
                         className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
                       >
                         <Store className="w-3.5 h-3.5" />
@@ -778,7 +780,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                             <button
                               type="button"
-                              onClick={() => onSwitchToStore(acc.storeId)}
+                              onClick={() => onSwitchToStore(acc)}
                               className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer shadow-2xs"
                             >
                               Acessar Painel

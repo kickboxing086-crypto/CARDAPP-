@@ -217,6 +217,34 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
         </div>
       )}
 
+      {/* BANNER DE ENVIO / CONFIRMAÇÃO DO WHATSAPP DA LOJA */}
+      <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-emerald-600 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-2 border-emerald-400 animate-in slide-in-from-top-1">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+            <MessageCircle className="w-7 h-7 fill-white text-emerald-600" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-white text-emerald-950 inline-block mb-1">
+              Envio Imediato para a Loja
+            </span>
+            <h3 className="font-black text-sm sm:text-base leading-tight">
+              Pedido Gerado com Sucesso! Envie agora no WhatsApp da Loja
+            </h3>
+            <p className="text-xs text-emerald-100 font-medium mt-0.5">
+              Clique no botão ao lado para enviar a comanda completa com todos os itens diretamente para o atendimento do restaurante.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={openWhatsApp}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-950 font-black text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
+        >
+          <MessageCircle className="w-4 h-4 fill-emerald-700 text-emerald-700" />
+          <span>Enviar no WhatsApp da Loja</span>
+        </button>
+      </div>
+
       {/* Header Card */}
       <div className="bg-white rounded-3xl border border-amber-200 p-6 sm:p-8 shadow-sm mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-amber-100">

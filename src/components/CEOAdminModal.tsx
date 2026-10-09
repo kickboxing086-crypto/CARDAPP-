@@ -34,6 +34,8 @@ import {
   Search,
   MapPin,
   Clock,
+  LogOut,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   Product,
@@ -70,6 +72,7 @@ interface CEOAdminModalProps {
   onDeleteCategory: (categoryId: string) => void;
   onSaveSettings: (settings: StoreSettings) => void;
   onSwitchToClientView: () => void;
+  onLogout?: () => void;
 }
 
 export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
@@ -88,6 +91,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   onDeleteCategory,
   onSaveSettings,
   onSwitchToClientView,
+  onLogout,
 }) => {
   if (!isOpen) return null;
 
@@ -101,6 +105,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+
+  // Two-step logout confirmation state
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [logoutConfirmationStep, setLogoutConfirmationStep] = useState<1 | 2>(1);
 
   // Delivery Neighborhoods State (CEO manages state, city and neighborhoods)
   const [deliveryState, setDeliveryState] = useState('RN');
@@ -553,15 +561,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </h3>
               </div>
             </div>
-
-            {/* Mobile close sidebar button */}
-            <button
-              type="button"
-              onClick={() => setIsMobileSidebarOpen(false)}
-              className="md:hidden w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
 
           {/* Section Title */}
@@ -745,6 +744,22 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <span>Ver Cardápio do Cliente</span>
             </button>
+
+            {/* Sair da Conta do CEO com confirmação de duas etapas */}
+            {onLogout && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLogoutConfirmationStep(1);
+                  setIsLogoutModalOpen(true);
+                }}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs transition-colors cursor-pointer border border-red-200 mt-2"
+                title="Sair da Conta do CEO (Confirmação em duas etapas)"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sair da Conta</span>
+              </button>
+            )}
           </div>
         </aside>
 
@@ -816,6 +831,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <ForkKnifeIcon className="w-3.5 h-3.5 stroke-[2.2]" />
                 <span>Ver Cardápio</span>
               </button>
+
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLogoutConfirmationStep(1);
+                    setIsLogoutModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition-all shadow-2xs cursor-pointer active:scale-95"
+                  title="Sair da Conta do CEO (Confirmação em duas etapas)"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sair da Conta</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2886,6 +2916,93 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 Fechar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA SAIR DA CONTA DO CEO */}
+      {isLogoutModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div
+            className="bg-white rounded-3xl max-w-sm sm:max-w-md w-full border-2 border-amber-300 shadow-2xl p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {logoutConfirmationStep === 1 ? (
+              <>
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-xs">
+                  <LogOut className="w-6 h-6 stroke-[2.2]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 inline-block">
+                    Etapa 1 de 2 • Confirmação de Saída
+                  </span>
+                  <h3 className="text-lg font-black text-slate-950">
+                    Deseja sair da conta do CEO?
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Você está prestes a sair do painel administrativo da loja <strong>{settings.storeName}</strong>. Deseja prosseguir para a confirmação final?
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsLogoutModalOpen(false)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogoutConfirmationStep(2)}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                  >
+                    Avançar para Etapa 2
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center mx-auto shadow-xs">
+                  <ShieldAlert className="w-6 h-6 stroke-[2.2]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 inline-block">
+                    Etapa 2 de 2 • Confirmação Final
+                  </span>
+                  <h3 className="text-lg font-black text-red-950">
+                    Tem certeza absoluta?
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Sua sessão no painel do CEO será encerrada. Para retornar, será necessário digitar suas credenciais de acesso novamente.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setLogoutConfirmationStep(1)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogoutModalOpen(false);
+                      setLogoutConfirmationStep(1);
+                      if (onLogout) onLogout();
+                    }}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-xs transition-all shadow-md cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Confirmar e Sair</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
