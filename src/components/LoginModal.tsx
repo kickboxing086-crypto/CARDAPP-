@@ -151,19 +151,31 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const provider = new GoogleAuthProvider();
     try {
       setIsLoginLoading(true);
+      console.log('Starting Google login...');
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      
-      // Check if user exists in accounts, if not maybe register?
-      // For now just sign in with Google.
-      // Need to map Firebase user to UserAccount.
-      
       console.log('Google login success:', user);
-      // ... logic to log in ...
+
+      // Check if user exists in accounts
+      const accounts = accountService.getAccounts();
+      const existingUser = accounts.find((a) => a.email && a.email.toLowerCase() === user.email?.toLowerCase());
+
+      if (existingUser) {
+        console.log('User found, logging in:', existingUser);
+        onLoginSuccess(existingUser);
+        if (onClose) onClose();
+      } else {
+        console.log('User not found, switching to register mode');
+        setLoginError('Conta não encontrada. Por favor, cadastre sua loja.');
+        setActiveMode('register');
+        setRegEmail(user.email || '');
+        setRegName(user.displayName || '');
+        // You might need to pre-fill other fields here
+      }
       setIsLoginLoading(false);
     } catch (err) {
-      console.error(err);
-      setLoginError('Erro ao logar com Google.');
+      console.error('Google login error:', err);
+      setLoginError('Erro ao logar com Google. Tente novamente ou verifique se bloqueou o pop-up.');
       setIsLoginLoading(false);
     }
   };
