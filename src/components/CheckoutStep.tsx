@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Copy,
   Check,
+  MessageCircle,
 } from 'lucide-react';
 import { CartItem, StoreSettings, OrderCustomer } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -516,10 +517,10 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
 
           <button
             type="submit"
-            className="w-full sm:flex-1 px-8 py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-base shadow-lg hover:shadow-amber-400/40 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+            className="w-full sm:flex-1 px-8 py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-base shadow-lg hover:shadow-amber-400/40 transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
           >
-            <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-            <span>Confirmar Pedido & Enviar para Cozinha</span>
+            <MessageCircle className="w-5 h-5 fill-slate-950 stroke-[2.2]" />
+            <span>Confirmar Pedido & Enviar no WhatsApp</span>
           </button>
         </div>
 

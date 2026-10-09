@@ -31,6 +31,7 @@ import {
   Banknote,
   Store,
   Instagram,
+  Search,
 } from 'lucide-react';
 import {
   Product,
@@ -44,6 +45,11 @@ import {
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
 import { OFFICIAL_APP_URL, getClientAppUrl, getCeoAppUrl } from '../utils/constants';
+import {
+  getEstimatedTimeWindow,
+  getDeliveryTypeLabel,
+  getOrderWhatsAppUrl,
+} from '../utils/comandaFormatter';
 
 interface CEOAdminModalProps {
   isOpen: boolean;
@@ -89,6 +95,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedCeoLink, setCopiedCeoLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
 
   // Two-step deletion modal state
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
@@ -198,6 +205,32 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       return dateKey;
     }
   };
+
+  // Total matching orders for search & status filter
+  const totalMatchingOrders = useMemo(() => {
+    return orders.filter((o) => {
+      const matchesStatus = orderFilter === 'all' ? true : o.status === orderFilter;
+      if (!matchesStatus) return false;
+      if (!orderSearchQuery.trim()) return true;
+      const query = orderSearchQuery.toLowerCase().trim();
+      const cleanDigits = query.replace(/\D/g, '');
+      const matchesId =
+        o.displayId.toLowerCase().includes(query) ||
+        (cleanDigits.length > 0 && o.displayId.replace(/\D/g, '').includes(cleanDigits));
+      const matchesCustomer =
+        o.customer.name.toLowerCase().includes(query) ||
+        o.customer.phone.replace(/\D/g, '').includes(cleanDigits || query);
+      const matchesTable = o.customer.tableNumber?.toLowerCase().includes(query) || false;
+      const matchesAddress =
+        o.customer.address
+          ? o.customer.address.street.toLowerCase().includes(query) ||
+            o.customer.address.neighborhood.toLowerCase().includes(query) ||
+            o.customer.address.city.toLowerCase().includes(query)
+          : false;
+      const matchesItems = o.items.some((it) => it.product.name.toLowerCase().includes(query));
+      return matchesId || matchesCustomer || matchesTable || matchesAddress || matchesItems;
+    }).length;
+  }, [orders, orderFilter, orderSearchQuery]);
 
   // Handle Base64 Image Upload for Products
   const handleProductImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -520,6 +553,44 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
           {/* TAB 1: PAINEL DE PEDIDOS SEPARADOS POR DATA */}
           {activeTab === 'orders' && (
             <div className="space-y-6">
+              {/* Search Bar for Orders */}
+              <div className="bg-white p-3.5 rounded-2xl border border-amber-300 shadow-2xs space-y-2">
+                <div className="relative flex items-center">
+                  <Search className="w-4 h-4 text-amber-600 absolute left-3.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={orderSearchQuery}
+                    onChange={(e) => setOrderSearchQuery(e.target.value)}
+                    placeholder="Buscar pedido por número (ex: 63126), nome do cliente, WhatsApp ou item..."
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 focus:bg-white transition-all"
+                  />
+                  {orderSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setOrderSearchQuery('')}
+                      className="absolute right-3 p-1 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-colors cursor-pointer"
+                      title="Limpar busca"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                {orderSearchQuery && (
+                  <div className="flex items-center justify-between text-xs text-amber-900 font-bold px-1">
+                    <span>
+                      Resultados para "{orderSearchQuery}": {totalMatchingOrders} {totalMatchingOrders === 1 ? 'pedido encontrado' : 'pedidos encontrados'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOrderSearchQuery('')}
+                      className="text-xs text-amber-700 underline font-extrabold cursor-pointer hover:text-amber-900"
+                    >
+                      Limpar filtro
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Filter Tabs by Status */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-1.5 p-1 bg-amber-100/60 rounded-xl">
@@ -597,9 +668,33 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               ) : (
                 <div className="space-y-8">
                   {groupedOrdersByDate.map(([dateKey, dateOrders]) => {
-                    const filtered = dateOrders.filter((o) =>
-                      orderFilter === 'all' ? true : o.status === orderFilter
-                    );
+                    const filtered = dateOrders.filter((o) => {
+                      const matchesStatus = orderFilter === 'all' ? true : o.status === orderFilter;
+                      if (!matchesStatus) return false;
+                      if (!orderSearchQuery.trim()) return true;
+
+                      const query = orderSearchQuery.toLowerCase().trim();
+                      const cleanDigits = query.replace(/\D/g, '');
+
+                      const matchesId =
+                        o.displayId.toLowerCase().includes(query) ||
+                        (cleanDigits.length > 0 && o.displayId.replace(/\D/g, '').includes(cleanDigits));
+                      const matchesCustomer =
+                        o.customer.name.toLowerCase().includes(query) ||
+                        o.customer.phone.replace(/\D/g, '').includes(cleanDigits || query);
+                      const matchesTable = o.customer.tableNumber?.toLowerCase().includes(query) || false;
+                      const matchesAddress =
+                        o.customer.address
+                          ? o.customer.address.street.toLowerCase().includes(query) ||
+                            o.customer.address.neighborhood.toLowerCase().includes(query) ||
+                            o.customer.address.city.toLowerCase().includes(query)
+                          : false;
+                      const matchesItems = o.items.some((it) =>
+                        it.product.name.toLowerCase().includes(query)
+                      );
+
+                      return matchesId || matchesCustomer || matchesTable || matchesAddress || matchesItems;
+                    });
                     if (filtered.length === 0) return null;
 
                     const dateSubtotal = filtered.reduce((acc, o) => acc + o.total, 0);
@@ -1958,86 +2053,204 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
       {/* PRINT RECEIPT MODAL */}
       {printOrder && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80">
-          <div className="bg-white p-6 rounded-2xl max-w-sm w-full font-mono text-xs space-y-3 shadow-2xl">
-            <div className="text-center pb-2 border-b border-dashed border-slate-400">
-              <h3 className="font-black text-sm uppercase">{settings.storeName}</h3>
-              <p className="text-[10px] text-slate-600">{settings.address}</p>
-              <p className="text-[10px] text-slate-600">WhatsApp: {settings.phoneWhatsapp}</p>
-            </div>
-
-            <div className="flex justify-between font-bold">
-              <span>COMANDA: {printOrder.displayId}</span>
-              <span>{formatDateTime(printOrder.createdAt)}</span>
-            </div>
-
-            <div>
-              <p>CLIENTE: {printOrder.customer.name}</p>
-              <p>TEL: {printOrder.customer.phone}</p>
-              <p>
-                TIPO: {printOrder.customer.deliveryType.toUpperCase()}
-                {printOrder.customer.tableNumber ? ` (Mesa ${printOrder.customer.tableNumber})` : ''}
-              </p>
-              {printOrder.customer.address && (
-                <p>
-                  END: {printOrder.customer.address.street}, {printOrder.customer.address.number} -{' '}
-                  {printOrder.customer.address.neighborhood}
-                </p>
-              )}
-            </div>
-
-            <div className="border-t border-b border-dashed border-slate-400 py-2 space-y-1.5">
-              {printOrder.items.map((it, i) => (
-                <div key={i}>
-                  <div className="flex justify-between font-bold">
-                    <span>
-                      {it.quantity}x {it.product.name}
-                    </span>
-                    <span>{formatCurrency(it.totalPrice)}</span>
-                  </div>
-                  {it.selectedComplements && it.selectedComplements.length > 0 && (
-                    <p className="text-[10px] text-slate-600">
-                      + Complementos: {it.selectedComplements.map((c) => c.name).join(', ')}
-                    </p>
-                  )}
-                  {it.appliedPromotion && (
-                    <p className="text-[10px] text-amber-800 font-bold">
-                      * PROMOÇÃO: {it.appliedPromotion.promoQuantity} un aplicadas
-                    </p>
-                  )}
-                  {it.notes && <p className="italic text-[10px] text-slate-600">** OBS: {it.notes}</p>}
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-1 text-right">
-              <p>SUBTOTAL: {formatCurrency(printOrder.subtotal)}</p>
-              <p>TAXA: {formatCurrency(printOrder.deliveryFee)}</p>
-              <p className="font-black text-sm">TOTAL: {formatCurrency(printOrder.total)}</p>
-              <p className="text-[10px]">PAGTO: {printOrder.customer.paymentMethod.toUpperCase()}</p>
-              {printOrder.customer.paymentMethod === 'dinheiro' && printOrder.customer.cashGiven && (
-                <p className="text-[10px] font-bold text-slate-800">
-                  DINHEIRO: {formatCurrency(printOrder.customer.cashGiven)} | TROCO: {formatCurrency(printOrder.customer.changeToReturn || 0)}
-                </p>
-              )}
-            </div>
-
-            <div className="text-center pt-2 text-[9px] text-slate-500 border-t border-dashed border-slate-300">
-              CARDAPP • Desenvolvido por SF TECNOLOGIA
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex-1 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer"
-              >
-                Imprimir
-              </button>
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-4 sm:p-5 shadow-2xl space-y-4 my-auto border border-amber-300">
+            {/* Modal Header Controls (Not Printed) */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <span className="text-xs font-black uppercase text-slate-800">
+                Visualização da Comanda
+              </span>
               <button
                 type="button"
                 onClick={() => setPrintOrder(null)}
-                className="px-4 py-2 border rounded-lg cursor-pointer"
+                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* PAPER THERMAL RECEIPT AREA (PRINTED) */}
+            <div className="print-area bg-white text-black p-4 rounded-xl border border-dashed border-slate-400 font-mono text-[11px] space-y-2 select-text shadow-xs">
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                ================================
+              </div>
+
+              {/* TIPO DE PEDIDO */}
+              <div className="text-center py-0.5">
+                <span className="font-black text-sm uppercase tracking-wider block">
+                  {getDeliveryTypeLabel(printOrder)}
+                </span>
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                ================================
+              </div>
+
+              {/* DATA / PREVISÃO / NOME DA LOJA */}
+              <div className="text-center space-y-0.5">
+                <p className="font-bold">{formatDateTime(printOrder.createdAt)}</p>
+                <p className="font-bold">
+                  Entrega prevista: {getEstimatedTimeWindow(printOrder.createdAt, settings.estimatedDeliveryTime)}
+                </p>
+                <p className="font-black text-sm uppercase mt-1">{settings.storeName}</p>
+                <p className="text-[10px] text-slate-700">WhatsApp: {settings.phoneWhatsapp}</p>
+                {settings.address && (
+                  <p className="text-[10px] text-slate-600">{settings.address}</p>
+                )}
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                ================================
+              </div>
+
+              {/* NÚMERO DO PEDIDO COM 5 DÍGITOS BEM GRANDE */}
+              <div className="text-center py-1">
+                <span className="text-2xl font-black tracking-wider block">
+                  Pedido {printOrder.displayId}
+                </span>
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                --------------------------------
+              </div>
+
+              {/* DADOS DO CLIENTE */}
+              <div className="space-y-0.5 text-[11px]">
+                <p><strong className="font-bold">CLIENTE:</strong> {printOrder.customer.name}</p>
+                <p><strong className="font-bold">TEL:</strong> {printOrder.customer.phone}</p>
+                {printOrder.customer.deliveryType === 'delivery' && printOrder.customer.address && (
+                  <p>
+                    <strong className="font-bold">END:</strong> {printOrder.customer.address.street}, {printOrder.customer.address.number} - {printOrder.customer.address.neighborhood}
+                    {printOrder.customer.address.complement ? ` (${printOrder.customer.address.complement})` : ''} - {printOrder.customer.address.city}
+                  </p>
+                )}
+                {printOrder.customer.deliveryType === 'mesa' && (
+                  <p>
+                    <strong className="font-bold">LOCAL:</strong> Consumo no Restaurante (Mesa {printOrder.customer.tableNumber || 'Salão'})
+                  </p>
+                )}
+                {printOrder.customer.deliveryType === 'retirada' && (
+                  <p>
+                    <strong className="font-bold">LOCAL:</strong> Retirada no Balcão
+                  </p>
+                )}
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                --------------------------------
+              </div>
+
+              {/* ITENS DO PEDIDO */}
+              <div>
+                <span className="font-black text-xs uppercase block mb-1">Itens</span>
+                <div className="space-y-1.5">
+                  {printOrder.items.map((it, i) => (
+                    <div key={i} className="pb-1">
+                      <div className="flex justify-between items-baseline font-bold">
+                        <span>({it.quantity}) {it.product.name}</span>
+                        <span className="tabular-nums font-mono">{formatCurrency(it.totalPrice)}</span>
+                      </div>
+                      {it.selectedComplements && it.selectedComplements.length > 0 && (
+                        <div className="text-[10px] text-slate-700 pl-3">
+                          {it.selectedComplements.map((c) => (
+                            <p key={c.id}>- {c.name}{c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}</p>
+                          ))}
+                        </div>
+                      )}
+                      {it.appliedPromotion && (
+                        <p className="text-[10px] text-amber-900 font-bold pl-3">
+                          * Promoção aplicada ({it.appliedPromotion.promoQuantity} un)
+                        </p>
+                      )}
+                      {it.notes && (
+                        <p className="text-[10px] text-slate-600 italic pl-3">
+                          Obs: {it.notes}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                --------------------------------
+              </div>
+
+              {/* SUBTOTAL / TAXA / TOTAL / FORMA DE PAGAMENTO */}
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span>SUBTOTAL:</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(printOrder.subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>TAXA:</span>
+                  <span className="font-mono tabular-nums">
+                    {printOrder.deliveryFee > 0 ? formatCurrency(printOrder.deliveryFee) : 'Grátis'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm font-black pt-1 border-t border-dashed border-slate-400">
+                  <span>TOTAL:</span>
+                  <span className="font-mono tabular-nums text-base">{formatCurrency(printOrder.total)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] pt-0.5">
+                  <span>PAGTO:</span>
+                  <span className="font-bold">{printOrder.customer.paymentMethod.replace('_', ' ').toUpperCase()}</span>
+                </div>
+                {printOrder.customer.paymentMethod === 'dinheiro' && printOrder.customer.cashGiven && (
+                  <div className="text-[10px] bg-slate-100 p-1.5 rounded font-bold mt-1 space-y-0.5 border border-slate-300">
+                    <p>VALOR ENTREGUE: {formatCurrency(printOrder.customer.cashGiven)}</p>
+                    <p>TROCO A LEVAR: {formatCurrency(printOrder.customer.changeToReturn || 0)}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Linha Tracejada */}
+              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
+                ================================
+              </div>
+
+              {/* RODAPÉ EXATO CONFORME A FOTO */}
+              <div className="text-center space-y-0.5 pt-1 text-[10px]">
+                <p className="font-black tracking-widest text-xs">RAPIDO</p>
+                <p className="font-bold">Powered By: SF TECNOLOGIA</p>
+                <p className="text-slate-600 font-semibold">Acesse: https://cardapp-us.vercel.app</p>
+              </div>
+            </div>
+
+            {/* Ações (Não impressas) */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md active:scale-98"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Comanda Térmica</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const url = getOrderWhatsAppUrl(printOrder, settings);
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs"
+              >
+                <MessageCircle className="w-4 h-4 fill-white" />
+                <span>Enviar Comanda no WhatsApp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPrintOrder(null)}
+                className="w-full py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
               >
                 Fechar
               </button>

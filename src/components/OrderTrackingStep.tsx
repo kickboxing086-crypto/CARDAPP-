@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Order, OrderStatus, StoreSettings } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
+import { getOrderWhatsAppUrl } from '../utils/comandaFormatter';
 
 interface OrderTrackingStepProps {
   order: Order | null;
@@ -64,20 +65,7 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
   const tableLabel = order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'sua Mesa';
 
   const openWhatsApp = () => {
-    const cleanPhone = settings.phoneWhatsapp.replace(/\D/g, '');
-    const itemsText = order.items
-      .map((i) => {
-        let line = `• ${i.quantity}x ${i.product.name}`;
-        if (i.selectedComplements && i.selectedComplements.length > 0) {
-          line += ` (+ ${i.selectedComplements.map((c) => c.name).join(', ')})`;
-        }
-        return line;
-      })
-      .join('\n');
-    const msg = isTable
-      ? `Olá! Gostaria de acompanhar meu pedido ${order.displayId} realizado para a ${tableLabel} no restaurante.\n\nCliente: ${order.customer.name}\nTotal: ${formatCurrency(order.total)}\nItens:\n${itemsText}`
-      : `Olá! Gostaria de acompanhar meu pedido ${order.displayId} realizado no CARDAPP.\n\nCliente: ${order.customer.name}\nTotal: ${formatCurrency(order.total)}\nItens:\n${itemsText}`;
-    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+    const url = getOrderWhatsAppUrl(order, settings);
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 

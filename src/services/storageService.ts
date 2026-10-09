@@ -306,14 +306,26 @@ export const storageService = {
     >
   ): Order {
     const orders = this.getOrders();
-    const nextSeq = 1040 + orders.length + 1;
     const nowIso = new Date().toISOString();
     const dateKey = nowIso.split('T')[0];
+
+    // Gera número do pedido sempre com 5 dígitos (iniciando em 63126 como na comanda)
+    let fiveDigitNumber = 63126;
+    if (orders.length > 0) {
+      const highestNum = orders.reduce((max, o) => {
+        const clean = o.displayId.replace(/\D/g, '');
+        const val = parseInt(clean, 10);
+        return !isNaN(val) && val >= 10000 && val <= 99999 ? Math.max(max, val) : max;
+      }, 63125);
+      fiveDigitNumber = highestNum + 1;
+      if (fiveDigitNumber > 99999) fiveDigitNumber = 10001;
+    }
+    const displayId = String(fiveDigitNumber);
 
     const newOrder: Order = {
       ...orderData,
       id: 'ord-' + Date.now(),
-      displayId: `#CARD-${nextSeq}`,
+      displayId,
       createdAt: nowIso,
       dateKey,
       status: 'recebido',

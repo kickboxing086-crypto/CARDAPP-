@@ -34,6 +34,7 @@ import { LandingPage } from './components/LandingPage';
 import { LoginModal } from './components/LoginModal';
 import { SuperAdminModal } from './components/SuperAdminModal';
 import { testFirestoreConnection } from './firebase';
+import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
 
 export default function App() {
   // Navigation view: 'landing' (SaaS presentation & pricing R$ 24,99) vs 'menu' (Digital Menu)
@@ -306,6 +307,14 @@ export default function App() {
       total,
       customer: customerData,
     });
+
+    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja
+    try {
+      const whatsappUrl = getOrderWhatsAppUrl(newOrder, settings);
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      // fallback
+    }
 
     setCartItems([]);
     setActiveOrderId(newOrder.id);
