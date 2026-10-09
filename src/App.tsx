@@ -33,6 +33,7 @@ import { ForkKnifeIcon } from './components/ForkKnifeIcon';
 import { LandingPage } from './components/LandingPage';
 import { LoginModal } from './components/LoginModal';
 import { SuperAdminModal } from './components/SuperAdminModal';
+import { InstagramStoreProfile } from './components/InstagramStoreProfile';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
@@ -358,7 +359,26 @@ export default function App() {
 
   // Submit Order from Step 3
   const handleSubmitOrder = (customerData: OrderCustomer) => {
-    const deliveryFee = customerData.deliveryType === 'delivery' ? settings.deliveryFee : 0;
+    let deliveryFee = 0;
+    if (customerData.deliveryType === 'delivery') {
+      deliveryFee = settings.deliveryFee;
+      if (customerData.address?.neighborhood && settings.deliveryNeighborhoods?.length) {
+        const cleanB = customerData.address.neighborhood.trim().toLowerCase();
+        const cleanC = customerData.address.city.trim().toLowerCase();
+        const found =
+          settings.deliveryNeighborhoods.find(
+            (n) =>
+              n.neighborhood.toLowerCase().trim() === cleanB &&
+              (!cleanC || n.city.toLowerCase().trim() === cleanC)
+          ) ||
+          settings.deliveryNeighborhoods.find(
+            (n) => n.neighborhood.toLowerCase().trim() === cleanB
+          );
+        if (found) {
+          deliveryFee = found.fee;
+        }
+      }
+    }
     const total = cartSubtotal + deliveryFee;
 
     const newOrder = storageService.createOrder({
@@ -534,20 +554,8 @@ export default function App() {
             {/* ETAPA 1: CARDÁPIO (SELEÇÃO DE PRODUTOS) */}
             {currentStep === 1 && (
               <div>
-                {/* Greeting Header */}
-                <div className="bg-gradient-to-b from-amber-100/50 via-amber-50/20 to-transparent pt-6 pb-2 px-4 text-center">
-                  <div className="max-w-4xl mx-auto">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-amber-800 bg-amber-100/80 px-3 py-1 rounded-full border border-amber-300 inline-block mb-2">
-                      Cardápio Digital Oficial
-                    </span>
-                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight font-display">
-                      {settings.storeName}
-                    </h1>
-                    <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
-                      {settings.tagline}
-                    </p>
-                  </div>
-                </div>
+                {/* Perfil Oficial da Loja Centralizado e Elegante */}
+                <InstagramStoreProfile settings={settings} />
 
                 {/* Sticky Search and Category Filters */}
                 <section className="max-w-5xl mx-auto px-4 pt-4 pb-2">

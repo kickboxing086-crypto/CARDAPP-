@@ -24,6 +24,12 @@ export const INITIAL_SETTINGS: StoreSettings = {
     allowDebitCard: true,
     allowCash: true,
   },
+  deliveryNeighborhoods: [
+    { id: 'taxa-1', state: 'RN', city: 'Natal', neighborhood: 'Centro', fee: 5.00, estimatedTime: '25-35 min' },
+    { id: 'taxa-2', state: 'RN', city: 'Natal', neighborhood: 'Ponta Negra', fee: 8.00, estimatedTime: '35-45 min' },
+    { id: 'taxa-3', state: 'RN', city: 'Natal', neighborhood: 'Capim Macio', fee: 6.50, estimatedTime: '30-40 min' },
+    { id: 'taxa-4', state: 'RN', city: 'Natal', neighborhood: 'Lagoa Nova', fee: 6.00, estimatedTime: '30-40 min' },
+  ],
 };
 
 export const INITIAL_CATEGORIES: Category[] = [

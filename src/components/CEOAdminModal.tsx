@@ -32,6 +32,8 @@ import {
   Store,
   Instagram,
   Search,
+  MapPin,
+  Clock,
 } from 'lucide-react';
 import {
   Product,
@@ -41,6 +43,7 @@ import {
   ProductComplement,
   ProductPromotion,
   Category,
+  NeighborhoodDeliveryFee,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -88,7 +91,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'finance' | 'products' | 'settings' | 'share'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share'>('orders');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [orderFilter, setOrderFilter] = useState<'all' | OrderStatus>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -98,6 +101,20 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+
+  // Delivery Neighborhoods State (CEO manages state, city and neighborhoods)
+  const [deliveryState, setDeliveryState] = useState('RN');
+  const [deliveryCity, setDeliveryCity] = useState('Natal');
+  const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('');
+  const [deliveryFeeValue, setDeliveryFeeValue] = useState('');
+  const [deliveryEstimatedTime, setDeliveryEstimatedTime] = useState('30 - 45 min');
+  const [deliverySearchQuery, setDeliverySearchQuery] = useState('');
+  const [deliverySuccessMsg, setDeliverySuccessMsg] = useState('');
+  const neighborhoodInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Two-step deletion confirmation state for delivery neighborhood fee
+  const [neighborhoodToDelete, setNeighborhoodToDelete] = useState<NeighborhoodDeliveryFee | null>(null);
+  const [neighborhoodDeleteStep, setNeighborhoodDeleteStep] = useState<1 | 2>(1);
 
   // Two-step deletion modal state
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
@@ -413,6 +430,90 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // Salvar taxa de entrega de bairro (mantendo estado e cidade, limpando apenas o bairro)
+  const handleSaveDeliveryNeighborhood = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deliveryState.trim() || !deliveryCity.trim() || !deliveryNeighborhood.trim()) {
+      return;
+    }
+
+    const feeNum = parseFloat(deliveryFeeValue.replace(',', '.')) || 0;
+    const existingList = localSettings.deliveryNeighborhoods || [];
+    const normalizedBairro = deliveryNeighborhood.trim();
+    const normalizedCidade = deliveryCity.trim();
+    const normalizedEstado = deliveryState.trim().toUpperCase();
+
+    const existingIndex = existingList.findIndex(
+      (n) =>
+        n.neighborhood.toLowerCase().trim() === normalizedBairro.toLowerCase() &&
+        n.city.toLowerCase().trim() === normalizedCidade.toLowerCase()
+    );
+
+    let updatedList: NeighborhoodDeliveryFee[];
+    if (existingIndex >= 0) {
+      updatedList = existingList.map((item, idx) =>
+        idx === existingIndex
+          ? {
+              ...item,
+              state: normalizedEstado,
+              city: normalizedCidade,
+              neighborhood: normalizedBairro,
+              fee: feeNum,
+              estimatedTime: deliveryEstimatedTime.trim() || undefined,
+            }
+          : item
+      );
+    } else {
+      const newEntry: NeighborhoodDeliveryFee = {
+        id: `taxa-${Date.now()}`,
+        state: normalizedEstado,
+        city: normalizedCidade,
+        neighborhood: normalizedBairro,
+        fee: feeNum,
+        estimatedTime: deliveryEstimatedTime.trim() || undefined,
+      };
+      updatedList = [newEntry, ...existingList];
+    }
+
+    const newSettings: StoreSettings = {
+      ...localSettings,
+      deliveryNeighborhoods: updatedList,
+    };
+
+    setLocalSettings(newSettings);
+    onSaveSettings(newSettings);
+
+    // Conforme pedido expresso do CEO:
+    // "após ter colocado a cidade e o bairro, eles permanecem, o que muda é somente o bairro - após salvar."
+    // O estado e a cidade permanecem preenchidos, limpa apenas o bairro e dá foco imediato nele!
+    setDeliveryNeighborhood('');
+    setDeliverySuccessMsg(`Taxa para o bairro "${normalizedBairro}" cadastrada com sucesso!`);
+    setTimeout(() => setDeliverySuccessMsg(''), 3500);
+
+    setTimeout(() => {
+      neighborhoodInputRef.current?.focus();
+    }, 100);
+  };
+
+  // Exclusão de taxa de bairro com confirmação de duas etapas
+  const handleConfirmDeleteNeighborhood = () => {
+    if (!neighborhoodToDelete) return;
+
+    const updatedList = (localSettings.deliveryNeighborhoods || []).filter(
+      (n) => n.id !== neighborhoodToDelete.id
+    );
+
+    const newSettings: StoreSettings = {
+      ...localSettings,
+      deliveryNeighborhoods: updatedList,
+    };
+
+    setLocalSettings(newSettings);
+    onSaveSettings(newSettings);
+    setNeighborhoodToDelete(null);
+    setNeighborhoodDeleteStep(1);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-white animate-in fade-in duration-200">
       <div
@@ -549,6 +650,31 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             <button
               type="button"
               onClick={() => {
+                setActiveTab('delivery');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                activeTab === 'delivery'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Bike className="w-4 h-4 stroke-[2.4]" />
+                <span>4. Taxas de Entrega</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                  activeTab === 'delivery' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
+                }`}
+              >
+                {(localSettings.deliveryNeighborhoods || []).length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
                 setActiveTab('settings');
                 setIsMobileSidebarOpen(false);
               }}
@@ -560,7 +686,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Settings className="w-4 h-4 stroke-[2.4]" />
-                <span>4. Configurações da Loja</span>
+                <span>5. Configurações da Loja</span>
               </div>
               <span className={`w-2.5 h-2.5 rounded-full ${settings.isOpen ? 'bg-emerald-500' : 'bg-red-500'}`} />
             </button>
@@ -579,7 +705,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Share2 className="w-4 h-4 stroke-[2.4]" />
-                <span>5. Compartilhar Links</span>
+                <span>6. Compartilhar Links</span>
               </div>
               <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
                 Oficial
@@ -657,6 +783,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <span className="truncate">Gerenciar Produtos ({products.length})</span>
                   </>
                 )}
+                {activeTab === 'delivery' && (
+                  <>
+                    <Bike className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">
+                      Taxas de Entrega por Bairro ({(localSettings.deliveryNeighborhoods || []).length})
+                    </span>
+                  </>
+                )}
                 {activeTab === 'settings' && (
                   <>
                     <Settings className="w-4 h-4 text-amber-600 shrink-0" />
@@ -676,18 +810,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               <button
                 type="button"
                 onClick={onSwitchToClientView}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-slate-950 font-bold text-xs transition-colors shadow-xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                title="Visualizar Cardápio do Cliente"
               >
-                <span>Cardápio Cliente</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center transition-colors cursor-pointer"
-                title="Fechar painel"
-              >
-                <X className="w-4 h-4 stroke-[2.5]" />
+                <ForkKnifeIcon className="w-3.5 h-3.5 stroke-[2.2]" />
+                <span>Ver Cardápio</span>
               </button>
             </div>
           </div>
@@ -1648,7 +1775,264 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: CONFIGURAÇÕES DA LOJA (LOGO BASE64, INSTAGRAM, MODALIDADES E PAGAMENTOS) */}
+          {/* TAB 4: TAXAS DE ENTREGA POR ESTADO, CIDADE E BAIRRO */}
+          {activeTab === 'delivery' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              {/* Header card */}
+              <div className="bg-gradient-to-r from-amber-500 to-amber-400 rounded-3xl p-5 sm:p-6 text-slate-950 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-950 text-amber-300 text-[10px] font-black uppercase tracking-wider mb-2">
+                    <Bike className="w-3.5 h-3.5" />
+                    <span>Logística & Frete</span>
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black font-display tracking-tight text-slate-950">
+                    Taxas de Entrega por Bairro
+                  </h3>
+                  <p className="text-xs sm:text-sm font-medium text-amber-950/90 mt-1 max-w-xl">
+                    Cadastre a taxa cobrada para cada localidade. O <strong>Estado</strong> e a <strong>Cidade</strong> permanecem salvos no formulário após cada envio, permitindo que você adicione vários bairros da mesma cidade de forma rápida e prática!
+                  </p>
+                </div>
+                <div className="bg-white/90 backdrop-blur-xs px-4 py-3 rounded-2xl border border-amber-300 text-center shrink-0 self-stretch sm:self-auto">
+                  <span className="block text-[10px] uppercase font-bold text-slate-600">Bairros Cadastrados</span>
+                  <span className="text-2xl font-black text-slate-950 font-mono">
+                    {(localSettings.deliveryNeighborhoods || []).length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Feedback banner */}
+              {deliverySuccessMsg && (
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs sm:text-sm font-black flex items-center gap-2.5 shadow-sm animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>{deliverySuccessMsg}</span>
+                </div>
+              )}
+
+              {/* Formulário de Adicionar / Atualizar Taxa */}
+              <div className="bg-white rounded-3xl border border-amber-200 p-5 sm:p-6 shadow-xs">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-amber-600" />
+                      <span>Cadastrar Nova Taxa de Bairro</span>
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Preencha o Estado, Cidade e Bairro. Após salvar, o Estado e a Cidade permanecem para o próximo bairro!
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveDeliveryNeighborhood} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    {/* ESTADO */}
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Estado (UF) *
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={2}
+                        placeholder="Ex: RN, SP"
+                        value={deliveryState}
+                        onChange={(e) => setDeliveryState(e.target.value.toUpperCase())}
+                        required
+                        className="w-full text-xs sm:text-sm uppercase font-bold p-3 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none bg-slate-50/50"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">Permanece salvo</span>
+                    </div>
+
+                    {/* CIDADE */}
+                    <div className="sm:col-span-4">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Cidade *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Natal, São Paulo"
+                        value={deliveryCity}
+                        onChange={(e) => setDeliveryCity(e.target.value)}
+                        required
+                        className="w-full text-xs sm:text-sm font-bold p-3 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none bg-slate-50/50"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">Permanece salvo</span>
+                    </div>
+
+                    {/* BAIRRO - Limpa após salvar */}
+                    <div className="sm:col-span-5">
+                      <label className="block text-[11px] font-black text-amber-900 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>Bairro *</span>
+                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.2 rounded">
+                          Muda a cada cadastro
+                        </span>
+                      </label>
+                      <input
+                        ref={neighborhoodInputRef}
+                        type="text"
+                        placeholder="Ex: Centro, Ponta Negra..."
+                        value={deliveryNeighborhood}
+                        onChange={(e) => setDeliveryNeighborhood(e.target.value)}
+                        required
+                        className="w-full text-xs sm:text-sm font-bold p-3 rounded-xl border-2 border-amber-400 focus:border-amber-600 focus:ring-2 focus:ring-amber-200 outline-none bg-amber-50/20"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Limpa após salvar para digitar o próximo</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* VALOR DA TAXA */}
+                    <div>
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Valor da Taxa (R$) * (0 para Grátis)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                          R$
+                        </span>
+                        <input
+                          type="number"
+                          step="0.50"
+                          min="0"
+                          placeholder="Ex: 6.50"
+                          value={deliveryFeeValue}
+                          onChange={(e) => setDeliveryFeeValue(e.target.value)}
+                          required
+                          className="w-full text-xs sm:text-sm pl-10 pr-3 py-3 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {/* TEMPO ESTIMADO */}
+                    <div>
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Tempo Estimado de Entrega (Opcional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 30 - 45 min"
+                        value={deliveryEstimatedTime}
+                        onChange={(e) => setDeliveryEstimatedTime(e.target.value)}
+                        className="w-full text-xs sm:text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* BOTÃO SALVAR */}
+                  <div className="pt-2 flex items-center justify-end">
+                    <button
+                      type="submit"
+                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Salvar Taxa de Entrega</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Lista de Bairros Cadastrados */}
+              <div className="bg-white rounded-3xl border border-amber-200 p-5 sm:p-6 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-amber-600" />
+                      <span>Bairros Cadastrados ({ (localSettings.deliveryNeighborhoods || []).length })</span>
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Taxas ativas aplicadas automaticamente no checkout do cliente
+                    </p>
+                  </div>
+
+                  {/* Busca */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por bairro ou cidade..."
+                      value={deliverySearchQuery}
+                      onChange={(e) => setDeliverySearchQuery(e.target.value)}
+                      className="w-full text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Grid de Cards dos Bairros */}
+                {(() => {
+                  const list = (localSettings.deliveryNeighborhoods || []).filter((item) => {
+                    if (!deliverySearchQuery.trim()) return true;
+                    const q = deliverySearchQuery.toLowerCase();
+                    return (
+                      item.neighborhood.toLowerCase().includes(q) ||
+                      item.city.toLowerCase().includes(q) ||
+                      item.state.toLowerCase().includes(q)
+                    );
+                  });
+
+                  if (list.length === 0) {
+                    return (
+                      <div className="text-center py-10 border border-dashed border-slate-200 rounded-2xl p-4">
+                        <Bike className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-xs font-bold text-slate-600">Nenhum bairro cadastrado com esse filtro.</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Cadastre bairros no formulário acima para automatizar o frete.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {list.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-4 rounded-2xl bg-amber-50/40 border border-amber-200/90 hover:border-amber-400 transition-all flex flex-col justify-between gap-3 shadow-2xs group"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 font-mono">
+                                {item.state} • {item.city}
+                              </span>
+                              <span className="text-sm font-black font-mono text-slate-950">
+                                {item.fee > 0 ? formatCurrency(item.fee) : 'Grátis'}
+                              </span>
+                            </div>
+
+                            <h5 className="text-sm font-black text-slate-900 group-hover:text-amber-900 transition-colors">
+                              {item.neighborhood}
+                            </h5>
+
+                            {item.estimatedTime && (
+                              <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>{item.estimatedTime}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="pt-2 border-t border-amber-200/60 flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500 font-medium">Taxa calculada</span>
+
+                            {/* Botão de Excluir com Confirmação em Duas Etapas */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNeighborhoodToDelete(item);
+                                setNeighborhoodDeleteStep(1);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-400 hover:text-red-700 hover:bg-red-50 text-xs font-bold transition-colors cursor-pointer"
+                              title="Excluir taxa com confirmação em duas etapas"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Excluir</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: CONFIGURAÇÕES DA LOJA (LOGO BASE64, INSTAGRAM, MODALIDADES E PAGAMENTOS) */}
           {activeTab === 'settings' && (
             <div className="max-w-2xl bg-white rounded-3xl border border-amber-200 p-6 shadow-xs">
               <h3 className="text-lg font-black text-slate-900 mb-1">Configurações Gerais & Identidade</h3>
@@ -2218,7 +2602,86 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
         </div>
       )}
 
-      {/* PRINT RECEIPT MODAL */}
+      {/* TWO-STEP CONFIRMATION MODAL TO DELETE NEIGHBORHOOD DELIVERY FEE */}
+      {neighborhoodToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border-2 border-amber-300 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600 stroke-[2.4]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mb-0.5">
+                  {neighborhoodDeleteStep === 1
+                    ? 'Confirmação de Exclusão (1/2)'
+                    : 'Confirmação Definitiva (2/2)'}
+                </span>
+                <h3 className="text-base font-black text-slate-950">
+                  {neighborhoodDeleteStep === 1
+                    ? 'Excluir Taxa de Bairro?'
+                    : 'Confirmar Remoção Permanente'}
+                </h3>
+              </div>
+            </div>
+
+            {neighborhoodDeleteStep === 1 ? (
+              <>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Você deseja remover a taxa de entrega configurada para o bairro{' '}
+                  <strong className="text-slate-950">"{neighborhoodToDelete.neighborhood}"</strong> em{' '}
+                  <strong className="text-slate-950">{neighborhoodToDelete.city} - {neighborhoodToDelete.state}</strong>{' '}
+                  (Valor atual: {neighborhoodToDelete.fee > 0 ? formatCurrency(neighborhoodToDelete.fee) : 'Grátis'})?
+                </p>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNeighborhoodToDelete(null);
+                      setNeighborhoodDeleteStep(1);
+                    }}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNeighborhoodDeleteStep(2)}
+                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-xs cursor-pointer"
+                  >
+                    Prosseguir para Confirmação Final →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 bg-red-50 rounded-xl border border-red-200 text-xs text-red-800 font-medium">
+                  Atenção: Ao confirmar, pedidos enviados para <strong>"{neighborhoodToDelete.neighborhood}"</strong> voltarão a usar a taxa padrão da loja.
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNeighborhoodToDelete(null);
+                      setNeighborhoodDeleteStep(1);
+                    }}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Voltar / Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteNeighborhood}
+                    className="px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-black shadow-md cursor-pointer active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sim, Excluir Taxa!</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {printOrder && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-4 sm:p-5 shadow-2xl space-y-4 my-auto border border-amber-300">

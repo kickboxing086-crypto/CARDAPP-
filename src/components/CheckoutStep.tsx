@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -76,7 +76,33 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const subtotal = items.reduce((acc, item) => acc + item.totalPrice, 0);
-  const deliveryFee = deliveryType === 'delivery' ? settings.deliveryFee : 0;
+
+  // Match neighborhood delivery fee from store settings
+  const matchedNeighborhood = useMemo(() => {
+    if (deliveryType !== 'delivery' || !neighborhood.trim() || !settings.deliveryNeighborhoods?.length) {
+      return null;
+    }
+    const cleanB = neighborhood.trim().toLowerCase();
+    const cleanC = city.trim().toLowerCase();
+    return (
+      settings.deliveryNeighborhoods.find(
+        (n) =>
+          n.neighborhood.toLowerCase().trim() === cleanB &&
+          (!cleanC || n.city.toLowerCase().trim() === cleanC)
+      ) ||
+      settings.deliveryNeighborhoods.find(
+        (n) => n.neighborhood.toLowerCase().trim() === cleanB
+      ) ||
+      null
+    );
+  }, [deliveryType, neighborhood, city, settings.deliveryNeighborhoods]);
+
+  const deliveryFee = useMemo(() => {
+    if (deliveryType !== 'delivery') return 0;
+    if (matchedNeighborhood) return matchedNeighborhood.fee;
+    return settings.deliveryFee;
+  }, [deliveryType, matchedNeighborhood, settings.deliveryFee]);
+
   const total = subtotal + deliveryFee;
 
   // Auto calculate change
@@ -357,8 +383,9 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
                 <Bike className={`w-6 h-6 mb-2 ${deliveryType === 'delivery' ? 'text-amber-600' : 'text-slate-500'}`} />
                 <div>
                   <span className="block font-bold text-sm text-slate-900">Entrega (Delivery)</span>
-                  <span className="text-xs text-slate-500">
-                    Taxa: {formatCurrency(settings.deliveryFee)}
+                  <span className="text-xs text-slate-500 font-medium">
+                    Taxa: {deliveryFee > 0 ? formatCurrency(deliveryFee) : 'Grátis'}
+                    {matchedNeighborhood && ` (${matchedNeighborhood.neighborhood})`}
                   </span>
                 </div>
               </button>
@@ -533,8 +560,36 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
                     value={neighborhood}
                     onChange={(e) => setNeighborhood(e.target.value)}
                     placeholder="Ex: Consolação (preenche automático com o CEP)"
-                    className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
+                    className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white font-medium"
                   />
+                  {matchedNeighborhood ? (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 animate-in fade-in">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>
+                        Taxa calculada para {matchedNeighborhood.neighborhood}:{' '}
+                        <strong>{matchedNeighborhood.fee > 0 ? formatCurrency(matchedNeighborhood.fee) : 'Grátis'}</strong>
+                        {matchedNeighborhood.estimatedTime && ` • ${matchedNeighborhood.estimatedTime}`}
+                      </span>
+                    </div>
+                  ) : settings.deliveryNeighborhoods && settings.deliveryNeighborhoods.length > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="text-[10px] text-slate-500 font-bold">Bairros cadastrados:</span>
+                      {settings.deliveryNeighborhoods.slice(0, 6).map((n) => (
+                        <button
+                          key={n.id}
+                          type="button"
+                          onClick={() => {
+                            setNeighborhood(n.neighborhood);
+                            if (n.city) setCity(n.city);
+                            if (n.state) setStateUf(n.state);
+                          }}
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 transition-colors cursor-pointer"
+                        >
+                          {n.neighborhood} ({n.fee > 0 ? formatCurrency(n.fee) : 'Grátis'})
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

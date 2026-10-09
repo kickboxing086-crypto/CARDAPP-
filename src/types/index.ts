@@ -100,6 +100,15 @@ export interface StorePaymentMethods {
   allowCash: boolean;
 }
 
+export interface NeighborhoodDeliveryFee {
+  id: string;
+  state: string;        // e.g. "RN" ou "SP"
+  city: string;         // e.g. "Natal"
+  neighborhood: string; // e.g. "Centro"
+  fee: number;          // e.g. 5.00
+  estimatedTime?: string; // e.g. "30-45 min"
+}
+
 export interface StoreSettings {
   storeName: string;
   tagline: string;
@@ -115,6 +124,7 @@ export interface StoreSettings {
   serviceModes: StoreServiceModes;
   paymentMethods: StorePaymentMethods;
   minOrderValue: number;
+  deliveryNeighborhoods?: NeighborhoodDeliveryFee[];
 }
 
 // User accounts and multi-tenant authentication

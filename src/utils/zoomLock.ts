@@ -1,15 +1,14 @@
 /**
- * Bloqueia e fixa o zoom do aplicativo em 80% (0.8),
- * impedindo que o usuário aumente ou diminua a tela através de gestos,
- * atalhos de teclado (Ctrl/Cmd +/-, Ctrl 0) ou rolagem do mouse (Ctrl + Wheel).
+ * Mantém o zoom do aplicativo proporcional (100% / 1.0),
+ * evitando distorções desproporcionais e garantindo layout perfeito e nítido.
  */
 export function setupZoomLock(): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
-  // Aplica zoom de 80% diretamente na raiz do documento
+  // Garante escala 100% proporcional e natural, sem zoom artificial que quebre proporções
   try {
-    document.documentElement.style.setProperty('zoom', '0.8');
-    (document.documentElement.style as unknown as { zoom: string }).zoom = '0.8';
+    document.documentElement.style.removeProperty('zoom');
+    (document.documentElement.style as unknown as { zoom: string }).zoom = '1';
   } catch {
     // fallback
   }
