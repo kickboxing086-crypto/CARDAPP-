@@ -656,7 +656,23 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                         : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                                     }`}
                                   >
-                                    ● {order.status === 'recebido'
+                                    ● {order.customer.deliveryType === 'mesa'
+                                      ? order.status === 'recebido'
+                                        ? 'Na Cozinha'
+                                        : order.status === 'em_producao'
+                                        ? 'Em Preparo'
+                                        : order.status === 'em_rota'
+                                        ? `Saindo p/ Mesa ${order.customer.tableNumber || ''}`
+                                        : 'Servido na Mesa'
+                                      : order.customer.deliveryType === 'retirada'
+                                      ? order.status === 'recebido'
+                                        ? 'Recebido'
+                                        : order.status === 'em_producao'
+                                        ? 'Em Produção'
+                                        : order.status === 'em_rota'
+                                        ? 'Pronto no Balcão'
+                                        : 'Retirado'
+                                      : order.status === 'recebido'
                                       ? 'Recebido'
                                       : order.status === 'em_producao'
                                       ? 'Em Produção'
@@ -786,7 +802,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                         : 'bg-slate-100 text-slate-600 hover:bg-amber-100'
                                     }`}
                                   >
-                                    1. Recebido
+                                    {order.customer.deliveryType === 'mesa' ? '1. Na Cozinha' : '1. Recebido'}
                                   </button>
 
                                   <button
@@ -798,7 +814,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                         : 'bg-slate-100 text-slate-600 hover:bg-blue-100'
                                     }`}
                                   >
-                                    2. Em Produção
+                                    {order.customer.deliveryType === 'mesa' ? '2. Em Preparo' : '2. Em Produção'}
                                   </button>
 
                                   <button
@@ -810,7 +826,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                         : 'bg-slate-100 text-slate-600 hover:bg-purple-100'
                                     }`}
                                   >
-                                    3. Em Rota
+                                    {order.customer.deliveryType === 'mesa'
+                                      ? '3. Saindo p/ Mesa'
+                                      : order.customer.deliveryType === 'retirada'
+                                      ? '3. Pronto no Balcão'
+                                      : '3. Em Rota'}
                                   </button>
 
                                   <button
@@ -822,7 +842,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                         : 'bg-slate-100 text-slate-600 hover:bg-emerald-100'
                                     }`}
                                   >
-                                    4. Finalizado
+                                    {order.customer.deliveryType === 'mesa'
+                                      ? '4. Servido na Mesa'
+                                      : order.customer.deliveryType === 'retirada'
+                                      ? '4. Retirado'
+                                      : '4. Finalizado'}
                                   </button>
                                 </div>
                               </div>

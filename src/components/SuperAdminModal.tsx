@@ -17,6 +17,8 @@ import {
   MessageCircle,
   Eye,
   EyeOff,
+  ExternalLink,
+  Share2,
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { accountService } from '../services/accountService';
@@ -52,6 +54,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [lastCreatedAccount, setLastCreatedAccount] = useState<UserAccount | null>(null);
   const [copiedAccessInfo, setCopiedAccessInfo] = useState(false);
   const [showLastPassword, setShowLastPassword] = useState(false);
+  const [copiedLandingLink, setCopiedLandingLink] = useState(false);
 
   // Database tools
   const [importJsonText, setImportJsonText] = useState('');
@@ -297,7 +300,42 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50 space-y-4">
+          {/* Quick Links for Admin */}
+          <div className="max-w-xl mx-auto bg-white p-3.5 rounded-2xl border border-amber-300 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="font-black text-slate-900">Link da Landing Page:</span>
+              <span className="text-[11px] text-slate-500 font-mono truncate max-w-[200px] hidden sm:inline">
+                {window.location.origin}/?view=landing
+              </span>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/?view=landing`);
+                  setCopiedLandingLink(true);
+                  setTimeout(() => setCopiedLandingLink(false), 2000);
+                }}
+                className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="Copiar Link da Landing Page"
+              >
+                {copiedLandingLink ? <Check className="w-3.5 h-3.5 text-emerald-800" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedLandingLink ? 'Link Copiado!' : 'Copiar Link'}</span>
+              </button>
+              <a
+                href={`${window.location.origin}/?view=landing`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                title="Abrir Landing Page em nova aba"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
           {/* TAB 1: GERADOR DE CONTAS */}
           {activeTab === 'generator' && (
             <div className="max-w-xl mx-auto space-y-4">

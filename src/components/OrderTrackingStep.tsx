@@ -12,6 +12,7 @@ import {
   Calendar,
   Banknote,
   Tag,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { Order, OrderStatus, StoreSettings } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
@@ -58,6 +59,10 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
     setTimeout(() => setCopiedId(false), 2000);
   };
 
+  const isTable = order.customer.deliveryType === 'mesa';
+  const isPickup = order.customer.deliveryType === 'retirada';
+  const tableLabel = order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'sua Mesa';
+
   const openWhatsApp = () => {
     const cleanPhone = settings.phoneWhatsapp.replace(/\D/g, '');
     const itemsText = order.items
@@ -69,7 +74,9 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
         return line;
       })
       .join('\n');
-    const msg = `Olá! Gostaria de acompanhar meu pedido ${order.displayId} realizado no CARDAPP.\n\nCliente: ${order.customer.name}\nTotal: ${formatCurrency(order.total)}\nItens:\n${itemsText}`;
+    const msg = isTable
+      ? `Olá! Gostaria de acompanhar meu pedido ${order.displayId} realizado para a ${tableLabel} no restaurante.\n\nCliente: ${order.customer.name}\nTotal: ${formatCurrency(order.total)}\nItens:\n${itemsText}`
+      : `Olá! Gostaria de acompanhar meu pedido ${order.displayId} realizado no CARDAPP.\n\nCliente: ${order.customer.name}\nTotal: ${formatCurrency(order.total)}\nItens:\n${itemsText}`;
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -79,34 +86,86 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
     title: string;
     description: string;
     icon: React.ElementType;
-  }[] = [
-    {
-      key: 'recebido',
-      title: '1. Recebido',
-      description: 'Pedido confirmado e enviado para o terminal da cozinha',
-      icon: CheckCircle2,
-    },
-    {
-      key: 'em_producao',
-      title: '2. Em Produção',
-      description: 'Ingredientes frescos selecionados e preparo em andamento',
-      icon: ChefHat,
-    },
-    {
-      key: 'em_rota',
-      title: order.customer.deliveryType === 'delivery' ? '3. Em Rota' : '3. Pronto para Retirada',
-      description: order.customer.deliveryType === 'delivery'
-        ? 'Entregador em deslocamento com seu pacote aquecido'
-        : 'Pedido embalado e pronto para você retirar no balcão',
-      icon: Bike,
-    },
-    {
-      key: 'finalizado',
-      title: '4. Finalizado',
-      description: 'Pedido entregue com sucesso! Bom apetite!',
-      icon: PackageCheck,
-    },
-  ];
+  }[] = isTable
+    ? [
+        {
+          key: 'recebido',
+          title: '1. Na Cozinha',
+          description: `Pedido anotado para a ${tableLabel} e enviado diretamente para a cozinha`,
+          icon: CheckCircle2,
+        },
+        {
+          key: 'em_producao',
+          title: '2. Em Preparo',
+          description: 'Ingredientes frescos selecionados e preparo em andamento pelo chef',
+          icon: ChefHat,
+        },
+        {
+          key: 'em_rota',
+          title: '3. Saindo para sua Mesa!',
+          description: 'Prato pronto! O atendente/garçom já está levando o pedido até a sua mesa.',
+          icon: UtensilsCrossed,
+        },
+        {
+          key: 'finalizado',
+          title: '4. Servido na Mesa',
+          description: 'Pedido servido na sua mesa com sucesso! Tenha um excelente apetite!',
+          icon: PackageCheck,
+        },
+      ]
+    : isPickup
+    ? [
+        {
+          key: 'recebido',
+          title: '1. Recebido',
+          description: 'Pedido confirmado e enviado para o terminal da cozinha',
+          icon: CheckCircle2,
+        },
+        {
+          key: 'em_producao',
+          title: '2. Em Produção',
+          description: 'Ingredientes frescos selecionados e preparo em andamento',
+          icon: ChefHat,
+        },
+        {
+          key: 'em_rota',
+          title: '3. Pronto para Retirada',
+          description: 'Pedido embalado e pronto para você retirar no balcão',
+          icon: PackageCheck,
+        },
+        {
+          key: 'finalizado',
+          title: '4. Retirado no Balcão',
+          description: 'Pedido entregue com sucesso! Bom apetite!',
+          icon: CheckCircle2,
+        },
+      ]
+    : [
+        {
+          key: 'recebido',
+          title: '1. Recebido',
+          description: 'Pedido confirmado e enviado para o terminal da cozinha',
+          icon: CheckCircle2,
+        },
+        {
+          key: 'em_producao',
+          title: '2. Em Produção',
+          description: 'Ingredientes frescos selecionados e preparo em andamento',
+          icon: ChefHat,
+        },
+        {
+          key: 'em_rota',
+          title: '3. Em Rota de Entrega',
+          description: 'Entregador em deslocamento com seu pacote aquecido até seu endereço',
+          icon: Bike,
+        },
+        {
+          key: 'finalizado',
+          title: '4. Entregue',
+          description: 'Pedido entregue com sucesso! Bom apetite!',
+          icon: PackageCheck,
+        },
+      ];
 
   const getStatusIndex = (st: OrderStatus): number => {
     switch (st) {
@@ -127,13 +186,44 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 animate-in fade-in duration-200">
+      {/* Table Special Live Notification Banner */}
+      {isTable && order.status === 'em_rota' && (
+        <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-amber-400 text-slate-950 border-2 border-amber-500 shadow-lg flex items-center gap-3.5 sm:gap-4 animate-in slide-in-from-top-2">
+          <div className="w-12 h-12 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+            <UtensilsCrossed className="w-6 h-6 stroke-[2.4]" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black tracking-wider uppercase px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 inline-block mb-1">
+              Prato Pronto • Saindo Agora!
+            </span>
+            <h3 className="font-black text-sm sm:text-base leading-tight">
+              O seu pedido já está saindo para ser entregue na sua mesa!
+            </h3>
+            <p className="text-xs font-semibold text-slate-900 mt-0.5">
+              Nossa equipe já está a caminho com o seu pedido para a <strong>{tableLabel}</strong>. Fique à vontade!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isTable && order.status === 'em_producao' && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-300 text-slate-900 flex items-center gap-3 text-xs sm:text-sm">
+          <ChefHat className="w-5 h-5 text-amber-700 shrink-0" />
+          <span>
+            <strong>Atendimento na {tableLabel}:</strong> Seus pratos estão sendo preparados fresquinhos na cozinha!
+          </span>
+        </div>
+      )}
+
       {/* Header Card */}
       <div className="bg-white rounded-3xl border border-amber-200 p-6 sm:p-8 shadow-sm mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-amber-100">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">
-                Etapa 04 de 04 • Rastreamento ao Vivo
+                {isTable
+                  ? `Etapa 04 de 04 • Atendimento na ${tableLabel}`
+                  : 'Etapa 04 de 04 • Rastreamento ao Vivo'}
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-3">
@@ -168,11 +258,13 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           </div>
         </div>
 
-        {/* Live Status Analysis Stepper (as requested: recebido, em produção, em rota, finalizado) */}
+        {/* Live Status Analysis Stepper */}
         <div className="pt-6">
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs font-black uppercase tracking-wider text-slate-900">
-              Status da Análise do Pedido:
+              {isTable
+                ? `Status do Pedido na ${tableLabel}:`
+                : 'Status da Análise do Pedido:'}
             </span>
             <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-400 text-slate-950 animate-pulse">
               ● Atualizado em tempo real
@@ -290,7 +382,13 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
             <span className="font-mono tabular-nums">{formatCurrency(order.subtotal)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Taxa de Entrega ({order.customer.deliveryType})</span>
+            <span>
+              {isTable
+                ? 'Taxa de Serviço no Salão'
+                : isPickup
+                ? 'Taxa de Retirada no Balcão'
+                : 'Taxa de Entrega (Delivery)'}
+            </span>
             <span className="font-mono tabular-nums">
               {order.deliveryFee > 0 ? formatCurrency(order.deliveryFee) : 'Grátis'}
             </span>

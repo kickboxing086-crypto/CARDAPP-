@@ -14,6 +14,9 @@ import {
   Store,
   ChevronDown,
   ChevronUp,
+  Share2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
@@ -37,6 +40,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   // FAQ state
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyLandingLink = () => {
+    const origin = window.location.origin;
+    const link = `${origin}/?view=landing`;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(link);
+    }
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
 
   const faqs = [
     {
@@ -99,7 +113,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={handleCopyLandingLink}
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-amber-50 border border-slate-200 transition-all cursor-pointer"
+              title="Copiar Link da Página"
+            >
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" /> : <Share2 className="w-3.5 h-3.5 text-amber-600" />}
+              <span className="text-[11px]">{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
+            </button>
+
             <button
               type="button"
               onClick={onOpenDemoMenu}
@@ -171,6 +195,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               <ForkKnifeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 stroke-[2.2]" />
               <span>Ver Cardápio de Demonstração</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyLandingLink}
+              className="w-full sm:w-auto px-5 py-3.5 sm:py-4 rounded-2xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-slate-900 font-black text-sm sm:text-base transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+              title="Copiar Link da Página para Divulgação"
+            >
+              {copiedLink ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                  <span className="text-emerald-700">Link Copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 text-amber-700" />
+                  <span>Copiar Link</span>
+                </>
+              )}
             </button>
           </div>
 
