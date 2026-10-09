@@ -20,7 +20,17 @@ export function getCeoAppUrl(): string {
   return `${OFFICIAL_APP_URL}/?view=ceo`;
 }
 
-export function getCurrentEnvUrl(view: 'cliente' | 'ceo'): string {
+export function getLoginAppUrl(): string {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    if (origin.includes('vercel.app') || origin.includes('localhost') || origin.includes('run.app')) {
+      return `${origin}/?view=login`;
+    }
+  }
+  return `${OFFICIAL_APP_URL}/?view=login`;
+}
+
+export function getCurrentEnvUrl(view: 'cliente' | 'ceo' | 'login'): string {
   if (typeof window !== 'undefined') {
     return `${window.location.origin}/?view=${view}`;
   }

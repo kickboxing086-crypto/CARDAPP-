@@ -55,6 +55,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [copiedAccessInfo, setCopiedAccessInfo] = useState(false);
   const [showLastPassword, setShowLastPassword] = useState(false);
   const [copiedLandingLink, setCopiedLandingLink] = useState(false);
+  const [copiedLoginLink, setCopiedLoginLink] = useState(false);
+  const [copiedStoreMessageId, setCopiedStoreMessageId] = useState<string | null>(null);
 
   // Database tools
   const [importJsonText, setImportJsonText] = useState('');
@@ -146,11 +148,57 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }
   };
 
+  const OFFICIAL_VERCEL_URL = 'https://cardapp-us.vercel.app';
+  const LOGIN_URL = `${OFFICIAL_VERCEL_URL}/?view=login`;
+  const CLIENT_URL = `${OFFICIAL_VERCEL_URL}/?view=cliente`;
+
+  const getStoreAccessMessage = (account: UserAccount) => {
+    return (
+      `Olá, ${account.name || 'Lojista'}! 🎉\n` +
+      `Seja muito bem-vindo ao *CARDAPP* da *SF TECNOLOGIA*!\n\n` +
+      `Sua loja e seu acesso foram ativados com sucesso:\n` +
+      `🏪 *Loja:* ${account.storeName}\n` +
+      `👤 *Usuário de Acesso:* ${account.username}\n` +
+      `🔑 *Senha de Acesso:* ${account.passwordHash}\n\n` +
+      `🌐 *Link de Login do Painel (Vercel):*\n${LOGIN_URL}\n\n` +
+      `📱 *Link do seu Cardápio Digital (para enviar aos seus clientes):*\n${CLIENT_URL}\n\n` +
+      `💰 *Plano Mensal:* R$ 24,99/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
+      `Basta acessar o link de login acima com seu usuário e senha para cadastrar pratos, gerenciar pedidos em tempo real e personalizar seu cardápio!\n\n` +
+      `Powered by: *SF TECNOLOGIA*\n` +
+      `Acesse: ${OFFICIAL_VERCEL_URL}`
+    );
+  };
+
   const handleCopyAccessMessage = (account: UserAccount) => {
-    const message = `Parabéns! Sua loja no CARDAPP foi ativada com sucesso:\n\nLoja: ${account.storeName}\nUsuário: ${account.username}\nSenha: ${account.passwordHash}\nPlano Mensal: R$ 24,99/mês\nAcesso em: https://cardapp-us.vercel.app/\n\nDesenvolvido por SF TECNOLOGIA`;
+    const message = getStoreAccessMessage(account);
     navigator.clipboard.writeText(message);
     setCopiedAccessInfo(true);
-    setTimeout(() => setCopiedAccessInfo(false), 2500);
+    setCopiedStoreMessageId(account.id);
+    setTimeout(() => {
+      setCopiedAccessInfo(false);
+      setCopiedStoreMessageId(null);
+    }, 2500);
+  };
+
+  const handleCopyLoginLinkOnly = () => {
+    navigator.clipboard.writeText(LOGIN_URL);
+    setCopiedLoginLink(true);
+    setTimeout(() => setCopiedLoginLink(false), 2000);
+  };
+
+  const handleSendWhatsappAccess = (account: UserAccount) => {
+    const text = getStoreAccessMessage(account);
+    const cleanPhone = (account.phoneWhatsapp || '').replace(/\D/g, '');
+    const phoneParam =
+      cleanPhone.length >= 8
+        ? cleanPhone.startsWith('55')
+          ? cleanPhone
+          : `55${cleanPhone}`
+        : '';
+    const url = phoneParam
+      ? `https://wa.me/${phoneParam}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleExportDatabase = () => {
@@ -301,38 +349,71 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
         {/* Main Content Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50 space-y-4">
-          {/* Quick Links for Admin */}
-          <div className="max-w-xl mx-auto bg-white p-3.5 rounded-2xl border border-amber-300 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-              <span className="font-black text-slate-900">Link da Landing Page:</span>
-              <span className="text-[11px] text-slate-500 font-mono truncate max-w-[200px] hidden sm:inline">
-                {window.location.origin}/?view=landing
-              </span>
+          {/* Quick Links for Admin & Login / Client URLs */}
+          <div className="max-w-xl mx-auto bg-white p-3.5 rounded-2xl border border-amber-300 shadow-2xs space-y-2.5 text-xs">
+            {/* Link de Login no Vercel (Principal para os lojistas) */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2 rounded-xl bg-amber-50/80 border border-amber-200">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                <span className="font-black text-slate-950">Link de Login Oficial (Vercel):</span>
+                <span className="text-[11px] text-slate-600 font-mono truncate max-w-[190px] hidden sm:inline">
+                  {LOGIN_URL}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={handleCopyLoginLinkOnly}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Copiar Link de Login para enviar aos lojistas"
+                >
+                  {copiedLoginLink ? <Check className="w-3.5 h-3.5 text-emerald-800" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLoginLink ? 'Copiado!' : 'Copiar Login'}</span>
+                </button>
+                <a
+                  href={LOGIN_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1.5 rounded-lg border border-amber-200 text-slate-700 hover:bg-amber-100 transition-colors"
+                  title="Abrir tela de login em nova aba"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/?view=landing`);
-                  setCopiedLandingLink(true);
-                  setTimeout(() => setCopiedLandingLink(false), 2000);
-                }}
-                className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                title="Copiar Link da Landing Page"
-              >
-                {copiedLandingLink ? <Check className="w-3.5 h-3.5 text-emerald-800" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedLandingLink ? 'Link Copiado!' : 'Copiar Link'}</span>
-              </button>
-              <a
-                href={`${window.location.origin}/?view=landing`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
-                title="Abrir Landing Page em nova aba"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+
+            {/* Links Rápidos: Cardápio do Cliente e Landing Page */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 px-1 text-[11px] text-slate-600 font-bold">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400">Cardápio Clientes:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(CLIENT_URL);
+                    alert('Link do cardápio copiado!');
+                  }}
+                  className="text-amber-700 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>Copiar Link do Cliente</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400">Landing Page:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${OFFICIAL_VERCEL_URL}/?view=landing`);
+                    setCopiedLandingLink(true);
+                    setTimeout(() => setCopiedLandingLink(false), 2000);
+                  }}
+                  className="text-slate-800 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  {copiedLandingLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedLandingLink ? 'Copiado!' : 'Copiar Landing'}</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -467,41 +548,114 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 </form>
               </div>
 
-              {/* Informações geradas */}
+              {/* Informações geradas com Mensagem para WhatsApp e Link de Acesso Vercel */}
               {lastCreatedAccount && (
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-300 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase text-emerald-900 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Conta Criada com Sucesso
-                    </span>
+                <div className="p-4 sm:p-5 bg-gradient-to-b from-emerald-50 to-emerald-100/50 rounded-3xl border-2 border-emerald-400 shadow-md space-y-4 animate-in fade-in duration-300">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black shrink-0">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-emerald-950 uppercase">
+                          Conta de Loja Ativada com Sucesso!
+                        </h4>
+                        <p className="text-[11px] text-emerald-800">
+                          {lastCreatedAccount.storeName} ({lastCreatedAccount.name})
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Botão de Enviar no WhatsApp direto */}
                     <button
                       type="button"
-                      onClick={() => handleCopyAccessMessage(lastCreatedAccount)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                      onClick={() => handleSendWhatsappAccess(lastCreatedAccount)}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition-all shadow-sm cursor-pointer"
                     >
-                      {copiedAccessInfo ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedAccessInfo ? 'Copiado!' : 'Copiar Acesso'}</span>
+                      <MessageCircle className="w-4 h-4 fill-white" />
+                      <span>Mandar no WhatsApp do Cliente</span>
                     </button>
                   </div>
 
-                  <div className="p-3 bg-slate-900 rounded-xl text-white font-mono text-xs space-y-1">
-                    <p className="text-amber-400 font-bold">Loja: {lastCreatedAccount.storeName}</p>
-                    <p>Usuário: <strong className="text-white">{lastCreatedAccount.username}</strong></p>
-                    <p className="flex items-center gap-2">
-                      Senha: 
-                      <strong className="text-white">
+                  {/* Resumo de Credenciais */}
+                  <div className="p-3.5 bg-slate-900 rounded-2xl text-white font-mono text-xs space-y-1.5 shadow-inner">
+                    <div className="flex items-center justify-between">
+                      <p className="text-amber-400 font-bold">🏪 Loja: {lastCreatedAccount.storeName}</p>
+                      <span className="text-[10px] text-emerald-400 font-sans font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700">
+                        R$ 24,99/mês
+                      </span>
+                    </div>
+                    <p className="text-slate-300">👤 Usuário: <strong className="text-white font-bold">{lastCreatedAccount.username}</strong></p>
+                    <p className="flex items-center gap-2 text-slate-300">
+                      🔑 Senha: 
+                      <strong className="text-white font-bold tracking-wider">
                         {showLastPassword ? lastCreatedAccount.passwordHash : '••••••••'}
                       </strong>
                       <button
                         type="button"
                         onClick={() => setShowLastPassword(!showLastPassword)}
                         className="text-slate-400 hover:text-white cursor-pointer ml-1"
+                        title={showLastPassword ? 'Ocultar Senha' : 'Ver Senha'}
                       >
-                        {showLastPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        {showLastPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </p>
-                    <p className="text-emerald-400">Mensalidade: R$ 24,99/mês</p>
+                    <p className="text-amber-300 text-[11px] pt-1 border-t border-slate-800">
+                      🌐 Link de Login (Vercel): <span className="text-white font-bold underline">{LOGIN_URL}</span>
+                    </p>
+                  </div>
+
+                  {/* Mensagem Formatada Pronta para o WhatsApp */}
+                  <div className="bg-white rounded-2xl border border-emerald-300 p-3.5 space-y-2 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
+                        <MessageCircle className="w-4 h-4 text-emerald-600" />
+                        Mensagem Gerada para Enviar ao Lojista:
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAccessMessage(lastCreatedAccount)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-[11px] transition-colors cursor-pointer"
+                          title="Copiar mensagem completa formatada"
+                        >
+                          {copiedAccessInfo ? <Check className="w-3 h-3 text-emerald-800" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedAccessInfo ? 'Mensagem Copiada!' : 'Copiar Mensagem'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCopyLoginLinkOnly}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition-colors cursor-pointer"
+                          title="Copiar apenas o link de login do Vercel"
+                        >
+                          {copiedLoginLink ? <Check className="w-3 h-3 text-emerald-800" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedLoginLink ? 'Link Copiado!' : 'Copiar Link'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <pre className="p-3 bg-emerald-50/60 rounded-xl text-[11px] text-slate-800 font-sans whitespace-pre-wrap leading-relaxed border border-emerald-200/80 max-h-48 overflow-y-auto">
+                      {getStoreAccessMessage(lastCreatedAccount)}
+                    </pre>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleSendWhatsappAccess(lastCreatedAccount)}
+                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>Abrir WhatsApp com esta Mensagem</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSwitchToStore(lastCreatedAccount.storeId)}
+                        className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Store className="w-3.5 h-3.5" />
+                        <span>Abrir Painel da Loja</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -586,11 +740,25 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           <>
                             <button
                               type="button"
+                              onClick={() => handleSendWhatsappAccess(acc)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                              title="Enviar mensagem com dados de login no WhatsApp do lojista"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 fill-white" />
+                              <span className="hidden sm:inline">WhatsApp</span>
+                            </button>
+
+                            <button
+                              type="button"
                               onClick={() => handleCopyAccessMessage(acc)}
                               className="p-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
-                              title="Copiar dados para enviar ao lojista"
+                              title="Copiar mensagem com login para enviar ao lojista"
                             >
-                              <Copy className="w-3.5 h-3.5 text-slate-700" />
+                              {copiedStoreMessageId === acc.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5 text-slate-700" />
+                              )}
                             </button>
 
                             <button

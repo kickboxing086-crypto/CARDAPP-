@@ -98,8 +98,12 @@ export default function App() {
         const isCeoRoute =
           view === 'ceo' ||
           view === 'admin' ||
+          view === 'login' ||
+          view === 'entrar' ||
           pathname === '/ceo' ||
           pathname === '/admin' ||
+          pathname === '/login' ||
+          pathname === '/entrar' ||
           pathname.startsWith('/admin/');
 
         const isClienteRoute =

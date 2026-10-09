@@ -22,13 +22,12 @@ import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
 
 interface LandingPageProps {
-  onOpenLogin: () => void;
+  onOpenLogin?: () => void;
   onOpenDemoMenu: () => void;
   onOpenCeoPanelDirectly?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
-  onOpenLogin,
   onOpenDemoMenu,
 }) => {
   // Calculator state
@@ -130,16 +129,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black text-slate-800 hover:bg-amber-50 border border-slate-200 transition-all cursor-pointer"
             >
               <ForkKnifeIcon className="w-3.5 h-3.5 text-amber-500" />
-              <span className="hidden xs:inline">Ver Cardápio</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onOpenLogin}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-black text-xs transition-all cursor-pointer"
-            >
-              <Store className="w-3.5 h-3.5 text-slate-800" />
-              <span>Entrar</span>
+              <span>Ver Cardápio</span>
             </button>
 
             <button
@@ -547,17 +537,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex items-center gap-3 font-bold text-[11px]">
             <button
               type="button"
-              onClick={onOpenLogin}
-              className="text-amber-400 hover:text-amber-300 cursor-pointer"
-            >
-              Área do Lojista
-            </button>
-            <button
-              type="button"
               onClick={onOpenDemoMenu}
-              className="text-slate-300 hover:text-white cursor-pointer"
+              className="text-amber-400 hover:text-amber-300 cursor-pointer flex items-center gap-1.5"
             >
-              Cardápio Demo
+              <ForkKnifeIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span>Ver Cardápio Demo</span>
             </button>
           </div>
         </div>
