@@ -1,0 +1,17 @@
+{
+  "short_name": "CARDAPP",
+  "name": "CARDAPP - Cardápio Digital",
+  "description": "Cardápio digital moderno e interativo em amarelo e branco para clientes e painel administrativo para o CEO.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/?view=cliente",
+  "background_color": "#FFFDF7",
+  "theme_color": "#F59E0B",
+  "display": "standalone",
+  "orientation": "portrait"
+}

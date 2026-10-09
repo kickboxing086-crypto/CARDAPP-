@@ -56,21 +56,39 @@ export default function App() {
   const [isCeoViewMode, setIsCeoViewMode] = useState(false);
   const [isStoreInfoOpen, setIsStoreInfoOpen] = useState(false);
 
-  // Check URL query parameters for separated links (?view=ceo vs ?view=cliente)
+  // Check URL query parameters or paths for separated links (?view=ceo vs ?view=cliente, /ceo, /admin)
   useEffect(() => {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const view = urlParams.get('view');
-      if (view === 'ceo') {
-        setIsCeoViewMode(true);
-        setIsCeoModalOpen(true);
-      } else if (view === 'cliente') {
-        setIsCeoViewMode(false);
-        setIsCeoModalOpen(false);
+    const syncRouteFromUrl = () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const view = urlParams.get('view');
+        const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
+        const isCeoRoute =
+          view === 'ceo' ||
+          pathname === '/ceo' ||
+          pathname === '/admin' ||
+          pathname.startsWith('/admin/');
+        const isClienteRoute =
+          view === 'cliente' ||
+          pathname === '/cliente' ||
+          pathname === '/cardapio';
+
+        if (isCeoRoute) {
+          setIsCeoViewMode(true);
+          setIsCeoModalOpen(true);
+          setShowSplash(false);
+        } else if (isClienteRoute) {
+          setIsCeoViewMode(false);
+          setIsCeoModalOpen(false);
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
+    };
+
+    syncRouteFromUrl();
+    window.addEventListener('popstate', syncRouteFromUrl);
+    return () => window.removeEventListener('popstate', syncRouteFromUrl);
   }, []);
 
   // Load initial data and subscribe to storage changes
@@ -290,11 +308,21 @@ export default function App() {
   const handleSwitchToClientView = () => {
     setIsCeoViewMode(false);
     setIsCeoModalOpen(false);
+    try {
+      window.history.pushState({}, '', '/?view=cliente');
+    } catch {
+      // ignore
+    }
   };
 
   const handleSwitchToCeoMode = () => {
     setIsCeoViewMode(true);
     setIsCeoModalOpen(true);
+    try {
+      window.history.pushState({}, '', '/?view=ceo');
+    } catch {
+      // ignore
+    }
   };
 
   const handleStartNewOrder = () => {

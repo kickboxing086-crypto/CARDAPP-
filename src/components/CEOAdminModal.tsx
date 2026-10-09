@@ -43,6 +43,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
+import { OFFICIAL_APP_URL, getClientAppUrl, getCeoAppUrl } from '../utils/constants';
 
 interface CEOAdminModalProps {
   isOpen: boolean;
@@ -1719,18 +1720,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   Envie este link no WhatsApp, redes sociais ou coloque na bio do Instagram. O cliente vê os produtos, adiciona com "+", escolhe complementos e acompanha o pedido nas 4 etapas.
                 </p>
 
-                {/* Input e Botão de Copiar Link do Cliente */}
+                {/* Input e Botão de Copiar Link do Cliente - Vercel Oficial */}
                 <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/70 mb-5">
                   <input
                     type="text"
                     readOnly
-                    value={`${window.location.origin}${window.location.pathname}?view=cliente`}
-                    className="bg-transparent text-xs text-slate-800 flex-1 px-2 font-mono outline-none"
+                    value={`${OFFICIAL_APP_URL}/?view=cliente`}
+                    className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      const clientUrl = `${window.location.origin}${window.location.pathname}?view=cliente`;
+                      const clientUrl = `${OFFICIAL_APP_URL}/?view=cliente`;
                       navigator.clipboard.writeText(clientUrl);
                       setCopiedClientLink(true);
                       setTimeout(() => setCopiedClientLink(false), 2500);
@@ -1799,10 +1800,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                   <div className="text-left space-y-1">
                     <span className="text-xs font-black uppercase text-amber-400 tracking-wide block">
-                      QR Code para Mesas e Balcão
+                      QR Code Oficial do Cardápio ({OFFICIAL_APP_URL})
                     </span>
                     <p className="text-[11px] text-slate-300">
-                      Imprima este QR Code para colocar nas mesas ou no balcão da sua loja. O cliente aponta a câmera e abre o cardápio automaticamente.
+                      Imprima este QR Code para colocar nas mesas ou no balcão da sua loja. O cliente aponta a câmera e abre o cardápio automaticamente no link oficial Vercel.
                     </p>
                     <button
                       type="button"
@@ -1836,18 +1837,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   Link direto para o CEO acessar a gestão de pedidos em tempo real, painel financeiro de entradas, gerenciar produtos, criar categorias e configurar a loja.
                 </p>
 
-                {/* Input e Botão de Copiar Link do CEO */}
+                {/* Input e Botão de Copiar Link do CEO - Vercel Oficial */}
                 <div className="flex items-center gap-2 p-2 rounded-2xl border border-slate-300 bg-slate-50 mb-3">
                   <input
                     type="text"
                     readOnly
-                    value={`${window.location.origin}${window.location.pathname}?view=ceo`}
-                    className="bg-transparent text-xs text-slate-800 flex-1 px-2 font-mono outline-none"
+                    value={`${OFFICIAL_APP_URL}/?view=ceo`}
+                    className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      const ceoUrl = `${window.location.origin}${window.location.pathname}?view=ceo`;
+                      const ceoUrl = `${OFFICIAL_APP_URL}/?view=ceo`;
                       navigator.clipboard.writeText(ceoUrl);
                       setCopiedCeoLink(true);
                       setTimeout(() => setCopiedCeoLink(false), 2500);
