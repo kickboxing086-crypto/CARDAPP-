@@ -67,11 +67,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-1">
-                <span className="font-extrabold text-lg sm:text-xl tracking-tight text-slate-900 group-hover:text-amber-800 transition-colors font-display">
-                  CARD<span className="text-amber-500">APP</span>
-                </span>
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
-                  Digital
+                <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-950 group-hover:text-amber-800 transition-colors font-display">
+                  CARDAPP <span className="text-xs text-amber-600 font-semibold">Digital</span>
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] font-medium text-slate-500 truncate max-w-[120px] sm:max-w-xs">

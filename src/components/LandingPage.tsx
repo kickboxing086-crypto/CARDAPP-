@@ -105,11 +105,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <ForkKnifeIcon className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.3]" />
             </div>
             <div>
-              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-slate-950 font-display">
-                CARD<span className="text-amber-500">APP</span>
-              </span>
-              <span className="hidden sm:inline-block text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 ml-1.5">
-                Oficial
+              <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-950 font-display">
+                CARDAPP <span className="text-xs text-amber-600 font-semibold">Digital</span>
               </span>
             </div>
           </div>
@@ -133,7 +130,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black text-slate-900 bg-amber-400 hover:bg-amber-500 transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <Store className="w-3.5 h-3.5" />
-                <span>Criar Conta</span>
+                <span>Solicitar Acesso</span>
               </button>
             )}
 
@@ -189,7 +186,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="w-full sm:w-auto px-7 py-3.5 sm:py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm sm:text-base transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2.5 cursor-pointer group"
               >
-                <span>Criar Minha Conta (Verificação em 2 Etapas)</span>
+                <span>Solicitar Acesso ao Sistema</span>
                 <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform stroke-[2.5]" />
               </button>
             ) : (

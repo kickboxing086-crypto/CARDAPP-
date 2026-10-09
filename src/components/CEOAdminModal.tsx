@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { accountService } from '../services/accountService';
 import {
   X,
   LayoutDashboard,
@@ -95,7 +96,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>('orders');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [orderFilter, setOrderFilter] = useState<'all' | OrderStatus>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -714,6 +715,27 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 Oficial
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('status');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                activeTab === 'status'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Clock className="w-4 h-4 stroke-[2.4]" />
+                <span>7. Status da Conta</span>
+              </div>
+              <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                Análise
+              </span>
+            </button>
           </nav>
 
           {/* Bottom Actions of Left Sidebar */}
@@ -820,6 +842,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <>
                     <Share2 className="w-4 h-4 text-amber-600 shrink-0" />
                     <span className="truncate">Compartilhar Links Oficiais</span>
+                  </>
+                )}
+                {activeTab === 'status' && (
+                  <>
+                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Status de Análise e Ativação da Conta</span>
                   </>
                 )}
               </h2>
@@ -2562,6 +2590,112 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA */}
+          {activeTab === 'status' && (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div className="text-center pb-2">
+                <div className="w-14 h-14 rounded-3xl bg-amber-100 text-amber-900 mx-auto flex items-center justify-center mb-3">
+                  <Clock className="w-7 h-7" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">
+                  Status de Análise e Ativação da Conta
+                </h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Acompanhe em tempo real o status de revisão e liberação do seu acesso pela equipe técnica da SF Tecnologia.
+                </p>
+              </div>
+
+              {/* Status Card */}
+              <div className="bg-white rounded-3xl border-2 border-amber-300 p-6 shadow-sm space-y-5">
+                {(() => {
+                  const account = accountService.getCurrentSession();
+                  const status = account?.planStatus || 'pendente';
+                  const isAtivo = status === 'ativo';
+                  const isBloqueado = status === 'bloqueado';
+
+                  return (
+                    <>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-amber-50/60 border border-amber-200">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
+                            isAtivo ? 'bg-emerald-500 text-white' : isBloqueado ? 'bg-red-500 text-white' : 'bg-amber-400 text-slate-950'
+                          }`}>
+                            {isAtivo ? <CheckCircle2 className="w-6 h-6 stroke-[2.5]" /> : isBloqueado ? <AlertTriangle className="w-6 h-6 stroke-[2.5]" /> : <Clock className="w-6 h-6 stroke-[2.5]" />}
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                              Situação Atual da Análise
+                            </span>
+                            <h4 className="text-base font-black text-slate-950 uppercase">
+                              {isAtivo ? 'Conta Aprovada e Ativa' : isBloqueado ? 'Conta Suspensa / Bloqueada' : 'Em Análise pelo Suporte'}
+                            </h4>
+                          </div>
+                        </div>
+
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                          isAtivo ? 'bg-emerald-100 text-emerald-800' : isBloqueado ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900'
+                        }`}>
+                          {isAtivo ? 'Ativo' : isBloqueado ? 'Bloqueado' : 'Pendente (Em Análise)'}
+                        </span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+                        <p className="font-bold text-slate-900">
+                          {isAtivo
+                            ? 'Parabéns! Sua loja foi aprovada, e seu sistema digital está 100% operacional para receber pedidos de clientes.'
+                            : isBloqueado
+                            ? 'Sua conta está temporariamente suspensa por pendência ou verificação. Entre em contato com a SF Tecnologia para regularizar.'
+                            : 'Sua solicitação de acesso foi enviada com sucesso. Nossa equipe técnica da SF Tecnologia está analisando seus dados para gerar suas credenciais definitivas.'}
+                        </p>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Caso tenha urgência na liberação ou queira enviar comprovantes/dados adicionais, você pode falar diretamente com o suporte técnico pelo WhatsApp.
+                        </p>
+                      </div>
+
+                      {/* Account Details */}
+                      <div className="space-y-3 pt-2">
+                        <h5 className="font-black text-xs uppercase tracking-wider text-slate-800">
+                          Dados da Conta Cadastrada:
+                        </h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabelecimento</span>
+                            <strong className="text-slate-900 text-sm">{account?.storeName || settings.storeName}</strong>
+                          </div>
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Responsável</span>
+                            <strong className="text-slate-900 text-sm">{account?.name || 'Não informado'}</strong>
+                          </div>
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Usuário de Acesso</span>
+                            <code className="text-slate-900 font-mono font-bold">{account?.username || 'N/A'}</code>
+                          </div>
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">WhatsApp de Contato</span>
+                            <span className="text-slate-900 font-bold">{account?.phoneWhatsapp || settings.phoneWhatsapp || 'Não informado'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* WhatsApp Support Action */}
+                      <div className="pt-2">
+                        <a
+                          href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE STATUS DE ANÁLISE - CARDAPP*\n\n• Loja: ${account?.storeName}\n• Responsável: ${account?.name}\n• Usuário: ${account?.username}\n\nOlá! Gostaria de consultar o status da minha análise e liberação de acesso.`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+                        >
+                          <MessageCircle className="w-4 h-4 fill-white" />
+                          <span>Falar com o Suporte Técnico (WhatsApp)</span>
+                        </a>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
