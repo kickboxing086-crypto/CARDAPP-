@@ -56,11 +56,13 @@ export interface OrderCustomer {
   deliveryType: 'delivery' | 'retirada' | 'mesa';
   tableNumber?: string;
   address?: {
+    cep?: string;
     street: string;
     number: string;
     neighborhood: string;
     complement?: string;
     city: string;
+    state?: string;
   };
   paymentMethod: 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro';
   cashGiven?: number; // valor entregue pelo cliente em dinheiro

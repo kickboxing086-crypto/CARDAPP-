@@ -33,12 +33,29 @@ import { ForkKnifeIcon } from './components/ForkKnifeIcon';
 import { LandingPage } from './components/LandingPage';
 import { LoginModal } from './components/LoginModal';
 import { SuperAdminModal } from './components/SuperAdminModal';
+import { PushNotificationBanner } from './components/PushNotificationBanner';
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
+import {
+  triggerOrderStatusNotification,
+  getStatusNotificationMessage,
+  requestPushPermission,
+} from './utils/notificationService';
 
 export default function App() {
   // Navigation view: 'landing' (SaaS presentation & pricing R$ 24,99) vs 'menu' (Digital Menu)
   const [currentView, setCurrentView] = useState<'landing' | 'menu'>('landing');
+
+  // Push Notification Banner state
+  const [pushBanner, setPushBanner] = useState<{
+    title: string;
+    message: string;
+    status: OrderStatus;
+    deliveryType: 'delivery' | 'retirada' | 'mesa';
+    displayId: string;
+  } | null>(null);
+
+  const lastActiveOrderStatusRef = React.useRef<OrderStatus | null>(null);
 
   // Splash Welcome Animation in Yellow & White (only when entering digital menu)
   const [showSplash, setShowSplash] = useState(false);
@@ -178,6 +195,42 @@ export default function App() {
     return orders.length > 0 ? orders[0] : null;
   }, [orders, activeOrderId]);
 
+  // Listen for real-time order status updates to trigger Push Notifications & Sound
+  useEffect(() => {
+    if (!currentActiveOrder) {
+      lastActiveOrderStatusRef.current = null;
+      return;
+    }
+
+    // Initialize ref on first run
+    if (!lastActiveOrderStatusRef.current) {
+      lastActiveOrderStatusRef.current = currentActiveOrder.status;
+      return;
+    }
+
+    // If status changed (e.g., CEO updated status)
+    if (lastActiveOrderStatusRef.current !== currentActiveOrder.status) {
+      lastActiveOrderStatusRef.current = currentActiveOrder.status;
+
+      // Dispara push notification nativa do navegador + som de alerta
+      triggerOrderStatusNotification(currentActiveOrder, currentActiveOrder.status);
+
+      // Exibe banner flutuante em tempo real no topo da tela
+      const { title, message } = getStatusNotificationMessage(
+        currentActiveOrder,
+        currentActiveOrder.status
+      );
+
+      setPushBanner({
+        title,
+        message,
+        status: currentActiveOrder.status,
+        deliveryType: currentActiveOrder.customer.deliveryType,
+        displayId: currentActiveOrder.displayId,
+      });
+    }
+  }, [currentActiveOrder]);
+
   // Unfinished orders count for CEO notification badge
   const pendingOrdersCount = useMemo(() => {
     return orders.filter((o) => o.status !== 'finalizado').length;
@@ -316,6 +369,14 @@ export default function App() {
       // fallback
     }
 
+    // Solicita permissão para notificações push no navegador para avisar quando o CEO atualizar
+    try {
+      requestPushPermission();
+    } catch {
+      // ignore
+    }
+
+    lastActiveOrderStatusRef.current = 'recebido';
     setCartItems([]);
     setActiveOrderId(newOrder.id);
     setCurrentStep(4);
@@ -405,6 +466,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FFFDF7] text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
+      {/* Real-time Push Notification Banner (Triggered when CEO updates status) */}
+      {pushBanner && (
+        <PushNotificationBanner
+          title={pushBanner.title}
+          message={pushBanner.message}
+          status={pushBanner.status}
+          deliveryType={pushBanner.deliveryType}
+          displayId={pushBanner.displayId}
+          onClose={() => setPushBanner(null)}
+          onViewOrder={() => {
+            setPushBanner(null);
+            setCurrentView('menu');
+            setCurrentStep(4);
+          }}
+        />
+      )}
+
       {/* 1. SAAS LANDING PAGE (PLANO R$ 24,99/MÊS E PERSUASÃO) */}
       {currentView === 'landing' && (
         <LandingPage
@@ -413,7 +491,7 @@ export default function App() {
         />
       )}
 
-      {/* 2. DIGITAL MENU VIEW FOR CLIENTS */}
+      {/* 2. DIGITAL MENU VIEW FOR CLIENTS (SOMENTE CLIENTE SEM CEO) */}
       {currentView === 'menu' && (
         <>
           {/* Welcome Splash Animation in Yellow & White */}
@@ -425,34 +503,15 @@ export default function App() {
             />
           )}
 
-          {/* Top Header without client/ceo separator */}
+          {/* Top Header - SOMENTE OPÇÕES DO CLIENTE (SEM ACESSO DO CEO) */}
           <Header
             settings={settings}
             cartCount={totalCartCount}
             onOpenCart={() => setCurrentStep(2)}
-            onOpenCeoMenu={() => {
-              if (currentUser?.role === 'super_admin') {
-                setIsSuperAdminModalOpen(true);
-              } else if (currentUser?.role === 'store_admin') {
-                setIsCeoModalOpen(true);
-              } else {
-                setIsLoginModalOpen(true);
-              }
-            }}
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
-            activeOrderCount={pendingOrdersCount}
             onBackToLanding={handleBackToLanding}
-            currentUser={currentUser}
-            onOpenLoginModal={() => {
-              if (currentUser?.role === 'super_admin') {
-                setIsSuperAdminModalOpen(true);
-              } else if (currentUser?.role === 'store_admin') {
-                setIsCeoModalOpen(true);
-              } else {
-                setIsLoginModalOpen(true);
-              }
-            }}
+            showCeoControls={false}
           />
 
           {/* 4 ETAPAS TRACKER FOR CLIENT */}

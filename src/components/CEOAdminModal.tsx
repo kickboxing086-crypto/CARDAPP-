@@ -89,6 +89,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   if (!isOpen) return null;
 
   const [activeTab, setActiveTab] = useState<'orders' | 'finance' | 'products' | 'settings' | 'share'>('orders');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [orderFilter, setOrderFilter] = useState<'all' | OrderStatus>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [copiedClientLink, setCopiedClientLink] = useState(false);
@@ -412,72 +413,87 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
       <div
-        className="bg-white rounded-3xl max-w-5xl w-full h-[95vh] max-h-[95vh] shadow-2xl border border-amber-300 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-3xl max-w-6xl w-full h-[96vh] max-h-[96vh] shadow-2xl border border-amber-300 flex overflow-hidden animate-in zoom-in-95 duration-200 relative"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* CEO Panel Top Header */}
-        <div className="bg-amber-400 p-4 sm:p-5 flex items-center justify-between text-slate-950 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-black shadow-sm overflow-hidden">
-              {settings.logoBase64 ? (
-                <img src={settings.logoBase64} alt="Logo" className="w-full h-full object-cover" />
-              ) : (
-                <Store className="w-5 h-5" />
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black tracking-tight leading-none">
-                  Painel de Gestão do CEO
-                </h2>
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-950 text-amber-300">
-                  Administração
-                </span>
+        {/* Mobile backdrop for left sidebar */}
+        {isMobileSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-slate-950/60 z-30 md:hidden animate-in fade-in"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
+
+        {/* BARRA NO LADO SUPERIOR ESQUERDO: TODAS AS OPÇÕES DO CEO ORGANIZADAS */}
+        <aside
+          className={`fixed md:static inset-y-0 left-0 z-40 md:z-auto w-72 sm:w-80 bg-white border-r border-amber-200 flex flex-col shrink-0 transition-transform duration-200 shadow-xl md:shadow-none ${
+            isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
+        >
+          {/* Top of Sidebar: Store Branding & CEO Badge */}
+          <div className="bg-amber-400 p-4 sm:p-5 flex items-center justify-between text-slate-950 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-black shadow-sm overflow-hidden shrink-0">
+                {settings.logoBase64 ? (
+                  <img src={settings.logoBase64} alt="Logo" className="w-full h-full object-cover" />
+                ) : (
+                  <Store className="w-5 h-5" />
+                )}
               </div>
-              <p className="text-xs font-semibold text-slate-800 mt-0.5">
-                {settings.storeName} • {orders.length} pedidos no total
-              </p>
+              <div className="min-w-0">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 inline-block mb-0.5">
+                  Painel do CEO
+                </span>
+                <h3 className="text-sm font-black text-slate-950 truncate leading-tight">
+                  {settings.storeName}
+                </h3>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2">
+            {/* Mobile close sidebar button */}
             <button
               type="button"
-              onClick={onSwitchToClientView}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 hover:bg-white text-slate-950 font-bold text-xs transition-colors shadow-xs cursor-pointer"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="md:hidden w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center cursor-pointer"
             >
-              <span>Ver Cardápio do Cliente</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-full bg-slate-950 text-white hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
-              aria-label="Fechar Painel CEO"
-            >
-              <X className="w-5 h-5 stroke-[2.5]" />
+              <X className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
-        {/* CEO Navigation Tabs */}
-        <div className="bg-amber-50 border-b border-amber-200 px-4 flex items-center justify-between overflow-x-auto shrink-0">
-          <div className="flex gap-1 py-2">
+          {/* Section Title */}
+          <div className="px-4 py-2.5 bg-amber-50/80 border-b border-amber-200/80 flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-amber-950">
+            <span>Barra de Opções do CEO</span>
+            <span className="text-[10px] text-amber-800 font-bold font-mono">
+              {orders.length} pedidos
+            </span>
+          </div>
+
+          {/* Nav List */}
+          <nav className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-[#FFFDF7]">
             <button
               type="button"
-              onClick={() => setActiveTab('orders')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab('orders');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'orders'
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-amber-100/60'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" />
-              <span>Painel de Pedidos por Data</span>
+              <div className="flex items-center gap-2.5">
+                <LayoutDashboard className="w-4 h-4 stroke-[2.4]" />
+                <span>1. Pedidos em Tempo Real</span>
+              </div>
               {orders.length > 0 && (
-                <span className="w-5 h-5 rounded-full bg-slate-950 text-amber-300 text-[10px] flex items-center justify-center font-mono">
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                    activeTab === 'orders' ? 'bg-slate-950 text-amber-300' : 'bg-amber-200 text-amber-950'
+                  }`}
+                >
                   {orders.length}
                 </span>
               )}
@@ -485,71 +501,198 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('finance')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab('finance');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'finance'
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-amber-100/60'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
-              <DollarSign className="w-4 h-4" />
-              <span>Painel Financeiro & Entradas</span>
+              <div className="flex items-center gap-2.5">
+                <DollarSign className="w-4 h-4 stroke-[2.4]" />
+                <span>2. Financeiro & Entradas</span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-bold font-mono">
+                {formatCurrency(financialStats.totalRevenue)}
+              </span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('products')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab('products');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'products'
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-amber-100/60'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
-              <Utensils className="w-4 h-4" />
-              <span>Gerenciar Produtos ({products.length})</span>
+              <div className="flex items-center gap-2.5">
+                <Utensils className="w-4 h-4 stroke-[2.4]" />
+                <span>3. Cardápio & Produtos</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                  activeTab === 'products' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
+                }`}
+              >
+                {products.length}
+              </span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('settings')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab('settings');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'settings'
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-amber-100/60'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
-              <Settings className="w-4 h-4" />
-              <span>Configurações & Logo</span>
+              <div className="flex items-center gap-2.5">
+                <Settings className="w-4 h-4 stroke-[2.4]" />
+                <span>4. Configurações da Loja</span>
+              </div>
+              <span className={`w-2.5 h-2.5 rounded-full ${settings.isOpen ? 'bg-emerald-500' : 'bg-red-500'}`} />
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('share')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => {
+                setActiveTab('share');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'share'
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-amber-100/60'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
-              <Share2 className="w-4 h-4" />
-              <span>Link & QR Code</span>
+              <div className="flex items-center gap-2.5">
+                <Share2 className="w-4 h-4 stroke-[2.4]" />
+                <span>5. Compartilhar Links</span>
+              </div>
+              <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                Oficial
+              </span>
             </button>
-          </div>
+          </nav>
 
-          <div className="flex items-center gap-2 shrink-0 py-2">
+          {/* Bottom Actions of Left Sidebar */}
+          <div className="p-3 bg-white border-t border-amber-200 space-y-2 shrink-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-amber-50 rounded-xl text-xs font-bold text-slate-700">
+              <span className="flex items-center gap-1.5">
+                {soundEnabled ? (
+                  <Volume2 className="w-3.5 h-3.5 text-amber-600" />
+                ) : (
+                  <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+                )}
+                <span>Alerta Sonoro</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`text-[10px] font-black px-2 py-0.5 rounded cursor-pointer ${
+                  soundEnabled ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {soundEnabled ? 'LIGADO' : 'MUDO'}
+              </button>
+            </div>
+
             <button
               type="button"
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-950 hover:bg-amber-200 transition-colors"
-              title={soundEnabled ? 'Alerta sonoro ativo' : 'Alerta sonoro mudo'}
+              onClick={() => {
+                setIsMobileSidebarOpen(false);
+                onSwitchToClientView();
+              }}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs transition-colors cursor-pointer"
             >
-              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+              <span>Ver Cardápio do Cliente</span>
             </button>
           </div>
-        </div>
+        </aside>
 
-        {/* Tab Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
+        {/* LADO DIREITO: CONTEÚDO PRINCIPAL ORGANIZADO */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50/50">
+          {/* Top Bar of Active Tab */}
+          <div className="bg-white border-b border-amber-200 px-4 py-3 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {/* Botão no canto superior esquerdo para abrir a barra de opções do CEO no celular */}
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="md:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs shadow-xs cursor-pointer shrink-0"
+                title="Abrir barra no lado superior esquerdo com opções do CEO"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Opções do CEO</span>
+              </button>
+
+              <h2 className="text-sm sm:text-base font-black text-slate-950 truncate flex items-center gap-2">
+                {activeTab === 'orders' && (
+                  <>
+                    <LayoutDashboard className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Painel de Pedidos em Tempo Real</span>
+                  </>
+                )}
+                {activeTab === 'finance' && (
+                  <>
+                    <DollarSign className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Painel Financeiro & Entradas</span>
+                  </>
+                )}
+                {activeTab === 'products' && (
+                  <>
+                    <Utensils className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Gerenciar Produtos ({products.length})</span>
+                  </>
+                )}
+                {activeTab === 'settings' && (
+                  <>
+                    <Settings className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Configurações da Loja</span>
+                  </>
+                )}
+                {activeTab === 'share' && (
+                  <>
+                    <Share2 className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="truncate">Compartilhar Links Oficiais</span>
+                  </>
+                )}
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onSwitchToClientView}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-slate-950 font-bold text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                <span>Cardápio Cliente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Fechar painel"
+              >
+                <X className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </div>
+          </div>
+
+          {/* Tab Body */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
           {/* TAB 1: PAINEL DE PEDIDOS SEPARADOS POR DATA */}
           {activeTab === 'orders' && (
             <div className="space-y-6">
@@ -1770,18 +1913,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Chave Pix para Recebimento
-                  </label>
-                  <input
-                    type="text"
-                    value={localSettings.pixKey}
-                    onChange={(e) => setLocalSettings({ ...localSettings, pixKey: e.target.value })}
-                    className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                     Endereço Completo
                   </label>
                   <input
@@ -1988,6 +2119,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
           CARDAPP • Desenvolvido por SF TECNOLOGIA • Todos os direitos reservados
         </div>
       </div>
+    </div>
 
       {/* TWO-STEP CONFIRMATION MODAL TO DELETE ORDER */}
       {orderToDelete && (
@@ -2126,7 +2258,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 {printOrder.customer.deliveryType === 'delivery' && printOrder.customer.address && (
                   <p>
                     <strong className="font-bold">END:</strong> {printOrder.customer.address.street}, {printOrder.customer.address.number} - {printOrder.customer.address.neighborhood}
-                    {printOrder.customer.address.complement ? ` (${printOrder.customer.address.complement})` : ''} - {printOrder.customer.address.city}
+                    {printOrder.customer.address.complement ? ` (${printOrder.customer.address.complement})` : ''} - {printOrder.customer.address.city}{printOrder.customer.address.state ? `/${printOrder.customer.address.state}` : ''}
+                    {printOrder.customer.address.cep ? ` [CEP: ${printOrder.customer.address.cep}]` : ''}
                   </p>
                 )}
                 {printOrder.customer.deliveryType === 'mesa' && (

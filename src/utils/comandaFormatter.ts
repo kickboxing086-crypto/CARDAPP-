@@ -64,7 +64,8 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
     const addr = order.customer.address;
     lines.push(`• *Endereço:* ${addr.street}, ${addr.number} - ${addr.neighborhood}`);
     if (addr.complement) lines.push(`• *Complemento:* ${addr.complement}`);
-    lines.push(`• *Cidade:* ${addr.city}`);
+    lines.push(`• *Cidade:* ${addr.city}${addr.state ? ` - ${addr.state}` : ''}`);
+    if (addr.cep) lines.push(`• *CEP:* ${addr.cep}`);
   } else if (order.customer.deliveryType === 'mesa') {
     lines.push(`• *Atendimento:* Consumo no Restaurante (${order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'Salão'})`);
   } else {

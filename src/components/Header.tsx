@@ -7,13 +7,14 @@ interface HeaderProps {
   settings: StoreSettings;
   cartCount: number;
   onOpenCart: () => void;
-  onOpenCeoMenu: () => void;
+  onOpenCeoMenu?: () => void;
   onOpenStoreInfo: () => void;
   onViewMenuClick: () => void;
-  activeOrderCount: number;
+  activeOrderCount?: number;
   onBackToLanding?: () => void;
   currentUser?: UserAccount | null;
   onOpenLoginModal?: () => void;
+  showCeoControls?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,10 +24,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCeoMenu,
   onOpenStoreInfo,
   onViewMenuClick,
-  activeOrderCount,
+  activeOrderCount = 0,
   onBackToLanding,
   currentUser,
   onOpenLoginModal,
+  showCeoControls = false,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-200 shadow-xs">
@@ -94,10 +96,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* LADO SUPERIOR DIREITO: SACOLA + TRÊS BARRAS DO CEO / LOGIN */}
+        {/* LADO SUPERIOR DIREITO: SACOLA (+ OPÇÕES DE CEO APENAS QUANDO SOLICITADO) */}
         <div className="flex items-center gap-2 sm:gap-2.5">
-          {/* Botão de Login se não estiver autenticado */}
-          {onOpenLoginModal && (
+          {/* Botão de Login do CEO apenas quando showCeoControls estiver ativo */}
+          {showCeoControls && onOpenLoginModal && (
             <button
               type="button"
               onClick={onOpenLoginModal}
@@ -122,11 +124,11 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Botão Sacola */}
+          {/* Botão Sacola do Cliente */}
           <button
             type="button"
             onClick={onOpenCart}
-            className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400 text-slate-950 font-bold hover:bg-amber-500 active:scale-95 transition-all shadow-xs cursor-pointer focus-visible:outline-none"
+            className="relative flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-400 text-slate-950 font-bold hover:bg-amber-500 active:scale-95 transition-all shadow-xs cursor-pointer focus-visible:outline-none"
             aria-label="Sacola de Pedidos"
           >
             <ShoppingBag className="w-4 h-4 stroke-[2.4]" />
@@ -138,25 +140,27 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* TRÊS BARRAS NO CANTO SUPERIOR DIREITO - MENU DE ADMINISTRAÇÃO */}
-          <button
-            type="button"
-            onClick={onOpenCeoMenu}
-            className="relative p-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-slate-900 transition-all active:scale-95 cursor-pointer shadow-xs focus-visible:outline-none group"
-            title="Menu de Administração (Três Barras)"
-            aria-label="Menu do CEO no canto superior direito"
-          >
-            <Menu className="w-5 h-5 text-slate-900 stroke-[2.5] group-hover:rotate-3 transition-transform" />
+          {/* TRÊS BARRAS DO CEO - EXIBIDO APENAS SE showCeoControls FOR TRUE */}
+          {showCeoControls && onOpenCeoMenu && (
+            <button
+              type="button"
+              onClick={onOpenCeoMenu}
+              className="relative p-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-slate-900 transition-all active:scale-95 cursor-pointer shadow-xs focus-visible:outline-none group"
+              title="Menu de Administração (Três Barras)"
+              aria-label="Menu do CEO"
+            >
+              <Menu className="w-5 h-5 text-slate-900 stroke-[2.5] group-hover:rotate-3 transition-transform" />
 
-            {activeOrderCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-600 text-white text-[9px] font-black items-center justify-center">
-                  {activeOrderCount}
+              {activeOrderCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-600 text-white text-[9px] font-black items-center justify-center">
+                    {activeOrderCount}
+                  </span>
                 </span>
-              </span>
-            )}
-          </button>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -227,22 +227,6 @@ export const StoreInfoSidebar: React.FC<StoreInfoSidebarProps> = ({
                 </div>
               )}
             </div>
-
-            {/* Pix Key copy */}
-            {settings.pixKey && (
-              <div className="pt-2 border-t border-amber-100 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500 truncate mr-2">
-                  Chave: {settings.pixKey}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyPix}
-                  className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-[10px] cursor-pointer"
-                >
-                  {copiedPix ? 'Copiada!' : 'Copiar'}
-                </button>
-              </div>
-            )}
           </div>
         </div>
 

@@ -13,10 +13,13 @@ import {
   Banknote,
   Tag,
   UtensilsCrossed,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 import { Order, OrderStatus, StoreSettings } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { getOrderWhatsAppUrl } from '../utils/comandaFormatter';
+import { requestPushPermission, playNotificationSound } from '../utils/notificationService';
 
 interface OrderTrackingStepProps {
   order: Order | null;
@@ -31,6 +34,17 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
   onNewOrder,
 }) => {
   const [copiedId, setCopiedId] = useState(false);
+  const [notificationsActive, setNotificationsActive] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
+
+  const handleEnableNotifications = async () => {
+    const perm = await requestPushPermission();
+    if (perm === 'granted') {
+      setNotificationsActive(true);
+      playNotificationSound();
+    }
+  };
 
   if (!order) {
     return (
@@ -234,7 +248,21 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleEnableNotifications}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                notificationsActive
+                  ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                  : 'bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-xs ring-2 ring-amber-300/50'
+              }`}
+              title="Receber alertas sonoros e notificação push quando o status mudar"
+            >
+              <BellRing className={`w-4 h-4 ${notificationsActive ? 'text-amber-700' : 'text-slate-950 animate-bounce'}`} />
+              <span>{notificationsActive ? 'Alertas Push Ativos' : 'Ativar Alertas na Tela'}</span>
+            </button>
+
             <button
               type="button"
               onClick={openWhatsApp}
@@ -396,7 +424,7 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
             <span className="font-bold">Destino:</span>
             <span>
               {order.customer.deliveryType === 'delivery' && order.customer.address
-                ? `${order.customer.address.street}, ${order.customer.address.number} - ${order.customer.address.neighborhood} (${order.customer.address.complement || ''})`
+                ? `${order.customer.address.street}, ${order.customer.address.number} - ${order.customer.address.neighborhood}${order.customer.address.complement ? ` (${order.customer.address.complement})` : ''} • ${order.customer.address.city}${order.customer.address.cep ? ` [CEP: ${order.customer.address.cep}]` : ''}`
                 : order.customer.deliveryType === 'mesa'
                 ? `Consumo no local - ${order.customer.tableNumber || 'Mesa não informada'}`
                 : 'Retirada no Balcão'}
