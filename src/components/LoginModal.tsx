@@ -68,6 +68,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const digitInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [resendCountdown, setResendCountdown] = useState(60);
   const [canResend, setCanResend] = useState(false);
+  const [isCheckingLink, setIsCheckingLink] = useState(false);
 
   // Security policy validations
   const usernameSecurity = validateSecurityPolicy(regUsername);
@@ -95,6 +96,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       if (interval) clearInterval(interval);
     };
   }, [regStep, resendCountdown]);
+
+  // Auto-verificação periódica de link de e-mail enquanto está na etapa 2
+  useEffect(() => {
+    let poller: NodeJS.Timeout | null = null;
+    if (regStep === 2 && regEmail) {
+      poller = setInterval(async () => {
+        try {
+          const res = await emailVerificationService.checkEmailVerifiedViaLink(regEmail);
+          if (res.verified && res.registrationData) {
+            if (poller) clearInterval(poller);
+            setRegSuccess('E-mail confirmado pelo link de segurança! Ativando sua conta...');
+            setIsRegLoading(true);
+            const createRes = accountService.registerClientAccount(res.registrationData);
+            setIsRegLoading(false);
+            if (createRes.success && createRes.account) {
+              emailVerificationService.clearSession();
+              onLoginSuccess(createRes.account);
+              if (onClose) onClose();
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }, 3000);
+    }
+    return () => {
+      if (poller) clearInterval(poller);
+    };
+  }, [regStep, regEmail, onLoginSuccess, onClose]);
 
   // Check email domain typo suggestion in real time
   const handleEmailChange = (val: string) => {
@@ -311,6 +341,37 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       if (onClose) onClose();
     } else {
       setRegError(createRes.message);
+    }
+  };
+
+  // CHECAGEM MANUAL DE CONFIRMAÇÃO VIA LINK DE E-MAIL
+  const handleManualCheckLink = async () => {
+    setIsCheckingLink(true);
+    setRegError('');
+    setRegSuccess('');
+
+    try {
+      const res = await emailVerificationService.checkEmailVerifiedViaLink(regEmail);
+      setIsCheckingLink(false);
+
+      if (res.verified && res.registrationData) {
+        setRegSuccess('E-mail confirmado pelo link de segurança! Ativando sua conta...');
+        setIsRegLoading(true);
+        const createRes = accountService.registerClientAccount(res.registrationData);
+        setIsRegLoading(false);
+        if (createRes.success && createRes.account) {
+          emailVerificationService.clearSession();
+          onLoginSuccess(createRes.account);
+          if (onClose) onClose();
+        }
+      } else {
+        setRegError(
+          'Ainda não identificamos a confirmação. Por favor, abra o e-mail recebido e clique no link de verificação, ou digite o código de 6 dígitos.'
+        );
+      }
+    } catch {
+      setIsCheckingLink(false);
+      setRegError('Não foi possível verificar no momento. Tente novamente em instantes.');
     }
   };
 
@@ -753,23 +814,42 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
 
             {/* Card de Instruções de Segurança e Checagem da Caixa de Entrada */}
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2">
-              <div className="flex items-center gap-2 text-slate-900 font-black">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Autenticação Real de E-mail (Anti-Fraude)</span>
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-900 font-black">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Autenticação Real de E-mail (Anti-Fraude)</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Enviado</span>
+                </div>
               </div>
+
               <p className="text-[11px] text-slate-600 leading-relaxed">
-                Por motivos estritos de segurança, o código de acesso <strong>NÃO</strong> é mostrado nesta tela. Ele foi despachado exclusivamente para a sua caixa de entrada no e-mail <strong>{regEmail}</strong> pelo remetente <span className="font-mono text-slate-800 font-bold">no-reply@cardapp.com.br</span>.
+                Um e-mail de segurança oficial foi enviado diretamente para sua caixa de entrada no endereço <strong>{regEmail}</strong>.
               </p>
-              <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/80 flex items-start gap-2 text-[11px] text-amber-950 font-medium">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>
-                  Abra seu aplicativo de e-mail (Gmail, Outlook, Yahoo, etc.). Se não encontrar na Caixa de Entrada em instantes, confira sua pasta de <strong>Spam</strong> ou <strong>Lixo Eletrônico</strong>.
-                </span>
+
+              <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/80 space-y-1.5 text-[11px] text-amber-950 font-medium">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                  <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Como validar seu cadastro:</span>
+                </div>
+                <ul className="space-y-1 list-disc list-inside text-slate-700 pl-1 text-[11px]">
+                  <li>
+                    <strong>Opção 1:</strong> Abra seu e-mail e <strong>clique no link de confirmação</strong> (esta tela reconhece automaticamente e ativa sua loja).
+                  </li>
+                  <li>
+                    <strong>Opção 2:</strong> Ou digite o <strong>código de 6 dígitos</strong> recebido nos campos acima.
+                  </li>
+                </ul>
+                <p className="text-[10px] text-slate-500 pt-1">
+                  💡 Caso não encontre na Caixa de Entrada, confira sua pasta de <strong>Spam</strong> ou <strong>Lixo Eletrônico</strong>.
+                </p>
               </div>
             </div>
 
-            {/* Botão de Confirmação Final */}
+            {/* Botão de Confirmação Final por Código */}
             <button
               type="submit"
               disabled={isRegLoading || digits.join('').length !== 6}
@@ -783,6 +863,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <span>Confirmar Código e Ativar Minha Loja</span>
                 </>
               )}
+            </button>
+
+            {/* Botão Secundário: Checar se já confirmou pelo link de e-mail */}
+            <button
+              type="button"
+              disabled={isCheckingLink || isRegLoading}
+              onClick={handleManualCheckLink}
+              className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isCheckingLink ? 'animate-spin' : ''}`} />
+              <span>
+                {isCheckingLink
+                  ? 'Verificando confirmação do e-mail...'
+                  : 'Já cliquei no link do e-mail (Verificar Agora)'}
+              </span>
             </button>
 
             {/* Reenvio com Contador */}
@@ -807,7 +902,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>
-                  {canResend ? 'Reenviar Código' : `Reenviar em ${resendCountdown}s`}
+                  {canResend ? 'Reenviar Mensagem' : `Reenviar em ${resendCountdown}s`}
                 </span>
               </button>
             </div>

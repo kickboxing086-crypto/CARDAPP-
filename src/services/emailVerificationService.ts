@@ -316,6 +316,90 @@ class EmailVerificationService {
     };
   }
 
+  /**
+   * Consulta o servidor e o Firestore para checar se o usuário confirmou o e-mail pelo link recebido
+   */
+  public async checkEmailVerifiedViaLink(email: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    message: string;
+    registrationData?: ClientRegistrationFormData;
+  }> {
+    const trimmedEmail = email.trim().toLowerCase();
+    let session = this.activeSession;
+    if (!session || session.email !== trimmedEmail) {
+      try {
+        const stored = localStorage.getItem(EMAIL_VERIFICATION_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as EmailVerificationSession;
+          if (parsed.email === trimmedEmail) {
+            session = parsed;
+            this.activeSession = parsed;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!session) {
+      return { success: false, verified: false, message: 'Nenhuma sessão ativa.' };
+    }
+
+    // 1. Consulta o Firestore
+    try {
+      const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      const snap = await getDoc(doc(db, 'email_verifications', sanitizedEmail));
+      if (snap.exists() && snap.data()?.verified) {
+        session.verified = true;
+        this.activeSession = session;
+        return {
+          success: true,
+          verified: true,
+          message: 'E-mail confirmado com sucesso!',
+          registrationData: session.registrationData,
+        };
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Consulta o servidor para verificar status no Firebase Auth
+    try {
+      const res = await fetch(`/api/check-email-verification?email=${encodeURIComponent(trimmedEmail)}`);
+      const data = await res.json();
+      if (data.verified) {
+        session.verified = true;
+        this.activeSession = session;
+        try {
+          localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
+          const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+          await setDoc(
+            doc(db, 'email_verifications', sanitizedEmail),
+            { verified: true, verifiedAt: new Date().toISOString() },
+            { merge: true }
+          );
+        } catch {
+          // ignore
+        }
+        return {
+          success: true,
+          verified: true,
+          message: 'E-mail confirmado pelo link de segurança!',
+          registrationData: session.registrationData,
+        };
+      }
+    } catch (err) {
+      console.warn('Erro ao checar verificação via link:', err);
+    }
+
+    return {
+      success: true,
+      verified: false,
+      message: 'Aguardando confirmação do e-mail...',
+    };
+  }
+
   public getActiveSession(): EmailVerificationSession | null {
     return this.activeSession;
   }
