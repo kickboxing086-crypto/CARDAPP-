@@ -717,6 +717,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
                           <span>Responsável: <strong>{acc.name}</strong></span>
+                          {acc.email && (
+                            <span className="flex items-center gap-1">
+                              E-mail: <strong className="text-slate-900">{acc.email}</strong>
+                              {acc.emailVerified && (
+                                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  <span>Verificado (6 dígitos)</span>
+                                </span>
+                              )}
+                            </span>
+                          )}
                           <span>
                             Usuário: <code className="bg-slate-100 px-1 py-0.5 rounded font-bold text-slate-900">{acc.username}</code>
                           </span>

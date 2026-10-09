@@ -1,6 +1,6 @@
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { UserAccount } from '../types';
+import { UserAccount, ClientRegistrationFormData } from '../types';
 import { storageService } from './storageService';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
@@ -232,6 +232,80 @@ class AccountService {
     }
 
     return { success: true, message: 'Conta gerada com sucesso!', account: newAccount };
+  }
+
+  /**
+   * Criação de conta pelo próprio cliente com e-mail já verificado por código de 6 dígitos
+   */
+  public registerClientAccount(data: ClientRegistrationFormData): {
+    success: boolean;
+    message: string;
+    account?: UserAccount;
+  } {
+    const trimmedUsername = data.username.trim();
+    const trimmedEmail = data.email.trim().toLowerCase();
+
+    // Valida unicidade de nome de usuário
+    const usernameExists = this.accounts.some(
+      (a) => a.username.toLowerCase() === trimmedUsername.toLowerCase()
+    );
+    if (usernameExists) {
+      return { success: false, message: 'Este nome de usuário já está em uso. Escolha outro.' };
+    }
+
+    // Valida unicidade de e-mail
+    const emailExists = this.accounts.some(
+      (a) => a.email && a.email.toLowerCase() === trimmedEmail
+    );
+    if (emailExists) {
+      return { success: false, message: 'Este e-mail já está cadastrado em outra conta.' };
+    }
+
+    const now = new Date();
+    // 30 dias de ciclo inicial padrão
+    const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const newAccount: UserAccount = {
+      id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      username: trimmedUsername,
+      passwordHash: data.password,
+      role: 'store_admin',
+      name: data.name.trim(),
+      email: trimmedEmail,
+      emailVerified: true,
+      storeId: `store_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      storeName: data.storeName.trim(),
+      planStatus: 'ativo',
+      monthlyFee: 24.99,
+      phoneWhatsapp: data.phoneWhatsapp,
+      createdAt: now.toISOString(),
+      expiresAt: expiry.toISOString(),
+    };
+
+    this.accounts.push(newAccount);
+    this.saveToStorage();
+
+    // Inicializa a loja do cliente 100% zerada (0 produtos, 0 pedidos, categorias padrão limpas, sem taxas)
+    storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp);
+
+    // Sync to Firestore
+    try {
+      const accRef = doc(db, 'accounts', newAccount.id);
+      setDoc(accRef, newAccount).catch((err) =>
+        handleFirestoreError(err, OperationType.WRITE, `accounts/${newAccount.id}`)
+      );
+    } catch {
+      // ignore
+    }
+
+    // Altera a sessão atual para o novo cliente imediatamente
+    this.switchSession(newAccount);
+
+    return {
+      success: true,
+      message: 'Conta de loja criada e ativada com sucesso!',
+      account: newAccount,
+    };
   }
 
   public updateAccountStatus(accountId: string, newStatus: 'ativo' | 'pendente' | 'bloqueado') {

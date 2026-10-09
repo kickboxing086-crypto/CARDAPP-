@@ -12,6 +12,12 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    // Verificações de E-mail No-Reply com Código de 6 Dígitos
+    match /email_verifications/{verificationId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Contas de Administrador e Lojistas
     match /accounts/{accountId} {
       allow read: if true;

@@ -64,6 +64,7 @@ export default function App() {
   // Authentication & Users
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(accountService.getCurrentSession());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginModalMode, setLoginModalMode] = useState<'login' | 'register'>('login');
   const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
 
   // Core Data State
@@ -102,6 +103,13 @@ export default function App() {
           pathname === '/login' ||
           pathname === '/entrar';
 
+        const isRegister =
+          view === 'cadastro' ||
+          view === 'registrar' ||
+          view === 'register' ||
+          pathname === '/cadastro' ||
+          pathname === '/registrar';
+
         const isCeoRoute =
           view === 'ceo' ||
           view === 'admin' ||
@@ -127,7 +135,12 @@ export default function App() {
           }
         }
 
-        if (isLogin) {
+        if (isRegister) {
+          setLoginModalMode('register');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
+        } else if (isLogin) {
+          setLoginModalMode('login');
           setCurrentView('login');
           setIsLoginModalOpen(true);
         } else if (isCeoRoute) {
@@ -551,6 +564,12 @@ export default function App() {
       {currentView === 'landing' && (
         <LandingPage
           onOpenLogin={() => {
+            setLoginModalMode('login');
+            setCurrentView('login');
+            setIsLoginModalOpen(true);
+          }}
+          onOpenRegister={() => {
+            setLoginModalMode('register');
             setCurrentView('login');
             setIsLoginModalOpen(true);
           }}
@@ -563,6 +582,7 @@ export default function App() {
         <LoginModal
           isOpen={true}
           isStandalone={true}
+          initialMode={loginModalMode}
           onLoginSuccess={handleLoginSuccess}
           onClose={() => {}}
         />
@@ -832,6 +852,7 @@ export default function App() {
         <LoginModal
           isOpen={true}
           isStandalone={false}
+          initialMode={loginModalMode}
           onClose={() => setIsLoginModalOpen(false)}
           onLoginSuccess={handleLoginSuccess}
         />

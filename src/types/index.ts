@@ -134,6 +134,8 @@ export interface UserAccount {
   passwordHash: string; // Stored securely
   role: 'super_admin' | 'store_admin';
   name: string;
+  email?: string;
+  emailVerified?: boolean;
   storeId: string;
   storeName: string;
   planStatus: 'ativo' | 'pendente' | 'bloqueado';
@@ -141,6 +143,25 @@ export interface UserAccount {
   phoneWhatsapp?: string;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface ClientRegistrationFormData {
+  name: string;
+  email: string;
+  phoneWhatsapp: string;
+  storeName: string;
+  username: string;
+  password: string;
+}
+
+export interface EmailVerificationSession {
+  email: string;
+  code: string;
+  createdAt: string;
+  expiresAt: string;
+  attempts: number;
+  verified: boolean;
+  registrationData: ClientRegistrationFormData;
 }
 
 export interface SecurityRequirements {

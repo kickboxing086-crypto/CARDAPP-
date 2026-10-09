@@ -193,9 +193,38 @@
         }
       },
       "required": ["id", "displayId", "subtotal", "total", "status"]
+    },
+    "EmailVerification": {
+      "title": "EmailVerification",
+      "description": "Sessão de verificação com código de 6 dígitos enviado por no-reply",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": ["email", "code", "createdAt", "expiresAt", "verified"]
     }
   },
   "firestore": {
+    "/email_verifications/{verificationId}": {
+      "schema": "EmailVerification",
+      "description": "Armazenamento de códigos de 6 dígitos no-reply para validação de email real"
+    },
     "/accounts/{accountId}": {
       "schema": "UserAccount",
       "description": "Contas de administradores e gerentes de lojas"

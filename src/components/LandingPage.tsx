@@ -23,11 +23,14 @@ import { formatCurrency } from '../utils/formatters';
 
 interface LandingPageProps {
   onOpenLogin?: () => void;
+  onOpenRegister?: () => void;
   onOpenDemoMenu: () => void;
   onOpenCeoPanelDirectly?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
+  onOpenLogin,
+  onOpenRegister,
   onOpenDemoMenu,
 }) => {
   // Calculator state
@@ -123,6 +126,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span className="text-[11px]">{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
             </button>
 
+            {onOpenRegister && (
+              <button
+                type="button"
+                onClick={onOpenRegister}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black text-slate-900 bg-amber-400 hover:bg-amber-500 transition-all cursor-pointer shadow-xs active:scale-95"
+              >
+                <Store className="w-3.5 h-3.5" />
+                <span>Criar Conta</span>
+              </button>
+            )}
+
+            {onOpenLogin && (
+              <button
+                type="button"
+                onClick={onOpenLogin}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-800 hover:bg-amber-50 border border-slate-200 transition-all cursor-pointer"
+              >
+                <span>Entrar</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenDemoMenu}
@@ -130,16 +154,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               <ForkKnifeIcon className="w-3.5 h-3.5 text-amber-500" />
               <span>Ver Cardápio</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleOpenWhatsapp()}
-              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer"
-            >
-              <Zap className="w-3.5 h-3.5 fill-current shrink-0" />
-              <span className="hidden sm:inline">Assinar</span>
-              <span className="text-[11px] sm:text-xs">R$ 24,99</span>
             </button>
           </div>
         </div>
@@ -169,14 +183,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* CTA Buttons */}
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => handleOpenWhatsapp()}
-              className="w-full sm:w-auto px-7 py-3.5 sm:py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm sm:text-base transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2.5 cursor-pointer group"
-            >
-              <span>Quero Meu Cardápio por R$ 24,99/mês</span>
-              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform stroke-[2.5]" />
-            </button>
+            {onOpenRegister ? (
+              <button
+                type="button"
+                onClick={onOpenRegister}
+                className="w-full sm:w-auto px-7 py-3.5 sm:py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm sm:text-base transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2.5 cursor-pointer group"
+              >
+                <span>Criar Minha Conta (Verificação em 2 Etapas)</span>
+                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform stroke-[2.5]" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleOpenWhatsapp()}
+                className="w-full sm:w-auto px-7 py-3.5 sm:py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm sm:text-base transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2.5 cursor-pointer group"
+              >
+                <span>Quero Meu Cardápio por R$ 24,99/mês</span>
+                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform stroke-[2.5]" />
+              </button>
+            )}
 
             <button
               type="button"
