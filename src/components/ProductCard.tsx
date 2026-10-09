@@ -50,74 +50,57 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <div
       onClick={() => onOpenDetails(product)}
-      className={`group relative bg-white rounded-2xl border transition-all duration-300 flex flex-col overflow-hidden text-left cursor-pointer ${
+      className={`group relative bg-white rounded-2xl border transition-all duration-200 flex flex-row items-center justify-between p-3.5 sm:p-4 text-left cursor-pointer gap-3 sm:gap-4 shadow-2xs hover:shadow-md hover:border-amber-400 ${
         product.isAvailable
-          ? 'border-amber-200/70 hover:border-amber-400 hover:shadow-lg hover:-translate-y-1'
-          : 'border-slate-200 opacity-60'
+          ? 'border-amber-200/80 bg-white hover:bg-amber-50/20'
+          : 'border-slate-200 opacity-60 bg-slate-50/50'
       }`}
     >
-      {/* Product Image Slot or Fork & Knife Placeholder */}
-      <div className="relative aspect-4/3 w-full bg-amber-50/60 overflow-hidden">
-        {!imageError && product.image ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            onError={() => setImageError(true)}
-            className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-          />
-        ) : (
-          <ForkKnifePlaceholder productName={product.name} />
-        )}
-
-        {/* Promotion Badge if enabled */}
-        {product.promotion?.enabled && (
-          <div className="absolute top-2.5 left-2.5 bg-amber-400 text-slate-950 font-black text-[11px] px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1">
-            <Tag className="w-3 h-3 stroke-[2.5]" />
-            <span>{product.promotion.promoQuantity} por {formatCurrency(product.promotion.promoPrice)}</span>
-          </div>
-        )}
-
-        {/* Out of Stock Overlay */}
-        {!product.isAvailable && (
-          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center">
-            <span className="bg-red-500 text-white font-bold text-xs uppercase px-3 py-1.5 rounded-lg shadow-md">
-              Esgotado no Momento
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Product Details */}
-      <div className="p-4 flex-1 flex flex-col justify-between">
+      {/* Product Details (Left Side) */}
+      <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch py-0.5">
         <div>
-          <h3 className="text-base font-bold text-slate-900 group-hover:text-amber-800 transition-colors line-clamp-1 mb-1">
+          {/* Top badges (Promotion / Out of Stock) */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            {product.promotion?.enabled && (
+              <span className="bg-amber-400 text-slate-950 font-black text-[10px] px-2 py-0.5 rounded-md shadow-2xs inline-flex items-center gap-1">
+                <Tag className="w-2.5 h-2.5 stroke-[2.5]" />
+                <span>{product.promotion.promoQuantity} por {formatCurrency(product.promotion.promoPrice)}</span>
+              </span>
+            )}
+            {!product.isAvailable && (
+              <span className="bg-red-100 text-red-800 font-bold text-[10px] uppercase px-2 py-0.5 rounded-md">
+                Esgotado
+              </span>
+            )}
+          </div>
+
+          <h3 className="text-sm sm:text-base font-extrabold text-slate-950 group-hover:text-amber-800 transition-colors line-clamp-1 leading-snug">
             {product.name}
           </h3>
-          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-2.5">
+
+          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mt-1">
             {product.description}
           </p>
 
           {/* Complements indicator */}
           {product.complements && product.complements.length > 0 && (
-            <span className="inline-block text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 mb-2">
+            <span className="inline-block text-[10px] sm:text-[11px] font-semibold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/80 mt-1.5">
               Opções de complementos disponíveis
             </span>
           )}
         </div>
 
-        {/* Price & Quantity Controls */}
-        <div className="pt-2 border-t border-amber-100 flex items-center justify-between gap-2 mt-auto">
-          <div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-extrabold text-slate-950 font-mono tabular-nums">
-                {formatCurrency(product.price)}
+        {/* Price & Action Button */}
+        <div className="pt-2 flex items-center justify-between gap-2 mt-2 border-t border-amber-100/60">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-sm sm:text-base font-black text-slate-950 font-mono tabular-nums">
+              {formatCurrency(product.price)}
+            </span>
+            {product.promotion?.enabled && (
+              <span className="text-[10px] sm:text-[11px] text-amber-800 font-bold">
+                (ou {product.promotion.promoQuantity}x {formatCurrency(product.promotion.promoPrice)})
               </span>
-              {product.promotion?.enabled && (
-                <span className="text-[11px] text-amber-800 font-bold">
-                  (ou {product.promotion.promoQuantity}x {formatCurrency(product.promotion.promoPrice)})
-                </span>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Interactive "+" and Quantity Control */}
@@ -127,7 +110,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 <button
                   type="button"
                   onClick={handleQuickAdd}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all duration-200 cursor-pointer shadow-xs ${
+                  className={`flex items-center gap-1 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-black text-xs transition-all duration-200 cursor-pointer shadow-xs ${
                     justAdded
                       ? 'bg-emerald-500 text-white scale-105'
                       : 'bg-amber-400 hover:bg-amber-500 text-slate-950 active:scale-95'
@@ -137,12 +120,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 >
                   {justAdded ? (
                     <>
-                      <Check className="w-4 h-4 stroke-[3]" />
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
                       <span>Adicionado</span>
                     </>
                   ) : (
                     <>
-                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
                       <span>Adicionar</span>
                     </>
                   )}
@@ -152,27 +135,50 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                   <button
                     type="button"
                     onClick={handleDecrement}
-                    className="w-7 h-7 rounded-lg bg-white text-slate-900 hover:bg-amber-100 flex items-center justify-center font-bold transition-colors cursor-pointer"
+                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-white text-slate-900 hover:bg-amber-100 flex items-center justify-center font-bold transition-colors cursor-pointer"
                     aria-label="Diminuir quantidade"
                   >
-                    <Minus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <Minus className="w-3 h-3 stroke-[2.5]" />
                   </button>
-                  <span className="min-w-6 text-center font-extrabold text-xs text-slate-950 font-mono tabular-nums">
+                  <span className="min-w-5 sm:min-w-6 text-center font-extrabold text-xs text-slate-950 font-mono tabular-nums">
                     {quantityInCart}x
                   </span>
                   <button
                     type="button"
                     onClick={handleIncrement}
-                    className="w-7 h-7 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-500 flex items-center justify-center font-bold transition-all cursor-pointer active:scale-90"
+                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-500 flex items-center justify-center font-bold transition-all cursor-pointer active:scale-90"
                     aria-label="Aumentar quantidade (+)"
                   >
-                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <Plus className="w-3 h-3 stroke-[2.5]" />
                   </button>
                 </div>
               )}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Product Image Slot (Right Side) */}
+      <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-xl sm:rounded-2xl bg-amber-50/70 overflow-hidden shrink-0 border border-amber-200/80 shadow-2xs">
+        {!imageError && product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            onError={() => setImageError(true)}
+            className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+          />
+        ) : (
+          <ForkKnifePlaceholder productName={product.name} />
+        )}
+
+        {/* Out of Stock Overlay */}
+        {!product.isAvailable && (
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] flex items-center justify-center">
+            <span className="text-[10px] font-black uppercase text-white bg-red-600 px-2 py-0.5 rounded shadow">
+              Esgotado
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
