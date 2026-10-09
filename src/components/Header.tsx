@@ -1,6 +1,6 @@
 import React from 'react';
-import { ShoppingBag, Menu, Info, Store, User } from 'lucide-react';
-import { StoreSettings } from '../types';
+import { ShoppingBag, Menu, Info, ArrowLeft, Lock, UserCheck } from 'lucide-react';
+import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 
 interface HeaderProps {
@@ -11,9 +11,9 @@ interface HeaderProps {
   onOpenStoreInfo: () => void;
   onViewMenuClick: () => void;
   activeOrderCount: number;
-  isCeoView: boolean;
-  onSwitchToClientMode: () => void;
-  onSwitchToCeoMode: () => void;
+  onBackToLanding?: () => void;
+  currentUser?: UserAccount | null;
+  onOpenLoginModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,9 +24,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStoreInfo,
   onViewMenuClick,
   activeOrderCount,
-  isCeoView,
-  onSwitchToClientMode,
-  onSwitchToCeoMode,
+  onBackToLanding,
+  currentUser,
+  onOpenLoginModal,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-200 shadow-xs">
@@ -39,7 +39,20 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-3">
         {/* LADO SUPERIOR ESQUERDO: BARRA DE INFORMAÇÕES DA LOJA + LOGO */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Voltar para Home / Planos */}
+          {onBackToLanding && (
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="flex items-center gap-1 p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Voltar para a página de apresentação"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-xs font-bold hidden sm:inline">Início</span>
+            </button>
+          )}
+
           {/* BOTÃO DA BARRA SUPERIOR ESQUERDA (INFORMAÇÕES DA LOJA) */}
           <button
             type="button"
@@ -81,38 +94,33 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* LADO SUPERIOR DIREITO: OPÇÃO SEPARADA DO CLIENTE & OPÇÃO DO CEO + 3 BARRAS */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* SELETOR SEPARADO: LINK/MODO CLIENTE vs LINK/MODO CEO */}
-          <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200">
+        {/* LADO SUPERIOR DIREITO: SACOLA + TRÊS BARRAS DO CEO / LOGIN */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Botão de Login se não estiver autenticado */}
+          {onOpenLoginModal && (
             <button
               type="button"
-              onClick={onSwitchToClientMode}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                !isCeoView
-                  ? 'bg-white text-slate-950 shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-900'
+              onClick={onOpenLoginModal}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentUser
+                  ? 'bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
               }`}
-              title="Acessar o cardápio como cliente"
+              title={currentUser ? `Logado como ${currentUser.username}` : 'Entrar na conta da loja'}
             >
-              <User className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Cliente</span>
+              {currentUser ? (
+                <>
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+                  <span className="hidden sm:inline font-black">{currentUser.username}</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="hidden sm:inline">Entrar</span>
+                </>
+              )}
             </button>
-
-            <button
-              type="button"
-              onClick={onSwitchToCeoMode}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                isCeoView
-                  ? 'bg-amber-400 text-slate-950 shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-              title="Acessar painel administrativo do CEO"
-            >
-              <Store className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">CEO</span>
-            </button>
-          </div>
+          )}
 
           {/* Botão Sacola */}
           <button
@@ -130,12 +138,12 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* TRÊS BARRAS NO CANTO SUPERIOR DIREITO - MENU DO CEO */}
+          {/* TRÊS BARRAS NO CANTO SUPERIOR DIREITO - MENU DE ADMINISTRAÇÃO */}
           <button
             type="button"
             onClick={onOpenCeoMenu}
             className="relative p-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-slate-900 transition-all active:scale-95 cursor-pointer shadow-xs focus-visible:outline-none group"
-            title="Menu do CEO & Administração (Três Barras)"
+            title="Menu de Administração (Três Barras)"
             aria-label="Menu do CEO no canto superior direito"
           >
             <Menu className="w-5 h-5 text-slate-900 stroke-[2.5] group-hover:rotate-3 transition-transform" />

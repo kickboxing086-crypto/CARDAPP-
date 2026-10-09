@@ -114,3 +114,28 @@ export interface StoreSettings {
   paymentMethods: StorePaymentMethods;
   minOrderValue: number;
 }
+
+// User accounts and multi-tenant authentication
+export interface UserAccount {
+  id: string;
+  username: string; // Validated: uppercase, lowercase, number, special char
+  passwordHash: string; // Stored securely
+  role: 'super_admin' | 'store_admin';
+  name: string;
+  storeId: string;
+  storeName: string;
+  planStatus: 'ativo' | 'pendente' | 'bloqueado';
+  monthlyFee: number; // 24.99
+  phoneWhatsapp?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface SecurityRequirements {
+  hasUppercase: boolean;
+  hasLowercase: boolean;
+  hasNumber: boolean;
+  hasSpecialChar: boolean;
+  hasMinLength: boolean;
+  isValid: boolean;
+}

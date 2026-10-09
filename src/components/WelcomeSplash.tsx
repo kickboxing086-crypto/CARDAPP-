@@ -50,26 +50,23 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
               <ForkKnifeIcon className="w-12 h-12 text-slate-950 stroke-[2.4]" />
             )}
           </div>
-          <span className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-slate-950 text-amber-400 flex items-center justify-center text-xs font-black shadow-md border-2 border-white">
-            ★
-          </span>
         </div>
 
         {/* Store Name & Welcome Text */}
         <div className="space-y-2">
-          <span className="text-[11px] font-black uppercase tracking-[0.25em] text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+          <span className="text-[11px] font-black uppercase tracking-[0.25em] text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
             Cardápio Digital Oficial
           </span>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-950 font-display">
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-950 font-display">
             {storeName}
           </h1>
           <p className="text-xs text-slate-500 max-w-xs mx-auto">
-            Carregando pratos, promoções e atendimento em tempo real...
+            Carregando pratos, complementos e atendimento em tempo real...
           </p>
         </div>
 
         {/* Loading Yellow Spinner Bar */}
-        <div className="w-48 h-1.5 bg-slate-100 rounded-full mt-8 overflow-hidden">
+        <div className="w-48 h-1.5 bg-slate-100 rounded-full mt-6 overflow-hidden">
           <div className="h-full bg-amber-400 rounded-full animate-pulse w-full" />
         </div>
 
@@ -79,10 +76,14 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
             setFading(true);
             setTimeout(onFinish, 200);
           }}
-          className="mt-6 text-[11px] font-bold text-slate-400 hover:text-slate-800 transition-colors uppercase tracking-wider cursor-pointer"
+          className="mt-5 text-[11px] font-bold text-slate-400 hover:text-slate-800 transition-colors uppercase tracking-wider cursor-pointer"
         >
-          Entrar no Cardápio →
+          Entrar no Cardápio
         </button>
+
+        <div className="mt-8 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          Desenvolvido por SF TECNOLOGIA
+        </div>
       </div>
     </div>
   );

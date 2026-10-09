@@ -522,6 +522,10 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
             <span>Confirmar Pedido & Enviar para Cozinha</span>
           </button>
         </div>
+
+        <p className="text-center text-[10px] font-bold text-slate-400 mt-6 uppercase tracking-wider">
+          Desenvolvido por SF TECNOLOGIA
+        </p>
       </form>
     </div>
   );

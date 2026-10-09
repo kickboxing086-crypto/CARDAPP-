@@ -255,6 +255,9 @@ export const StoreInfoSidebar: React.FC<StoreInfoSidebarProps> = ({
           >
             Fechar e Voltar ao Cardápio
           </button>
+          <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-wide">
+            Desenvolvido por SF TECNOLOGIA
+          </p>
         </div>
       </div>
     </div>

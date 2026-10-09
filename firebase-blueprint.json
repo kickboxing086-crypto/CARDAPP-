@@ -1,0 +1,220 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Conta de usuário ou administrador de loja no sistema CARDAPP",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único da conta"
+        },
+        "username": {
+          "type": "string",
+          "description": "Nome de usuário para login",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "passwordHash": {
+          "type": "string",
+          "description": "Senha ou hash de acesso",
+          "minLength": 6,
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "store_admin"]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "storeId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "storeName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "planStatus": {
+          "type": "string",
+          "enum": ["ativo", "pendente", "bloqueado"]
+        },
+        "monthlyFee": {
+          "type": "number"
+        },
+        "phoneWhatsapp": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "username", "passwordHash", "role", "name", "storeId", "planStatus"]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Configurações gerais e regras operacionais da loja",
+      "type": "object",
+      "properties": {
+        "storeName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "tagline": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "logoBase64": {
+          "type": "string"
+        },
+        "instagramHandle": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "phoneWhatsapp": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "isOpen": {
+          "type": "boolean"
+        },
+        "deliveryFee": {
+          "type": "number"
+        },
+        "estimatedDeliveryTime": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "pixKey": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "pixKeyType": {
+          "type": "string",
+          "enum": ["cpf", "cnpj", "telefone", "email", "aleatoria"]
+        },
+        "minOrderValue": {
+          "type": "number"
+        }
+      },
+      "required": ["storeName", "isOpen", "deliveryFee"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Categoria de produtos do cardápio",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Item comercializado no cardápio",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "price": {
+          "type": "number"
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "isAvailable": {
+          "type": "boolean"
+        },
+        "imageBase64": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "price", "category", "isAvailable"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Pedido do cliente",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "displayId": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "dateKey": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "subtotal": {
+          "type": "number"
+        },
+        "deliveryFee": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["recebido", "em_producao", "em_rota", "finalizado"]
+        }
+      },
+      "required": ["id", "displayId", "subtotal", "total", "status"]
+    }
+  },
+  "firestore": {
+    "/accounts/{accountId}": {
+      "schema": "UserAccount",
+      "description": "Contas de administradores e gerentes de lojas"
+    },
+    "/stores/{storeId}/settings/current": {
+      "schema": "StoreSettings",
+      "description": "Configurações da loja"
+    },
+    "/stores/{storeId}/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Categorias da loja"
+    },
+    "/stores/{storeId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Produtos cadastrados da loja"
+    },
+    "/stores/{storeId}/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Pedidos realizados pelos clientes na loja"
+    }
+  }
+}

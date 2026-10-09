@@ -337,7 +337,7 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
       </div>
 
       {/* Button to Start New Order */}
-      <div className="text-center">
+      <div className="text-center space-y-3">
         <button
           type="button"
           onClick={onNewOrder}
@@ -346,6 +346,9 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           <RotateCcw className="w-4 h-4" />
           <span>Fazer Outro Pedido no Cardápio</span>
         </button>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          Desenvolvido por SF TECNOLOGIA
+        </p>
       </div>
     </div>
   );

@@ -1,16 +1,16 @@
-import { Product, StoreSettings, Order } from '../types';
+import { Product, StoreSettings, Order, Category } from '../types';
 
 export const INITIAL_SETTINGS: StoreSettings = {
   storeName: 'CARDAPP Gourmet',
   tagline: 'Cardápio Digital exclusivo com sabores selecionados e atendimento rápido',
-  logoBase64: '', // CEO can upload their custom logo
+  logoBase64: '', // CEO can upload custom logo in settings
   instagramHandle: '@cardappgourmet',
-  phoneWhatsapp: '5511998765432',
-  address: 'Av. Paulista, 1200 - Bela Vista, São Paulo - SP',
+  phoneWhatsapp: '5584986113980',
+  address: 'Av. Principal, 100 - Centro',
   isOpen: true,
   deliveryFee: 6.50,
   estimatedDeliveryTime: '30 - 45 min',
-  pixKey: 'contato@cardappgourmet.com.br',
+  pixKey: 'pix@cardapp.com.br',
   pixKeyType: 'email',
   minOrderValue: 20.00,
   serviceModes: {
@@ -26,7 +26,7 @@ export const INITIAL_SETTINGS: StoreSettings = {
   },
 };
 
-export const INITIAL_CATEGORIES = [
+export const INITIAL_CATEGORIES: Category[] = [
   { id: 'todos', name: 'Todos os Itens' },
   { id: 'acai', name: 'Açaí & Sobremesas' },
   { id: 'burgers', name: 'Hambúrgueres Artesanais' },
@@ -139,147 +139,5 @@ export const INITIAL_PRODUCTS: Product[] = [
   },
 ];
 
-// Helper to format date YYYY-MM-DD
-function getDateKey(daysAgo: number = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
-}
-
-const todayKey = getDateKey(0);
-const yesterdayKey = getDateKey(1);
-
-export const INITIAL_ORDERS: Order[] = [
-  {
-    id: 'ord-101',
-    displayId: '#CARD-1041',
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    dateKey: todayKey,
-    items: [
-      {
-        product: INITIAL_PRODUCTS[0],
-        quantity: 2,
-        notes: 'Caprichar no leite condensado',
-        selectedComplements: [
-          { id: 'comp-1', name: 'Leite Condensado', price: 0 },
-          { id: 'comp-4', name: 'Morangos Frescos Fatiados', price: 4.00 },
-        ],
-        appliedPromotion: {
-          promoQuantity: 2,
-          promoPrice: 38.00,
-          savings: 6.00,
-        },
-        totalPrice: 42.00, // 38.00 promo + 4.00 morango
-      },
-      {
-        product: INITIAL_PRODUCTS[1],
-        quantity: 1,
-        notes: 'Ponto da carne bem passada',
-        selectedComplements: [
-          { id: 'comp-b1', name: 'Bacon Extra Crocante', price: 5.00 },
-        ],
-        totalPrice: 41.00,
-      },
-    ],
-    subtotal: 83.00,
-    deliveryFee: 6.50,
-    total: 89.50,
-    customer: {
-      name: 'Lucas Ferreira',
-      phone: '(11) 98765-4321',
-      deliveryType: 'delivery',
-      address: {
-        street: 'Rua Bela Cintra',
-        number: '840',
-        neighborhood: 'Consolação',
-        complement: 'Apto 42B',
-        city: 'São Paulo',
-      },
-      paymentMethod: 'pix',
-    },
-    status: 'em_rota',
-    statusHistory: [
-      { status: 'recebido', timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), note: 'Pedido registrado' },
-      { status: 'em_producao', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), note: 'Cozinha montando os itens' },
-      { status: 'em_rota', timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(), note: 'Entregador em rota de entrega' },
-    ],
-  },
-  {
-    id: 'ord-102',
-    displayId: '#CARD-1042',
-    createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-    dateKey: todayKey,
-    items: [
-      {
-        product: INITIAL_PRODUCTS[2],
-        quantity: 1,
-        notes: '',
-        selectedComplements: [
-          { id: 'comp-p1', name: 'Borda Recheada com Catupiry', price: 9.00 },
-        ],
-        totalPrice: 61.00,
-      },
-    ],
-    subtotal: 61.00,
-    deliveryFee: 0,
-    total: 61.00,
-    customer: {
-      name: 'Mariana Lima',
-      phone: '(11) 97123-9988',
-      deliveryType: 'retirada',
-      paymentMethod: 'dinheiro',
-      cashGiven: 100.00,
-      changeToReturn: 39.00,
-    },
-    status: 'em_producao',
-    statusHistory: [
-      { status: 'recebido', timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString(), note: 'Pedido recebido no balcão' },
-      { status: 'em_producao', timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), note: 'Forno aquecido' },
-    ],
-  },
-  {
-    id: 'ord-099',
-    displayId: '#CARD-1039',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
-    dateKey: yesterdayKey,
-    items: [
-      {
-        product: INITIAL_PRODUCTS[1],
-        quantity: 2,
-        appliedPromotion: {
-          promoQuantity: 2,
-          promoPrice: 65.00,
-          savings: 7.00,
-        },
-        totalPrice: 65.00,
-      },
-      {
-        product: INITIAL_PRODUCTS[5],
-        quantity: 2,
-        totalPrice: 28.00,
-      },
-    ],
-    subtotal: 93.00,
-    deliveryFee: 6.50,
-    total: 99.50,
-    customer: {
-      name: 'Rodrigo Alves',
-      phone: '(11) 96543-2109',
-      deliveryType: 'delivery',
-      address: {
-        street: 'Alameda Santos',
-        number: '1450',
-        neighborhood: 'Cerqueira César',
-        city: 'São Paulo',
-      },
-      paymentMethod: 'cartao_credito',
-    },
-    status: 'finalizado',
-    statusHistory: [
-      { status: 'recebido', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(), note: 'Pedido registrado' },
-      { status: 'em_producao', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 25.5).toISOString(), note: 'Em preparo' },
-      { status: 'em_rota', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 25).toISOString(), note: 'Em rota' },
-      { status: 'finalizado', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24.5).toISOString(), note: 'Entregue com sucesso' },
-    ],
-  },
-];
+// No mock customer data is pre-seeded, protecting customer privacy
+export const INITIAL_ORDERS: Order[] = [];

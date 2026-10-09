@@ -1863,6 +1863,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Footer SF TECNOLOGIA */}
+        <div className="bg-slate-900 text-slate-400 py-2.5 px-4 text-center text-[10px] font-bold border-t border-slate-800 shrink-0">
+          CARDAPP • Desenvolvido por SF TECNOLOGIA • Todos os direitos reservados
+        </div>
       </div>
 
       {/* TWO-STEP CONFIRMATION MODAL TO DELETE ORDER */}
@@ -1991,6 +1996,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   DINHEIRO: {formatCurrency(printOrder.customer.cashGiven)} | TROCO: {formatCurrency(printOrder.customer.changeToReturn || 0)}
                 </p>
               )}
+            </div>
+
+            <div className="text-center pt-2 text-[9px] text-slate-500 border-t border-dashed border-slate-300">
+              CARDAPP • Desenvolvido por SF TECNOLOGIA
             </div>
 
             <div className="flex gap-2 pt-2">

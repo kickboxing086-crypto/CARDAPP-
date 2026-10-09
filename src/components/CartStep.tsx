@@ -222,6 +222,10 @@ export const CartStep: React.FC<CartStepProps> = ({
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>
+
+      <p className="text-center text-[10px] font-bold text-slate-400 mt-6 uppercase tracking-wider">
+        Desenvolvido por SF TECNOLOGIA
+      </p>
     </div>
   );
 };

@@ -14,8 +14,10 @@ import {
   OrderCustomer,
   SelectedComplement,
   Category,
+  UserAccount,
 } from './types';
 import { storageService } from './services/storageService';
+import { accountService } from './services/accountService';
 import { Header } from './components/Header';
 import { StepTracker } from './components/StepTracker';
 import { ProductCard } from './components/ProductCard';
@@ -28,10 +30,22 @@ import { FloatingCartBar } from './components/FloatingCartBar';
 import { StoreInfoSidebar } from './components/StoreInfoSidebar';
 import { WelcomeSplash } from './components/WelcomeSplash';
 import { ForkKnifeIcon } from './components/ForkKnifeIcon';
+import { LandingPage } from './components/LandingPage';
+import { LoginModal } from './components/LoginModal';
+import { SuperAdminModal } from './components/SuperAdminModal';
+import { testFirestoreConnection } from './firebase';
 
 export default function App() {
-  // Splash Welcome Animation in Yellow & White
-  const [showSplash, setShowSplash] = useState(true);
+  // Navigation view: 'landing' (SaaS presentation & pricing R$ 24,99) vs 'menu' (Digital Menu)
+  const [currentView, setCurrentView] = useState<'landing' | 'menu'>('landing');
+
+  // Splash Welcome Animation in Yellow & White (only when entering digital menu)
+  const [showSplash, setShowSplash] = useState(false);
+
+  // Authentication & Users
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(accountService.getCurrentSession());
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
 
   // Core Data State
   const [products, setProducts] = useState<Product[]>([]);
@@ -53,33 +67,44 @@ export default function App() {
   // Modals & Panels
   const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(null);
   const [isCeoModalOpen, setIsCeoModalOpen] = useState(false);
-  const [isCeoViewMode, setIsCeoViewMode] = useState(false);
   const [isStoreInfoOpen, setIsStoreInfoOpen] = useState(false);
 
-  // Check URL query parameters or paths for separated links (?view=ceo vs ?view=cliente, /ceo, /admin)
+  // Check URL query parameters or paths
   useEffect(() => {
     const syncRouteFromUrl = () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const view = urlParams.get('view');
         const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
+
         const isCeoRoute =
           view === 'ceo' ||
+          view === 'admin' ||
           pathname === '/ceo' ||
           pathname === '/admin' ||
           pathname.startsWith('/admin/');
+
         const isClienteRoute =
           view === 'cliente' ||
+          view === 'cardapio' ||
           pathname === '/cliente' ||
-          pathname === '/cardapio';
+          pathname === '/cardapio' ||
+          pathname === '/menu';
 
         if (isCeoRoute) {
-          setIsCeoViewMode(true);
-          setIsCeoModalOpen(true);
-          setShowSplash(false);
+          const session = accountService.getCurrentSession();
+          if (session?.role === 'super_admin') {
+            setIsSuperAdminModalOpen(true);
+          } else if (session?.role === 'store_admin') {
+            setIsCeoModalOpen(true);
+          } else {
+            setIsLoginModalOpen(true);
+          }
         } else if (isClienteRoute) {
-          setIsCeoViewMode(false);
-          setIsCeoModalOpen(false);
+          setCurrentView('menu');
+        } else {
+          // Default to landing page on home
+          setCurrentView('landing');
         }
       } catch {
         // ignore
@@ -93,6 +118,7 @@ export default function App() {
 
   // Load initial data and subscribe to storage changes
   useEffect(() => {
+    testFirestoreConnection();
     setProducts(storageService.getProducts());
     setOrders(storageService.getOrders());
     setCategories(storageService.getCategories());
@@ -102,7 +128,7 @@ export default function App() {
       setActiveOrderId(storedActiveId);
     }
 
-    const unsubscribe = storageService.subscribe(() => {
+    const unsubscribeStorage = storageService.subscribe(() => {
       setProducts(storageService.getProducts());
       setOrders(storageService.getOrders());
       setCategories(storageService.getCategories());
@@ -110,7 +136,14 @@ export default function App() {
       setActiveOrderId(storageService.getActiveOrderId());
     });
 
-    return () => unsubscribe();
+    const unsubscribeAuth = accountService.subscribe(() => {
+      setCurrentUser(accountService.getCurrentSession());
+    });
+
+    return () => {
+      unsubscribeStorage();
+      unsubscribeAuth();
+    };
   }, []);
 
   // Filtered products list
@@ -170,27 +203,40 @@ export default function App() {
     const calculatedTotal = totalPriceParam !== undefined ? totalPriceParam : basePrice + compTotal;
 
     setCartItems((prev) => {
-      const compIdsString = (selectedComplements || []).map((c) => c.id).sort().join(',');
       const existingIndex = prev.findIndex(
         (item) =>
           item.product.id === product.id &&
-          item.notes === (notes || '') &&
-          (item.selectedComplements || []).map((c) => c.id).sort().join(',') === compIdsString
+          JSON.stringify(item.selectedComplements || []) === JSON.stringify(selectedComplements || [])
       );
 
       if (existingIndex > -1) {
         const updated = [...prev];
         const newQty = updated[existingIndex].quantity + quantityToAdd;
-        updated[existingIndex].quantity = newQty;
-
         let newBase = product.price * newQty;
+        let newPromoData = undefined;
+
         if (product.promotion?.enabled && newQty >= product.promotion.promoQuantity) {
           const b = Math.floor(newQty / product.promotion.promoQuantity);
           const r = newQty % product.promotion.promoQuantity;
-          newBase = b * product.promotion.promoPrice + r * product.price;
+          const bundled = b * product.promotion.promoPrice + r * product.price;
+          const savings = newBase - bundled;
+          if (savings > 0) {
+            newBase = bundled;
+            newPromoData = {
+              promoQuantity: product.promotion.promoQuantity,
+              promoPrice: product.promotion.promoPrice,
+              savings,
+            };
+          }
         }
-        const newComps = (selectedComplements || []).reduce((acc, c) => acc + c.price, 0) * newQty;
-        updated[existingIndex].totalPrice = newBase + newComps;
+
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: newQty,
+          notes: notes !== undefined ? notes : updated[existingIndex].notes,
+          appliedPromotion: newPromoData || appliedPromotion,
+          totalPrice: newBase + (selectedComplements || []).reduce((acc, c) => acc + c.price, 0) * newQty,
+        };
         return updated;
       }
 
@@ -287,7 +333,6 @@ export default function App() {
     storageService.deleteProduct(productId);
   };
 
-  // Category Actions
   const handleAddCategory = (name: string) => {
     storageService.addCategory(name);
     setCategories(storageService.getCategories());
@@ -305,229 +350,304 @@ export default function App() {
     storageService.saveSettings(newSettings);
   };
 
-  const handleSwitchToClientView = () => {
-    setIsCeoViewMode(false);
-    setIsCeoModalOpen(false);
+  // Navigation handlers
+  const handleOpenDemoMenu = () => {
+    setCurrentView('menu');
+    setShowSplash(true);
     try {
-      window.history.pushState({}, '', '/?view=cliente');
+      window.history.pushState({}, '', '/?view=cardapio');
     } catch {
       // ignore
     }
   };
 
-  const handleSwitchToCeoMode = () => {
-    setIsCeoViewMode(true);
-    setIsCeoModalOpen(true);
+  const handleBackToLanding = () => {
+    setCurrentView('landing');
     try {
-      window.history.pushState({}, '', '/?view=ceo');
+      window.history.pushState({}, '', '/');
     } catch {
       // ignore
     }
+  };
+
+  const handleLoginSuccess = (user: UserAccount) => {
+    setCurrentUser(user);
+    if (user.role === 'super_admin') {
+      setIsSuperAdminModalOpen(true);
+      setIsCeoModalOpen(false);
+    } else {
+      setIsCeoModalOpen(true);
+      setIsSuperAdminModalOpen(false);
+    }
+  };
+
+  const handleLogout = () => {
+    accountService.logout();
+    setCurrentUser(null);
+    setIsSuperAdminModalOpen(false);
+    setIsCeoModalOpen(false);
   };
 
   const handleStartNewOrder = () => {
-    storageService.setActiveOrderId(null);
+    storageService.clearActiveOrderId();
     setActiveOrderId(null);
     setCurrentStep(1);
   };
 
   return (
     <div className="min-h-screen bg-[#FFFDF7] text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
-      {/* Welcome Splash Animation in Yellow & White */}
-      {showSplash && (
-        <WelcomeSplash
-          storeName={settings.storeName}
-          logoBase64={settings.logoBase64}
-          onFinish={() => setShowSplash(false)}
+      {/* 1. SAAS LANDING PAGE (PLANO R$ 24,99/MÊS E PERSUASÃO) */}
+      {currentView === 'landing' && (
+        <LandingPage
+          onOpenLogin={() => setIsLoginModalOpen(true)}
+          onOpenDemoMenu={handleOpenDemoMenu}
         />
       )}
 
-      {/* Top Header with Top-Left Info Bar and Top-Right 3 Bars for CEO */}
-      <Header
-        settings={settings}
-        cartCount={totalCartCount}
-        onOpenCart={() => setCurrentStep(2)}
-        onOpenCeoMenu={() => setIsCeoModalOpen(true)}
-        onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
-        onViewMenuClick={() => setCurrentStep(1)}
-        activeOrderCount={pendingOrdersCount}
-        isCeoView={isCeoViewMode}
-        onSwitchToClientMode={handleSwitchToClientView}
-        onSwitchToCeoMode={handleSwitchToCeoMode}
-      />
+      {/* 2. DIGITAL MENU VIEW FOR CLIENTS */}
+      {currentView === 'menu' && (
+        <>
+          {/* Welcome Splash Animation in Yellow & White */}
+          {showSplash && (
+            <WelcomeSplash
+              storeName={settings.storeName}
+              logoBase64={settings.logoBase64}
+              onFinish={() => setShowSplash(false)}
+            />
+          )}
 
-      {/* 4 ETAPAS TRACKER FOR CLIENT */}
-      <StepTracker
-        currentStep={currentStep}
-        onStepClick={(step) => setCurrentStep(step)}
-        cartCount={totalCartCount}
-      />
-
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 pb-24">
-        {/* ETAPA 1: CARDÁPIO (SELEÇÃO DE PRODUTOS) */}
-        {currentStep === 1 && (
-          <div>
-            {/* Top Greeting Header (Clean, uncrowded - all heavy details are inside the top-left sidebar) */}
-            <div className="bg-gradient-to-b from-amber-100/50 via-amber-50/20 to-transparent pt-6 pb-2 px-4 text-center">
-              <div className="max-w-4xl mx-auto">
-                <span className="text-[11px] font-black uppercase tracking-widest text-amber-800 bg-amber-100/80 px-3 py-1 rounded-full border border-amber-300 inline-block mb-2">
-                  Cardápio Digital Oficial
-                </span>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight font-display">
-                  {settings.storeName}
-                </h1>
-                <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
-                  {settings.tagline}
-                </p>
-              </div>
-            </div>
-
-            {/* Sticky Search and Category Filters */}
-            <section className="max-w-5xl mx-auto px-4 pt-4 pb-2">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
-                {/* Search Bar */}
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar itens no cardápio..."
-                    className="w-full text-xs sm:text-sm pl-10 pr-4 py-3 rounded-2xl bg-white border border-amber-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all shadow-xs"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      Limpar
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Dynamic Categories (Managed by CEO) */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-3 scrollbar-none">
-                {categories.map((cat) => {
-                  const isActive = selectedCategory === cat.id;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer shadow-2xs active:scale-95 ${
-                        isActive
-                          ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300'
-                          : 'bg-white text-slate-700 border border-amber-200/80 hover:bg-amber-50'
-                      }`}
-                    >
-                      {cat.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Product Grid */}
-            <section className="max-w-5xl mx-auto px-4 py-3">
-              {filteredProducts.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-3xl border border-amber-200 p-8 my-6">
-                  <div className="w-14 h-14 rounded-2xl bg-amber-50 mx-auto flex items-center justify-center mb-3">
-                    <ForkKnifeIcon className="w-8 h-8 text-amber-500 stroke-[2]" />
-                  </div>
-                  <h3 className="font-bold text-slate-800 text-base mb-1">
-                    Nenhum produto encontrado
-                  </h3>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Não encontramos nenhum item correspondente a "{searchQuery}". Tente outra categoria ou termo de busca.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredProducts.map((product) => {
-                    const cartItem = cartItems.find((ci) => ci.product.id === product.id);
-                    const qty = cartItem ? cartItem.quantity : 0;
-
-                    return (
-                      <ProductCard
-                        key={product.id}
-                        product={product}
-                        quantityInCart={qty}
-                        onAddToCart={(prod, q) => handleAddToCart(prod, q)}
-                        onUpdateQuantity={(prod, newQ) => handleUpdateCartQuantity(prod.id, newQ)}
-                        onOpenDetails={(prod) => setSelectedProductForModal(prod)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-
-        {/* ETAPA 2: SACOLA / REVISÃO */}
-        {currentStep === 2 && (
-          <CartStep
-            items={cartItems}
+          {/* Top Header without client/ceo separator */}
+          <Header
             settings={settings}
-            onUpdateQuantity={handleUpdateCartQuantity}
-            onRemoveItem={handleRemoveCartItem}
-            onBackToMenu={() => setCurrentStep(1)}
-            onProceedToCheckout={() => setCurrentStep(3)}
-          />
-        )}
-
-        {/* ETAPA 3: IDENTIFICAÇÃO & ENTREGA */}
-        {currentStep === 3 && (
-          <CheckoutStep
-            items={cartItems}
-            settings={settings}
-            onBackToCart={() => setCurrentStep(2)}
-            onSubmitOrder={handleSubmitOrder}
-          />
-        )}
-
-        {/* ETAPA 4: ACOMPANHAR PEDIDO (STATUS EM TEMPO REAL) */}
-        {currentStep === 4 && (
-          <OrderTrackingStep
-            order={currentActiveOrder}
-            settings={settings}
-            onNewOrder={handleStartNewOrder}
-            onRefresh={() => {
-              setOrders(storageService.getOrders());
+            cartCount={totalCartCount}
+            onOpenCart={() => setCurrentStep(2)}
+            onOpenCeoMenu={() => {
+              if (currentUser?.role === 'super_admin') {
+                setIsSuperAdminModalOpen(true);
+              } else if (currentUser?.role === 'store_admin') {
+                setIsCeoModalOpen(true);
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
+            onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
+            onViewMenuClick={() => setCurrentStep(1)}
+            activeOrderCount={pendingOrdersCount}
+            onBackToLanding={handleBackToLanding}
+            currentUser={currentUser}
+            onOpenLoginModal={() => {
+              if (currentUser?.role === 'super_admin') {
+                setIsSuperAdminModalOpen(true);
+              } else if (currentUser?.role === 'store_admin') {
+                setIsCeoModalOpen(true);
+              } else {
+                setIsLoginModalOpen(true);
+              }
             }}
           />
-        )}
-      </main>
 
-      {/* Floating Sticky Cart Summary on Menu Step */}
-      {currentStep === 1 && (
-        <FloatingCartBar
-          totalItems={totalCartCount}
-          subtotal={cartSubtotal}
-          onOpenCart={() => setCurrentStep(2)}
-        />
+          {/* 4 ETAPAS TRACKER FOR CLIENT */}
+          <StepTracker
+            currentStep={currentStep}
+            onStepClick={(step) => setCurrentStep(step)}
+            cartCount={totalCartCount}
+          />
+
+          {/* MAIN CONTENT AREA */}
+          <main className="flex-1 pb-24">
+            {/* ETAPA 1: CARDÁPIO (SELEÇÃO DE PRODUTOS) */}
+            {currentStep === 1 && (
+              <div>
+                {/* Greeting Header */}
+                <div className="bg-gradient-to-b from-amber-100/50 via-amber-50/20 to-transparent pt-6 pb-2 px-4 text-center">
+                  <div className="max-w-4xl mx-auto">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-amber-800 bg-amber-100/80 px-3 py-1 rounded-full border border-amber-300 inline-block mb-2">
+                      Cardápio Digital Oficial
+                    </span>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight font-display">
+                      {settings.storeName}
+                    </h1>
+                    <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
+                      {settings.tagline}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sticky Search and Category Filters */}
+                <section className="max-w-5xl mx-auto px-4 pt-4 pb-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+                    {/* Search Bar */}
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Buscar itens no cardápio..."
+                        className="w-full text-xs sm:text-sm pl-10 pr-4 py-3 rounded-2xl bg-white border border-amber-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all shadow-xs"
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Horizontal Scroll Category Filter */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory('todos')}
+                      className={`px-4 py-2 rounded-2xl text-xs font-black shrink-0 transition-all cursor-pointer ${
+                        selectedCategory === 'todos'
+                          ? 'bg-amber-400 text-slate-950 shadow-xs'
+                          : 'bg-white hover:bg-amber-50 text-slate-700 border border-amber-200/80'
+                      }`}
+                    >
+                      Todos os Itens ({products.length})
+                    </button>
+
+                    {categories.map((cat) => {
+                      const count = products.filter((p) => p.category === cat.id).length;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setSelectedCategory(cat.id)}
+                          className={`px-4 py-2 rounded-2xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                            selectedCategory === cat.id
+                              ? 'bg-amber-400 text-slate-950 font-black shadow-xs'
+                              : 'bg-white hover:bg-amber-50 text-slate-700 border border-amber-200/80'
+                          }`}
+                        >
+                          {cat.name} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                {/* Product Cards Grid */}
+                <section className="max-w-5xl mx-auto px-4 py-4">
+                  {filteredProducts.length === 0 ? (
+                    <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-amber-300 p-8">
+                      <div className="w-16 h-16 rounded-3xl bg-amber-100 flex items-center justify-center mx-auto mb-3">
+                        <ForkKnifeIcon className="w-8 h-8 text-amber-500 stroke-[2.2]" />
+                      </div>
+                      <h3 className="font-bold text-base text-slate-900">Nenhum produto encontrado</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                        Tente buscar com outras palavras ou selecione outra categoria.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCategory('todos');
+                          setSearchQuery('');
+                        }}
+                        className="mt-4 px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs"
+                      >
+                        Ver todos os produtos
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredProducts.map((product) => {
+                        const existingInCart = cartItems.find((item) => item.product.id === product.id);
+                        return (
+                          <ProductCard
+                            key={product.id}
+                            product={product}
+                            quantityInCart={existingInCart ? existingInCart.quantity : 0}
+                            onAddToCart={(prod, qty) => handleAddToCart(prod, qty)}
+                            onUpdateQuantity={(prod, qty) => handleUpdateCartQuantity(prod.id, qty)}
+                            onOpenDetails={(prod) => setSelectedProductForModal(prod)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {/* ETAPA 2: SACOLA (REVISÃO DO PEDIDO) */}
+            {currentStep === 2 && (
+              <CartStep
+                items={cartItems}
+                onUpdateQuantity={handleUpdateCartQuantity}
+                onRemoveItem={handleRemoveCartItem}
+                onBackToMenu={() => setCurrentStep(1)}
+                onProceedToCheckout={() => setCurrentStep(3)}
+                settings={settings}
+              />
+            )}
+
+            {/* ETAPA 3: IDENTIFICAÇÃO & ENTREGA / CHECKOUT */}
+            {currentStep === 3 && (
+              <CheckoutStep
+                items={cartItems}
+                settings={settings}
+                onBackToCart={() => setCurrentStep(2)}
+                onSubmitOrder={handleSubmitOrder}
+              />
+            )}
+
+            {/* ETAPA 4: ACOMPANHAMENTO DO PEDIDO EM TEMPO REAL */}
+            {currentStep === 4 && (
+              <OrderTrackingStep
+                order={currentActiveOrder}
+                settings={settings}
+                onNewOrder={handleStartNewOrder}
+              />
+            )}
+          </main>
+
+          {/* Centered Footer with SF TECNOLOGIA */}
+          <footer className="py-6 px-4 text-center text-xs text-slate-500 border-t border-amber-200/60 bg-white/60">
+            <div className="max-w-md mx-auto space-y-1">
+              <p className="font-extrabold text-slate-800 font-display">
+                CARD<span className="text-amber-500">APP</span> • {settings.storeName}
+              </p>
+              <p className="text-[11px] text-amber-800 font-bold tracking-wide uppercase">
+                Desenvolvido por SF TECNOLOGIA
+              </p>
+              <p className="text-[10px] text-slate-400">
+                © {new Date().getFullYear()} • Todos os direitos reservados
+              </p>
+            </div>
+          </footer>
+
+          {/* Sticky Floating Cart Bar on Step 1 when items exist */}
+          {currentStep === 1 && totalCartCount > 0 && (
+            <FloatingCartBar
+              totalItems={totalCartCount}
+              subtotal={cartSubtotal}
+              onOpenCart={() => setCurrentStep(2)}
+            />
+          )}
+        </>
       )}
 
-      {/* BARRA NO LADO SUPERIOR ESQUERDO COM TODAS AS INFORMAÇÕES DA LOJA */}
+      {/* PRODUCT CUSTOMIZER MODAL */}
+      <ProductCustomizerModal
+        product={selectedProductForModal}
+        onClose={() => setSelectedProductForModal(null)}
+        onConfirm={handleAddToCart}
+      />
+
+      {/* STORE INFO SIDEBAR (TOP-LEFT DRAWER) */}
       <StoreInfoSidebar
         isOpen={isStoreInfoOpen}
         onClose={() => setIsStoreInfoOpen(false)}
         settings={settings}
       />
 
-      {/* Product Customizer Modal (Abre ao selecionar produto, com complementos e quantidades) */}
-      <ProductCustomizerModal
-        product={selectedProductForModal}
-        onClose={() => setSelectedProductForModal(null)}
-        onConfirm={(prod, q, notes, selectedComplements, appliedPromo, grandTotal) =>
-          handleAddToCart(prod, q, notes, selectedComplements, appliedPromo, grandTotal)
-        }
-      />
-
-      {/* CEO Administrative Panel (Accessible via 3 Bars in Top-Right) */}
+      {/* CEO / STORE OWNER ADMIN MODAL */}
       <CEOAdminModal
         isOpen={isCeoModalOpen}
         onClose={() => setIsCeoModalOpen(false)}
@@ -543,34 +663,32 @@ export default function App() {
         onAddCategory={handleAddCategory}
         onDeleteCategory={handleDeleteCategory}
         onSaveSettings={handleSaveSettings}
-        onSwitchToClientView={handleSwitchToClientView}
+        onSwitchToClientView={() => {
+          setIsCeoModalOpen(false);
+          setCurrentView('menu');
+        }}
       />
 
-      {/* Persistent Switcher / Direct Access in Bottom Corner */}
-      <aside className="fixed bottom-3 right-3 z-30 hidden sm:flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-amber-300 shadow-lg text-xs">
-        <button
-          type="button"
-          onClick={handleSwitchToCeoMode}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-400 hover:bg-amber-500 font-extrabold text-slate-950 transition-colors cursor-pointer"
-        >
-          <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse" />
-          <span>Painel do CEO (3 Barras)</span>
-        </button>
-
-        <span className="text-slate-300">|</span>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (currentStep === 4) setCurrentStep(1);
-            else if (orders.length > 0) setCurrentStep(4);
-            else setCurrentStep(1);
+      {/* SUPER ADMIN MODAL (SAMUEL_ADM1 - GERADOR DE CONTAS E BANCO DE DADOS) */}
+      {currentUser && (
+        <SuperAdminModal
+          isOpen={isSuperAdminModalOpen}
+          onClose={() => setIsSuperAdminModalOpen(false)}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          onSwitchToStore={() => {
+            setIsSuperAdminModalOpen(false);
+            setIsCeoModalOpen(true);
           }}
-          className="text-slate-600 hover:text-slate-900 font-bold transition-colors cursor-pointer px-1"
-        >
-          {currentStep === 4 ? 'Ver Cardápio' : 'Ver Rastreio (Etapa 4)'}
-        </button>
-      </aside>
+        />
+      )}
+
+      {/* LOGIN MODAL */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
     </div>
   );
 }
