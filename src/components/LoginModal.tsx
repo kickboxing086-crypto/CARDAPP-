@@ -173,9 +173,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         // You might need to pre-fill other fields here
       }
       setIsLoginLoading(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Google login error:', err);
-      setLoginError('Erro ao logar com Google. Tente novamente ou verifique se bloqueou o pop-up.');
+      if (err?.code === 'auth/unauthorized-domain') {
+        setLoginError('Domínio não autorizado no Firebase. Adicione "Cardapp-us.vercel.app" nas configurações de Autenticação do Firebase.');
+      } else {
+        setLoginError('Erro ao logar com Google. Verifique se o pop-up foi bloqueado.');
+      }
       setIsLoginLoading(false);
     }
   };
