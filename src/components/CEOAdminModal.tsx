@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   LayoutDashboard,
@@ -151,6 +151,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Form State for Store Settings
   const [localSettings, setLocalSettings] = useState<StoreSettings>({ ...settings });
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
+
+  useEffect(() => {
+    setLocalSettings({ ...settings });
+  }, [settings]);
 
   // Group Orders by Date Key (ex: 2026-10-08)
   const groupedOrdersByDate = useMemo(() => {

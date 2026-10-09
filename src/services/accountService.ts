@@ -1,6 +1,7 @@
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserAccount } from '../types';
+import { storageService } from './storageService';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
@@ -216,6 +217,9 @@ class AccountService {
 
     this.accounts.push(newAccount);
     this.saveToStorage();
+
+    // Inicializa a loja do cliente 100% zerada (sem produtos, sem pedidos, categorias limpas)
+    storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp);
 
     // Sync to Firestore
     try {

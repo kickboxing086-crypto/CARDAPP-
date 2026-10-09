@@ -72,6 +72,10 @@ export const storageService = {
       if (localStorage.getItem(ordKey) === null) {
         localStorage.setItem(ordKey, JSON.stringify([]));
       }
+      const catKey = this.getCategoriesKey();
+      if (localStorage.getItem(catKey) === null) {
+        localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
+      }
       const setKey = this.getSettingsKey();
       if (localStorage.getItem(setKey) === null) {
         const freshSettings: StoreSettings = {
@@ -80,6 +84,11 @@ export const storageService = {
           phoneWhatsapp: initialPhone || '5584986113980',
           logoBase64: '',
           tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
+          instagramHandle: '',
+          address: '',
+          pixKey: '',
+          deliveryNeighborhoods: [],
+          isOpen: true,
         };
         localStorage.setItem(setKey, JSON.stringify(freshSettings));
       }
@@ -89,6 +98,41 @@ export const storageService = {
       this.initFirestoreSync();
       this.notifyChange();
     }
+  },
+
+  initializeNewStore(storeId: string, storeName: string, phoneWhatsapp?: string): StoreSettings {
+    const cleanId = storeId || `store_${Date.now()}`;
+    const prodKey = `cardapp_products_${cleanId}`;
+    const ordKey = `cardapp_orders_${cleanId}`;
+    const catKey = `cardapp_categories_${cleanId}`;
+    const setKey = `cardapp_settings_${cleanId}`;
+
+    const freshSettings: StoreSettings = {
+      ...INITIAL_SETTINGS,
+      storeName: storeName || 'Minha Loja',
+      phoneWhatsapp: phoneWhatsapp || '5584986113980',
+      logoBase64: '',
+      tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
+      instagramHandle: '',
+      address: '',
+      pixKey: '',
+      deliveryNeighborhoods: [],
+      isOpen: true,
+    };
+
+    localStorage.setItem(prodKey, JSON.stringify([]));
+    localStorage.setItem(ordKey, JSON.stringify([]));
+    localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
+    localStorage.setItem(setKey, JSON.stringify(freshSettings));
+
+    try {
+      const setRef = doc(db, 'stores', cleanId, 'settings', 'current');
+      setDoc(setRef, freshSettings).catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    return freshSettings;
   },
 
   subscribe(listener: () => void): () => void {
@@ -214,6 +258,11 @@ export const storageService = {
       if (stored) return JSON.parse(stored);
     } catch {
       // fallback
+    }
+    if (this.currentStoreId !== 'default_store' && this.currentStoreId !== 'master_admin') {
+      const cleanCats: Category[] = [{ id: 'todos', name: 'Todos os Itens' }];
+      localStorage.setItem(this.getCategoriesKey(), JSON.stringify(cleanCats));
+      return cleanCats;
     }
     localStorage.setItem(this.getCategoriesKey(), JSON.stringify(INITIAL_CATEGORIES));
     return INITIAL_CATEGORIES;
@@ -564,6 +613,22 @@ export const storageService = {
       if (stored) return JSON.parse(stored);
     } catch {
       // fallback
+    }
+    if (this.currentStoreId !== 'default_store' && this.currentStoreId !== 'master_admin') {
+      const freshSettings: StoreSettings = {
+        ...INITIAL_SETTINGS,
+        storeName: 'Minha Loja',
+        phoneWhatsapp: '5584986113980',
+        logoBase64: '',
+        tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
+        instagramHandle: '',
+        address: '',
+        pixKey: '',
+        deliveryNeighborhoods: [],
+        isOpen: true,
+      };
+      localStorage.setItem(this.getSettingsKey(), JSON.stringify(freshSettings));
+      return freshSettings;
     }
     localStorage.setItem(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
     return INITIAL_SETTINGS;

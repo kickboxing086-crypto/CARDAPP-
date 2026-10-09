@@ -150,10 +150,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   const OFFICIAL_VERCEL_URL = 'https://cardapp-us.vercel.app';
-  const LOGIN_URL = `${OFFICIAL_VERCEL_URL}/?view=login`;
-  const CLIENT_URL = `${OFFICIAL_VERCEL_URL}/?view=cliente`;
+  const currentOrigin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : OFFICIAL_VERCEL_URL;
+  const LOGIN_URL = `${currentOrigin}/?view=login`;
+  const CLIENT_URL = `${currentOrigin}/?view=cliente`;
 
   const getStoreAccessMessage = (account: UserAccount) => {
+    const clientUrl = `${currentOrigin}/?view=cliente&store=${account.storeId}`;
     return (
       `Olá, ${account.name || 'Lojista'}! 🎉\n` +
       `Seja muito bem-vindo ao *CARDAPP* da *SF TECNOLOGIA*!\n\n` +
@@ -161,12 +163,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       `🏪 *Loja:* ${account.storeName}\n` +
       `👤 *Usuário de Acesso:* ${account.username}\n` +
       `🔑 *Senha de Acesso:* ${account.passwordHash}\n\n` +
-      `🌐 *Link de Login do Painel (Vercel):*\n${LOGIN_URL}\n\n` +
-      `📱 *Link do seu Cardápio Digital (para enviar aos seus clientes):*\n${CLIENT_URL}\n\n` +
+      `🌐 *Link de Login do Painel:*\n${LOGIN_URL}\n\n` +
+      `📱 *Link do seu Cardápio Digital (para enviar aos seus clientes):*\n${clientUrl}\n\n` +
       `💰 *Plano Mensal:* R$ 24,99/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
       `Basta acessar o link de login acima com seu usuário e senha para cadastrar pratos, gerenciar pedidos em tempo real e personalizar seu cardápio!\n\n` +
       `Powered by: *SF TECNOLOGIA*\n` +
-      `Acesse: ${OFFICIAL_VERCEL_URL}`
+      `Acesse: ${currentOrigin}`
     );
   };
 

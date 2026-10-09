@@ -116,6 +116,17 @@ export default function App() {
           pathname === '/cardapio' ||
           pathname === '/menu';
 
+        const storeParam = urlParams.get('store') || urlParams.get('loja');
+        if (storeParam) {
+          const accounts = accountService.getAccounts();
+          const target = accounts.find((a) => a.storeId === storeParam);
+          if (target) {
+            storageService.setStoreId(target.storeId, target.storeName, target.phoneWhatsapp);
+          } else {
+            storageService.setStoreId(storeParam);
+          }
+        }
+
         if (isLogin) {
           setCurrentView('login');
           setIsLoginModalOpen(true);
@@ -498,6 +509,13 @@ export default function App() {
   const handleLogout = () => {
     accountService.logout();
     setCurrentUser(null);
+    storageService.setStoreId('default_store');
+    setProducts(storageService.getProducts());
+    setOrders(storageService.getOrders());
+    setCategories(storageService.getCategories());
+    setSettings(storageService.getSettings());
+    setCartItems([]);
+    setActiveOrderId(null);
     setIsSuperAdminModalOpen(false);
     setIsCeoModalOpen(false);
     setCurrentView('login');
@@ -763,6 +781,7 @@ export default function App() {
 
       {/* CEO / STORE OWNER ADMIN MODAL */}
       <CEOAdminModal
+        key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}_${settings.storeName}`}
         isOpen={isCeoModalOpen}
         onClose={() => setIsCeoModalOpen(false)}
         products={products}
