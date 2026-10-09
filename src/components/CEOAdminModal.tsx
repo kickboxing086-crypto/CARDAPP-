@@ -414,9 +414,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-white animate-in fade-in duration-200">
       <div
-        className="bg-white rounded-3xl max-w-6xl w-full h-[96vh] max-h-[96vh] shadow-2xl border border-amber-300 flex overflow-hidden animate-in zoom-in-95 duration-200 relative"
+        className="bg-white w-full h-full flex overflow-hidden relative shadow-none border-0 rounded-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Mobile backdrop for left sidebar */}

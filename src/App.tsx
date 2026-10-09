@@ -116,6 +116,8 @@ export default function App() {
         if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar') {
           setIsLoginModalOpen(true);
         } else if (isCeoRoute) {
+          // Hide landing page behind CEO panel by setting currentView to menu or blank state
+          setCurrentView('menu');
           const session = accountService.getCurrentSession();
           if (session?.role === 'super_admin') {
             setIsSuperAdminModalOpen(true);

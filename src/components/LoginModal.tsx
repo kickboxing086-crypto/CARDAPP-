@@ -58,15 +58,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       <div className="bg-white rounded-3xl max-w-sm sm:max-w-md w-full shadow-2xl border border-amber-300 overflow-hidden animate-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-400 to-amber-500 p-5 sm:p-6 text-slate-950 relative">
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-4 right-4 sm:top-5 sm:right-5 w-8 h-8 rounded-full bg-slate-950/20 hover:bg-slate-950/30 text-slate-950 flex items-center justify-center transition-colors cursor-pointer"
-            aria-label="Fechar"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
           <div className="w-11 h-11 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center mb-3 shadow-md">
             <Lock className="w-5 h-5 stroke-[2.5]" />
           </div>
