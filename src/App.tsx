@@ -113,7 +113,9 @@ export default function App() {
           pathname === '/cardapio' ||
           pathname === '/menu';
 
-        if (isCeoRoute) {
+        if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar') {
+          setIsLoginModalOpen(true);
+        } else if (isCeoRoute) {
           const session = accountService.getCurrentSession();
           if (session?.role === 'super_admin') {
             setIsSuperAdminModalOpen(true);
