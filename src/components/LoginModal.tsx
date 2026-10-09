@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { auth } from '../firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import {
   Lock,
   User,
@@ -145,6 +147,27 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   if (!isOpen) return null;
 
   // SUBMIT LOGIN
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      setIsLoginLoading(true);
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      // Check if user exists in accounts, if not maybe register?
+      // For now just sign in with Google.
+      // Need to map Firebase user to UserAccount.
+      
+      console.log('Google login success:', user);
+      // ... logic to log in ...
+      setIsLoginLoading(false);
+    } catch (err) {
+      console.error(err);
+      setLoginError('Erro ao logar com Google.');
+      setIsLoginLoading(false);
+    }
+  };
+
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -525,6 +548,29 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                 </>
               )}
+            </button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-slate-500 font-bold">Ou</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              className="w-full py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 active:scale-98 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path
+                  fill="currentColor"
+                  d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"
+                />
+              </svg>
+              <span>Entrar com Google</span>
             </button>
 
             <div className="pt-2 text-center">
