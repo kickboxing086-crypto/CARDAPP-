@@ -44,8 +44,8 @@ import {
 } from './utils/notificationService';
 
 export default function App() {
-  // Navigation view: 'landing' (SaaS presentation & pricing R$ 24,99) vs 'menu' (Digital Menu)
-  const [currentView, setCurrentView] = useState<'landing' | 'menu'>('landing');
+  // Navigation view: 'landing' vs 'menu' (Customer shopping screen) vs 'login' (Dedicated login screen)
+  const [currentView, setCurrentView] = useState<'landing' | 'menu' | 'login'>('landing');
 
   // Push Notification Banner state
   const [pushBanner, setPushBanner] = useState<{
@@ -96,15 +96,17 @@ export default function App() {
         const view = urlParams.get('view');
         const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
 
+        const isLogin =
+          view === 'login' ||
+          view === 'entrar' ||
+          pathname === '/login' ||
+          pathname === '/entrar';
+
         const isCeoRoute =
           view === 'ceo' ||
           view === 'admin' ||
-          view === 'login' ||
-          view === 'entrar' ||
           pathname === '/ceo' ||
           pathname === '/admin' ||
-          pathname === '/login' ||
-          pathname === '/entrar' ||
           pathname.startsWith('/admin/');
 
         const isClienteRoute =
@@ -114,17 +116,19 @@ export default function App() {
           pathname === '/cardapio' ||
           pathname === '/menu';
 
-        if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar') {
+        if (isLogin) {
+          setCurrentView('login');
           setIsLoginModalOpen(true);
         } else if (isCeoRoute) {
-          // Hide landing page behind CEO panel by setting currentView to menu or blank state
-          setCurrentView('menu');
           const session = accountService.getCurrentSession();
           if (session?.role === 'super_admin') {
+            setCurrentView('menu');
             setIsSuperAdminModalOpen(true);
           } else if (session?.role === 'store_admin') {
+            setCurrentView('menu');
             setIsCeoModalOpen(true);
           } else {
+            setCurrentView('login');
             setIsLoginModalOpen(true);
           }
         } else if (isClienteRoute) {
@@ -459,23 +463,17 @@ export default function App() {
     }
   };
 
-  const handleBackToLanding = () => {
-    setCurrentView('landing');
-    try {
-      window.history.pushState({}, '', '/');
-    } catch {
-      // ignore
-    }
-  };
-
   const handleLoginSuccess = (user: UserAccount) => {
     setCurrentUser(user);
+    setIsLoginModalOpen(false);
     if (user.role === 'super_admin') {
       setIsSuperAdminModalOpen(true);
       setIsCeoModalOpen(false);
+      setCurrentView('menu');
     } else {
       setIsCeoModalOpen(true);
       setIsSuperAdminModalOpen(false);
+      setCurrentView('menu');
     }
   };
 
@@ -484,6 +482,8 @@ export default function App() {
     setCurrentUser(null);
     setIsSuperAdminModalOpen(false);
     setIsCeoModalOpen(false);
+    setCurrentView('login');
+    setIsLoginModalOpen(true);
   };
 
   const handleStartNewOrder = () => {
@@ -514,12 +514,25 @@ export default function App() {
       {/* 1. SAAS LANDING PAGE (PLANO R$ 24,99/MÊS E PERSUASÃO) */}
       {currentView === 'landing' && (
         <LandingPage
-          onOpenLogin={() => setIsLoginModalOpen(true)}
+          onOpenLogin={() => {
+            setCurrentView('login');
+            setIsLoginModalOpen(true);
+          }}
           onOpenDemoMenu={handleOpenDemoMenu}
         />
       )}
 
-      {/* 2. DIGITAL MENU VIEW FOR CLIENTS (SOMENTE CLIENTE SEM CEO) */}
+      {/* 2. DEDICATED LOGIN SCREEN (STANDALONE, SEM LANDING PAGE ATRÁS, SEM SETAS OU "X") */}
+      {currentView === 'login' && (
+        <LoginModal
+          isOpen={true}
+          isStandalone={true}
+          onLoginSuccess={handleLoginSuccess}
+          onClose={() => {}}
+        />
+      )}
+
+      {/* 3. DIGITAL MENU VIEW FOR CLIENTS (SOMENTE COMPRAS DO CLIENTE, SEM SETAS OU "X" PARA O LANDING PAGE) */}
       {currentView === 'menu' && (
         <>
           {/* Welcome Splash Animation in Yellow & White */}
@@ -531,14 +544,13 @@ export default function App() {
             />
           )}
 
-          {/* Top Header - SOMENTE OPÇÕES DO CLIENTE (SEM ACESSO DO CEO) */}
+          {/* Top Header - SOMENTE OPÇÕES DO CLIENTE (SEM SETA PARA LANDING PAGE) */}
           <Header
             settings={settings}
             cartCount={totalCartCount}
             onOpenCart={() => setCurrentStep(2)}
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
-            onBackToLanding={handleBackToLanding}
             showCeoControls={false}
           />
 
@@ -767,12 +779,15 @@ export default function App() {
         />
       )}
 
-      {/* LOGIN MODAL */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
-      />
+      {/* LOGIN MODAL (Renderizado apenas se invocado como overlay) */}
+      {isLoginModalOpen && currentView !== 'login' && (
+        <LoginModal
+          isOpen={true}
+          isStandalone={false}
+          onClose={() => setIsLoginModalOpen(false)}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      )}
     </div>
   );
 }

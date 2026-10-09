@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, Menu, Info, ArrowLeft, Lock, UserCheck } from 'lucide-react';
+import { ShoppingBag, Menu, Info, Lock, UserCheck } from 'lucide-react';
 import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 
@@ -11,7 +11,6 @@ interface HeaderProps {
   onOpenStoreInfo: () => void;
   onViewMenuClick: () => void;
   activeOrderCount?: number;
-  onBackToLanding?: () => void;
   currentUser?: UserAccount | null;
   onOpenLoginModal?: () => void;
   showCeoControls?: boolean;
@@ -25,7 +24,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStoreInfo,
   onViewMenuClick,
   activeOrderCount = 0,
-  onBackToLanding,
   currentUser,
   onOpenLoginModal,
   showCeoControls = false,
@@ -42,19 +40,6 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-3">
         {/* LADO SUPERIOR ESQUERDO: BARRA DE INFORMAÇÕES DA LOJA + LOGO */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Voltar para Home / Planos */}
-          {onBackToLanding && (
-            <button
-              type="button"
-              onClick={onBackToLanding}
-              className="flex items-center gap-1 p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-              title="Voltar para a página de apresentação"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-xs font-bold hidden sm:inline">Início</span>
-            </button>
-          )}
-
           {/* BOTÃO DA BARRA SUPERIOR ESQUERDA (INFORMAÇÕES DA LOJA) */}
           <button
             type="button"
