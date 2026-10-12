@@ -639,17 +639,36 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
 
           {deliveryType === 'mesa' && (
             <div className="pt-3 border-t border-slate-100 animate-in fade-in duration-200">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Número da Mesa *
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                Selecione sua Mesa *
               </label>
-              <input
-                type="text"
-                required
-                value={tableNumber}
-                onChange={(e) => setTableNumber(e.target.value)}
-                placeholder="Ex: Mesa 04"
-                className="w-full sm:w-48 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
-              />
+              {settings.tables && settings.tables.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {settings.tables.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTableNumber(t)}
+                      className={`p-2 text-xs font-bold rounded-xl border ${
+                        tableNumber === t
+                          ? 'bg-amber-100 border-amber-500 text-amber-900 ring-2 ring-amber-500'
+                          : 'bg-white border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  required
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  placeholder="Ex: Mesa 04"
+                  className="w-full sm:w-48 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
+                />
+              )}
             </div>
           )}
         </div>

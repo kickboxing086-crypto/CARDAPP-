@@ -30,6 +30,18 @@ export const INITIAL_SETTINGS: StoreSettings = {
     { id: 'taxa-3', state: 'RN', city: 'Natal', neighborhood: 'Capim Macio', fee: 6.50, estimatedTime: '30-40 min' },
     { id: 'taxa-4', state: 'RN', city: 'Natal', neighborhood: 'Lagoa Nova', fee: 6.00, estimatedTime: '30-40 min' },
   ],
+  tables: [
+    'Mesa 01',
+    'Mesa 02',
+    'Mesa 03',
+    'Mesa 04',
+    'Mesa 05',
+    'Mesa 06',
+    'Mesa 07',
+    'Mesa 08',
+    'Mesa 09',
+    'Mesa 10',
+  ],
 };
 
 export const INITIAL_CATEGORIES: Category[] = [

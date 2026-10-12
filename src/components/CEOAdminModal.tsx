@@ -2338,6 +2338,48 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                 </div>
 
+                {/* GERENCIAMENTO DE MESAS */}
+                <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
+                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
+                    Gerenciamento de Mesas:
+                  </span>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {(localSettings.tables || []).map((table, index) => (
+                      <div key={index} className="flex items-center gap-2 p-2 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700">
+                        {table}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newTables = [...(localSettings.tables || [])];
+                            newTables.splice(index, 1);
+                            setLocalSettings({ ...localSettings, tables: newTables });
+                          }}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: Mesa 08"
+                      className="flex-1 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = e.currentTarget.value.trim();
+                          if (val) {
+                            setLocalSettings({ ...localSettings, tables: [...(localSettings.tables || []), val] });
+                            e.currentTarget.value = '';
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
                 {/* Additional Store Info */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>

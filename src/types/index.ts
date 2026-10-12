@@ -125,6 +125,7 @@ export interface StoreSettings {
   paymentMethods: StorePaymentMethods;
   minOrderValue: number;
   deliveryNeighborhoods?: NeighborhoodDeliveryFee[];
+  tables?: string[];
 }
 
 // User accounts and multi-tenant authentication
