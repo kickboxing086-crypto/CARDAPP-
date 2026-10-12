@@ -23,6 +23,8 @@ import { requestPushPermission, playNotificationSound } from '../utils/notificat
 
 interface OrderTrackingStepProps {
   order: Order | null;
+  allOrders?: Order[];
+  onSelectOrder?: (orderId: string) => void;
   settings: StoreSettings;
   onNewOrder: () => void;
   onRefresh?: () => void;
@@ -30,6 +32,8 @@ interface OrderTrackingStepProps {
 
 export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
   order,
+  allOrders = [],
+  onSelectOrder,
   settings,
   onNewOrder,
 }) => {
@@ -188,6 +192,73 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 animate-in fade-in duration-200">
+      {/* SELETOR E LISTA DE MÚLTIPLOS PEDIDOS DO CLIENTE */}
+      {allOrders && allOrders.length > 0 && (
+        <div className="mb-6 p-4 rounded-3xl bg-white border-2 border-amber-300 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-amber-100">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs">
+                {allOrders.length}
+              </span>
+              <span className="text-xs font-black uppercase text-slate-900 tracking-wide">
+                {allOrders.length === 1 ? 'Seu Pedido em Andamento' : `Seus Pedidos Realizados (${allOrders.length})`}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onNewOrder}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all active:scale-95 shadow-xs cursor-pointer self-start sm:self-auto"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>+ Fazer Mais um Pedido</span>
+            </button>
+          </div>
+
+          {/* Abas de Navegação entre os Pedidos */}
+          {allOrders.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              {allOrders.map((o) => {
+                const isSelected = order.id === o.id;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onSelectOrder && onSelectOrder(o.id)}
+                    className={`px-3 py-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer flex items-center gap-2 border ${
+                      isSelected
+                        ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-xs ring-2 ring-amber-200'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                    }`}
+                  >
+                    <span>#{o.displayId}</span>
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                        o.status === 'recebido'
+                          ? 'bg-amber-100 text-amber-950'
+                          : o.status === 'em_producao'
+                          ? 'bg-blue-100 text-blue-900'
+                          : o.status === 'em_rota'
+                          ? 'bg-purple-100 text-purple-900'
+                          : 'bg-emerald-100 text-emerald-950'
+                      }`}
+                    >
+                      {o.status === 'recebido'
+                        ? '1. Recebido'
+                        : o.status === 'em_producao'
+                        ? '2. Preparo'
+                        : o.status === 'em_rota'
+                        ? '3. Rota'
+                        : '4. Entregue'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Table Special Live Notification Banner */}
       {isTable && order.status === 'em_rota' && (
         <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-amber-400 text-slate-950 border-2 border-amber-500 shadow-lg flex items-center gap-3.5 sm:gap-4 animate-in slide-in-from-top-2">

@@ -44,20 +44,40 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
   return (
     <div className="w-full bg-white border-b border-amber-200/80 sticky top-16 z-30 shadow-xs">
       <div className="max-w-5xl mx-auto px-4 py-3">
-        {/* Mobile View: Compact Progress Bar */}
-        <div className="md:hidden">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center font-black text-[11px]">
-                {currentStep}
-              </span>
-              Etapa {currentStep} de 4: {steps[currentStep - 1].label}
-            </span>
-            <span className="text-xs font-semibold text-slate-500">
-              {steps[currentStep - 1].sublabel}
-            </span>
+        {/* Mobile View: Interactive Steps + Progress Bar */}
+        <div className="md:hidden space-y-2">
+          <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1 scrollbar-none">
+            {steps.map((st) => {
+              const isComp = st.num < currentStep;
+              const isCurr = st.num === currentStep;
+              const isClick =
+                onStepClick && (isComp || st.num === 1 || (st.num === 2 && cartCount > 0) || (st.num === 4 && hasActiveOrder));
+              return (
+                <button
+                  key={st.num}
+                  type="button"
+                  disabled={!isClick}
+                  onClick={() => isClick && onStepClick && onStepClick(st.num)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
+                    isCurr
+                      ? 'bg-amber-400 text-slate-950 font-black shadow-2xs'
+                      : isComp
+                      ? 'bg-amber-100 text-amber-950'
+                      : isClick
+                      ? 'bg-slate-100 text-slate-700 hover:bg-amber-50 cursor-pointer'
+                      : 'bg-slate-50 text-slate-400 opacity-60 cursor-default'
+                  }`}
+                >
+                  <span className="w-4 h-4 rounded-full bg-slate-950/15 flex items-center justify-center text-[10px]">
+                    {st.num}
+                  </span>
+                  <span>{st.label}</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
+
+          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden flex">
             {[1, 2, 3, 4].map((stepNum) => (
               <div
                 key={stepNum}

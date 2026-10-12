@@ -17,6 +17,7 @@ interface HeaderProps {
   hasActiveOrder?: boolean;
   activeOrderStatus?: string;
   activeOrderDisplayId?: string;
+  customerOrdersCount?: number;
   onViewTracking?: () => void;
 }
 
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   hasActiveOrder = false,
   activeOrderStatus,
   activeOrderDisplayId,
+  customerOrdersCount,
   onViewTracking,
 }) => {
   return (
@@ -125,9 +127,16 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping inline-block" />
               <Clock3 className="w-4 h-4 stroke-[2.5]" />
               <div className="flex flex-col text-left leading-none">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-900">
-                  Status do Pedido
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-900">
+                    Status {activeOrderDisplayId ? `#${activeOrderDisplayId}` : 'do Pedido'}
+                  </span>
+                  {customerOrdersCount && customerOrdersCount > 1 ? (
+                    <span className="text-[9px] bg-slate-950 text-amber-300 font-mono px-1 rounded font-black">
+                      {customerOrdersCount}
+                    </span>
+                  ) : null}
+                </div>
                 <span className="text-[9px] font-bold text-slate-800">
                   {activeOrderStatus === 'recebido'
                     ? '1. Recebido'

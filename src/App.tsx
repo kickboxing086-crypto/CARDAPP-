@@ -45,7 +45,35 @@ import {
 
 export default function App() {
   // Navigation view: 'landing' vs 'menu' (Customer shopping screen) vs 'login' (Dedicated login screen)
-  const [currentView, setCurrentView] = useState<'landing' | 'menu' | 'login'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'menu' | 'login'>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const view = urlParams.get('view');
+      const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
+      const session = accountService.getCurrentSession();
+      const lastView = typeof window !== 'undefined' ? localStorage.getItem('cardapp_last_view') : null;
+
+      if (session && (session.role === 'store_admin' || session.role === 'super_admin')) {
+        return 'menu';
+      }
+      if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar') {
+        return 'login';
+      }
+      if (
+        view === 'cliente' ||
+        view === 'cardapio' ||
+        view === 'menu' ||
+        lastView === 'menu' ||
+        lastView === 'cliente' ||
+        lastView === 'ceo'
+      ) {
+        return 'menu';
+      }
+    } catch {
+      // fallback
+    }
+    return 'landing';
+  });
 
   // Push Notification Banner state
   const [pushBanner, setPushBanner] = useState<{
@@ -86,7 +114,23 @@ export default function App() {
 
   // Modals & Panels
   const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(null);
-  const [isCeoModalOpen, setIsCeoModalOpen] = useState(false);
+  const [isCeoModalOpen, setIsCeoModalOpen] = useState<boolean>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const view = urlParams.get('view');
+      const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
+      const session = accountService.getCurrentSession();
+      const lastView = typeof window !== 'undefined' ? localStorage.getItem('cardapp_last_view') : null;
+      if (session && session.role === 'store_admin') {
+        if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || lastView === 'ceo') {
+          return true;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return false;
+  });
   const [isStoreInfoOpen, setIsStoreInfoOpen] = useState(false);
 
   // Check URL query parameters or paths
@@ -133,6 +177,36 @@ export default function App() {
           } else {
             storageService.setStoreId(storeParam);
           }
+          localStorage.setItem('cardapp_last_store_id', storeParam);
+        }
+
+        const session = accountService.getCurrentSession();
+        const lastView = localStorage.getItem('cardapp_last_view');
+        const lastStore = localStorage.getItem('cardapp_last_store_id');
+
+        // REGRA CRÍTICA: Se o CEO está logado (sessão ativa de lojista) NUNCA joga na Landing Page ao atualizar F5
+        if (session && session.role === 'store_admin') {
+          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+          setCurrentUser(session);
+          setCurrentView('menu');
+          // Se estava na rota /?view=ceo ou salvou que estava com o painel aberto
+          if (isCeoRoute || lastView === 'ceo') {
+            setIsCeoModalOpen(true);
+          }
+          try {
+            window.history.replaceState({}, '', `/?view=cliente&store=${encodeURIComponent(session.storeId)}`);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        if (session && session.role === 'super_admin') {
+          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+          setCurrentUser(session);
+          setCurrentView('menu');
+          setIsSuperAdminModalOpen(true);
+          return;
         }
 
         if (isRegister) {
@@ -144,7 +218,6 @@ export default function App() {
           setCurrentView('login');
           setIsLoginModalOpen(true);
         } else if (isCeoRoute) {
-          const session = accountService.getCurrentSession();
           if (session?.role === 'super_admin') {
             setCurrentView('menu');
             setIsSuperAdminModalOpen(true);
@@ -157,8 +230,21 @@ export default function App() {
           }
         } else if (isClienteRoute) {
           setCurrentView('menu');
+          localStorage.setItem('cardapp_last_view', 'menu');
+        } else if (lastView === 'menu' || lastView === 'cliente') {
+          // Se o usuário/cliente já estava dentro da loja e atualizou F5
+          if (lastStore) {
+            storageService.setStoreId(lastStore);
+          }
+          setCurrentView('menu');
+          try {
+            const sq = lastStore && lastStore !== 'default_store' ? `&store=${encodeURIComponent(lastStore)}` : '';
+            window.history.replaceState({}, '', `/?view=cliente${sq}`);
+          } catch {
+            // ignore
+          }
         } else {
-          // Default to landing page on home
+          // Apenas visitante novo direto na raiz sem histórico/sessão vê a landing page
           setCurrentView('landing');
         }
       } catch {
@@ -232,14 +318,28 @@ export default function App() {
     return cartItems.reduce((acc, item) => acc + item.totalPrice, 0);
   }, [cartItems]);
 
+  // Client Orders on this device/session (permite fazer múltiplos pedidos sem limitação)
+  const clientOrderIds = useMemo(() => {
+    return storageService.getClientOrderIds();
+  }, [orders]);
+
+  const clientOrders = useMemo(() => {
+    if (clientOrderIds.length > 0) {
+      const filtered = orders.filter((o) => clientOrderIds.includes(o.id));
+      if (filtered.length > 0) return filtered;
+    }
+    return orders;
+  }, [orders, clientOrderIds]);
+
   // Active Order for Step 4
   const currentActiveOrder = useMemo(() => {
     if (activeOrderId) {
       const found = orders.find((o) => o.id === activeOrderId);
       if (found) return found;
     }
+    if (clientOrders.length > 0) return clientOrders[0];
     return orders.length > 0 ? orders[0] : null;
-  }, [orders, activeOrderId]);
+  }, [orders, activeOrderId, clientOrders]);
 
   // Listen for real-time order status updates to trigger Push Notifications & Sound
   useEffect(() => {
@@ -442,6 +542,7 @@ export default function App() {
     }
 
     lastActiveOrderStatusRef.current = 'recebido';
+    setOrders(storageService.getOrders());
     setCartItems([]);
     setActiveOrderId(newOrder.id);
     setCurrentStep(4);
@@ -489,8 +590,9 @@ export default function App() {
   const handleOpenDemoMenu = () => {
     setCurrentView('menu');
     setShowSplash(true);
+    localStorage.setItem('cardapp_last_view', 'menu');
     try {
-      window.history.pushState({}, '', '/?view=cardapio');
+      window.history.replaceState({}, '', '/?view=cardapio');
     } catch {
       // ignore
     }
@@ -499,6 +601,7 @@ export default function App() {
   const handleLoginSuccess = (user: UserAccount) => {
     accountService.switchSession(user);
     storageService.setStoreId(user.storeId, user.storeName, user.phoneWhatsapp);
+    localStorage.setItem('cardapp_last_store_id', user.storeId);
     setCurrentUser(user);
     setCartItems([]);
     setActiveOrderId(null);
@@ -512,16 +615,25 @@ export default function App() {
       setIsSuperAdminModalOpen(true);
       setIsCeoModalOpen(false);
       setCurrentView('menu');
+      localStorage.setItem('cardapp_last_view', 'menu');
     } else {
       setIsCeoModalOpen(true);
       setIsSuperAdminModalOpen(false);
       setCurrentView('menu');
+      localStorage.setItem('cardapp_last_view', 'ceo');
+      try {
+        window.history.replaceState({}, '', `/?view=cliente&store=${encodeURIComponent(user.storeId)}`);
+      } catch {
+        // ignore
+      }
     }
   };
 
   const handleLogout = () => {
     accountService.logout();
     setCurrentUser(null);
+    localStorage.removeItem('cardapp_last_view');
+    localStorage.removeItem('cardapp_last_store_id');
     storageService.setStoreId('default_store');
     setProducts(storageService.getProducts());
     setOrders(storageService.getOrders());
@@ -533,11 +645,15 @@ export default function App() {
     setIsCeoModalOpen(false);
     setCurrentView('login');
     setIsLoginModalOpen(true);
+    try {
+      window.history.replaceState({}, '', '/?view=login');
+    } catch {
+      // ignore
+    }
   };
 
   const handleStartNewOrder = () => {
-    storageService.clearActiveOrderId();
-    setActiveOrderId(null);
+    setCartItems([]);
     setCurrentStep(1);
   };
 
@@ -618,6 +734,7 @@ export default function App() {
             hasActiveOrder={Boolean(currentActiveOrder)}
             activeOrderStatus={currentActiveOrder?.status}
             activeOrderDisplayId={currentActiveOrder?.displayId}
+            customerOrdersCount={clientOrders.length}
             onViewTracking={() => setCurrentStep(4)}
           />
 
@@ -765,6 +882,11 @@ export default function App() {
             {currentStep === 4 && (
               <OrderTrackingStep
                 order={currentActiveOrder}
+                allOrders={clientOrders}
+                onSelectOrder={(id) => {
+                  setActiveOrderId(id);
+                  storageService.setActiveOrderId(id);
+                }}
                 settings={settings}
                 onNewOrder={handleStartNewOrder}
               />
@@ -815,7 +937,10 @@ export default function App() {
       <CEOAdminModal
         key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}_${settings.storeName}`}
         isOpen={isCeoModalOpen}
-        onClose={() => setIsCeoModalOpen(false)}
+        onClose={() => {
+          setIsCeoModalOpen(false);
+          localStorage.setItem('cardapp_last_view', 'menu');
+        }}
         products={products}
         orders={orders}
         categories={categories}
@@ -831,6 +956,7 @@ export default function App() {
         onSwitchToClientView={() => {
           setIsCeoModalOpen(false);
           setCurrentView('menu');
+          localStorage.setItem('cardapp_last_view', 'menu');
         }}
         onLogout={handleLogout}
       />

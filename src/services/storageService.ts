@@ -38,6 +38,14 @@ if (typeof window !== 'undefined') {
   });
 }
 
+export function sanitizeForFirestore<T>(data: T): T {
+  try {
+    return JSON.parse(JSON.stringify(data));
+  } catch {
+    return data;
+  }
+}
+
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
 
 export const storageService = {
@@ -188,18 +196,41 @@ export const storageService = {
       const unsubOrders = onSnapshot(
         ordersRef,
         (snap) => {
-          if (!snap.empty) {
-            const orders: Order[] = [];
-            snap.forEach((d) => {
-              orders.push(d.data() as Order);
-            });
-            // Sort newest first
-            orders.sort(
-              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-            localStorage.setItem(this.getOrdersKey(), JSON.stringify(orders));
-            this.notifyChange();
-          }
+          const remoteOrders: Order[] = [];
+          snap.forEach((d) => {
+            remoteOrders.push(d.data() as Order);
+          });
+
+          const deletedIds = this.getDeletedOrderIds();
+          const localOrders = this.getOrders();
+          const ordersMap = new Map<string, Order>();
+
+          // Adiciona pedidos remotos ignorando os deletados
+          remoteOrders.forEach((o) => {
+            if (!deletedIds.has(o.id)) {
+              ordersMap.set(o.id, o);
+            }
+          });
+
+          // Mescla pedidos locais recém-criados que ainda estão sincronizando
+          localOrders.forEach((o) => {
+            if (!deletedIds.has(o.id) && !ordersMap.has(o.id)) {
+              ordersMap.set(o.id, o);
+              try {
+                const pendingRef = doc(db, 'stores', targetStore, 'orders', o.id);
+                setDoc(pendingRef, sanitizeForFirestore(o)).catch(() => {});
+              } catch {
+                // ignore
+              }
+            }
+          });
+
+          const merged = Array.from(ordersMap.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+
+          localStorage.setItem(this.getOrdersKey(), JSON.stringify(merged));
+          this.notifyChange();
         },
         (error) => {
           console.warn('Firestore orders listener offline/fallback:', error);
@@ -370,7 +401,7 @@ export const storageService = {
     // Sync to Firestore
     try {
       const prodRef = doc(db, 'stores', this.currentStoreId, 'products', newProduct.id);
-      setDoc(prodRef, newProduct).catch((err) => {
+      setDoc(prodRef, sanitizeForFirestore(newProduct)).catch((err) => {
         console.warn('Sync addProduct fallback:', err);
       });
     } catch {
@@ -390,7 +421,7 @@ export const storageService = {
       // Sync to Firestore
       try {
         const prodRef = doc(db, 'stores', this.currentStoreId, 'products', product.id);
-        setDoc(prodRef, product).catch((err) => {
+        setDoc(prodRef, sanitizeForFirestore(product)).catch((err) => {
           console.warn('Sync updateProduct fallback:', err);
         });
       } catch {
@@ -463,7 +494,7 @@ export const storageService = {
 
     const newOrder: Order = {
       ...orderData,
-      id: 'ord-' + Date.now(),
+      id: `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       displayId,
       createdAt: nowIso,
       dateKey,
@@ -480,6 +511,7 @@ export const storageService = {
     const updated = [newOrder, ...orders];
     this.saveOrders(updated);
     this.setActiveOrderId(newOrder.id);
+    this.addClientOrderId(newOrder.id);
 
     // Notifica instantaneamente qualquer aba aberta (ex: tela do CEO)
     try {
@@ -495,7 +527,7 @@ export const storageService = {
     // Sync to Firestore
     try {
       const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', newOrder.id);
-      setDoc(orderRef, newOrder).catch((err) => {
+      setDoc(orderRef, sanitizeForFirestore(newOrder)).catch((err) => {
         console.warn('Sync createOrder fallback:', err);
       });
     } catch {
@@ -542,7 +574,7 @@ export const storageService = {
       // Sync to Firestore
       try {
         const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', orderId);
-        setDoc(orderRef, updatedOrder).catch((err) => {
+        setDoc(orderRef, sanitizeForFirestore(updatedOrder)).catch((err) => {
           console.warn('Sync updateOrderStatus fallback:', err);
         });
       } catch {
@@ -555,6 +587,7 @@ export const storageService = {
     const orders = this.getOrders();
     const updated = orders.filter((o) => o.id !== orderId);
     this.saveOrders(updated);
+    this.addDeletedOrderId(orderId);
 
     if (this.getActiveOrderId() === orderId) {
       this.clearActiveOrderId();
@@ -606,6 +639,54 @@ export const storageService = {
     }
   },
 
+  getDeletedOrderIds(): Set<string> {
+    try {
+      const stored = localStorage.getItem(`cardapp_deleted_orders_${this.currentStoreId}`);
+      if (stored) {
+        return new Set(JSON.parse(stored));
+      }
+    } catch {
+      // ignore
+    }
+    return new Set();
+  },
+
+  addDeletedOrderId(orderId: string) {
+    try {
+      const set = this.getDeletedOrderIds();
+      set.add(orderId);
+      const arr = Array.from(set).slice(-100);
+      localStorage.setItem(`cardapp_deleted_orders_${this.currentStoreId}`, JSON.stringify(arr));
+    } catch {
+      // ignore
+    }
+  },
+
+  getClientOrderIds(): string[] {
+    try {
+      const stored = localStorage.getItem(`cardapp_client_orders_${this.currentStoreId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  },
+
+  addClientOrderId(orderId: string) {
+    try {
+      const list = this.getClientOrderIds();
+      if (!list.includes(orderId)) {
+        list.unshift(orderId);
+        localStorage.setItem(`cardapp_client_orders_${this.currentStoreId}`, JSON.stringify(list));
+      }
+    } catch {
+      // ignore
+    }
+  },
+
   // STORE SETTINGS
   getSettings(): StoreSettings {
     try {
@@ -650,7 +731,7 @@ export const storageService = {
     // Sync to Firestore
     try {
       const settingsRef = doc(db, 'stores', this.currentStoreId, 'settings', 'current');
-      setDoc(settingsRef, settings).catch((err) => {
+      setDoc(settingsRef, sanitizeForFirestore(settings)).catch((err) => {
         console.warn('Sync saveSettings fallback:', err);
       });
     } catch {
