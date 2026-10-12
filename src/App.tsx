@@ -657,6 +657,16 @@ export default function App() {
     setCurrentStep(1);
   };
 
+  const handleGoToLanding = () => {
+    setCurrentView('landing');
+    localStorage.removeItem('cardapp_last_view');
+    try {
+      window.history.pushState({}, '', '/');
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFDF7] text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
       {/* Real-time Push Notification Banner (Triggered when CEO updates status) */}
@@ -731,11 +741,20 @@ export default function App() {
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
             showCeoControls={false}
+            currentUser={currentUser}
+            onOpenCeoMenu={currentUser ? () => {
+              if (currentUser.role === 'super_admin') {
+                setIsSuperAdminModalOpen(true);
+              } else {
+                setIsCeoModalOpen(true);
+              }
+            } : undefined}
             hasActiveOrder={Boolean(currentActiveOrder)}
             activeOrderStatus={currentActiveOrder?.status}
             activeOrderDisplayId={currentActiveOrder?.displayId}
             customerOrdersCount={clientOrders.length}
             onViewTracking={() => setCurrentStep(4)}
+            onGoToLanding={handleGoToLanding}
           />
 
           {/* 4 ETAPAS TRACKER FOR CLIENT */}

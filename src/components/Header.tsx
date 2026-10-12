@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, Menu, Info, Lock, UserCheck, Clock3 } from 'lucide-react';
+import { ShoppingBag, Menu, Info, Lock, UserCheck, Clock3, Home, Crown } from 'lucide-react';
 import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 
@@ -19,6 +19,7 @@ interface HeaderProps {
   activeOrderDisplayId?: string;
   customerOrdersCount?: number;
   onViewTracking?: () => void;
+  onGoToLanding?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,6 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeOrderDisplayId,
   customerOrdersCount,
   onViewTracking,
+  onGoToLanding,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-200 shadow-xs">
@@ -61,6 +63,32 @@ export const Header: React.FC<HeaderProps> = ({
             <Info className="w-4 h-4 text-amber-700 stroke-[2.4] group-hover:scale-110 transition-transform" />
             <span className="text-xs font-black hidden md:inline">Informações</span>
           </button>
+
+          {onGoToLanding && (
+            <button
+              type="button"
+              onClick={onGoToLanding}
+              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-900 hover:bg-slate-950 text-amber-300 transition-all cursor-pointer shadow-2xs group"
+              title="Voltar para a Landing Page Oficial"
+              aria-label="Voltar para a Landing Page"
+            >
+              <Home className="w-4 h-4 stroke-[2.4] group-hover:scale-110 transition-transform" />
+              <span className="text-xs font-black hidden md:inline">Início</span>
+            </button>
+          )}
+
+          {currentUser && onOpenCeoMenu && (
+            <button
+              type="button"
+              onClick={onOpenCeoMenu}
+              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black transition-all cursor-pointer shadow-2xs group"
+              title="Abrir Painel de Controle do CEO"
+              aria-label="Abrir Painel CEO"
+            >
+              <Crown className="w-4 h-4 text-slate-950 stroke-[2.4] group-hover:scale-110 transition-transform" />
+              <span className="text-xs font-black hidden md:inline">Painel CEO</span>
+            </button>
+          )}
 
           {/* Logo & Nome da Loja */}
           <button
