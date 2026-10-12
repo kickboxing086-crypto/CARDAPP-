@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Home, Crown } from 'lucide-react';
+import { Search, Home, Crown, Lock } from 'lucide-react';
 import {
   Product,
   CartItem,
@@ -925,7 +925,7 @@ export default function App() {
                 © {new Date().getFullYear()} • Todos os direitos reservados
               </p>
 
-              {/* Discreet Lower Quick Access for CEO / Landing */}
+              {/* Discreet Lower Quick Access for CEO / Landing / Login */}
               <div className="pt-3 flex items-center justify-center gap-3 text-[11px]">
                 <button
                   type="button"
@@ -936,7 +936,8 @@ export default function App() {
                   <Home className="w-3.5 h-3.5" />
                   <span>Landing Page</span>
                 </button>
-                {currentUser && (
+
+                {currentUser ? (
                   <>
                     <span className="text-slate-300">•</span>
                     <button
@@ -953,6 +954,28 @@ export default function App() {
                     >
                       <Crown className="w-3.5 h-3.5" />
                       <span>Painel CEO</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginModalMode('login');
+                        setCurrentView('login');
+                        setIsLoginModalOpen(false);
+                        try {
+                          window.history.pushState({}, '', '/?view=login');
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Ir para a aba de Login"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Entrar / Login</span>
                     </button>
                   </>
                 )}

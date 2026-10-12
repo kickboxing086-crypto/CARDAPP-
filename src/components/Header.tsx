@@ -94,31 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* LADO SUPERIOR DIREITO: SACOLA (+ OPÇÕES DE CEO APENAS QUANDO SOLICITADO) */}
         <div className="flex items-center gap-2 sm:gap-2.5">
-          {/* Botão de Login do CEO apenas quando showCeoControls estiver ativo */}
-          {showCeoControls && onOpenLoginModal && (
-            <button
-              type="button"
-              onClick={onOpenLoginModal}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentUser
-                  ? 'bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-              }`}
-              title={currentUser ? `Logado como ${currentUser.username}` : 'Entrar na conta da loja'}
-            >
-              {currentUser ? (
-                <>
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
-                  <span className="hidden sm:inline font-black">{currentUser.username}</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="hidden sm:inline">Entrar</span>
-                </>
-              )}
-            </button>
-          )}
+
 
           {/* Botão de Análise e Acompanhamento do Status do Pedido do Cliente */}
           {hasActiveOrder && onViewTracking && (
