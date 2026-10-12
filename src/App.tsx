@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Home, Crown } from 'lucide-react';
 import {
   Product,
   CartItem,
@@ -912,7 +912,7 @@ export default function App() {
             )}
           </main>
 
-          {/* Centered Footer with SF TECNOLOGIA */}
+          {/* Centered Footer with SF TECNOLOGIA & Discreet Lower Quick Access */}
           <footer className="py-6 px-4 text-center text-xs text-slate-500 border-t border-amber-200/60 bg-white/60">
             <div className="max-w-md mx-auto space-y-1">
               <p className="font-extrabold text-slate-800 font-display">
@@ -924,6 +924,39 @@ export default function App() {
               <p className="text-[10px] text-slate-400">
                 © {new Date().getFullYear()} • Todos os direitos reservados
               </p>
+
+              {/* Discreet Lower Quick Access for CEO / Landing */}
+              <div className="pt-3 flex items-center justify-center gap-3 text-[11px]">
+                <button
+                  type="button"
+                  onClick={handleGoToLanding}
+                  className="text-slate-400 hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Voltar para a Landing Page Oficial"
+                >
+                  <Home className="w-3.5 h-3.5" />
+                  <span>Landing Page</span>
+                </button>
+                {currentUser && (
+                  <>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (currentUser.role === 'super_admin') {
+                          setIsSuperAdminModalOpen(true);
+                        } else {
+                          setIsCeoModalOpen(true);
+                        }
+                      }}
+                      className="text-amber-600 hover:text-amber-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Abrir Painel CEO"
+                    >
+                      <Crown className="w-3.5 h-3.5" />
+                      <span>Painel CEO</span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </footer>
 
