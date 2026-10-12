@@ -2186,6 +2186,39 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                 </div>
 
+                {/* GERENCIAMENTO DE HORÁRIOS */}
+                <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
+                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
+                    Horários de Funcionamento:
+                  </span>
+                  <div className="space-y-2">
+                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
+                      <div key={day} className="flex items-center gap-2 text-xs">
+                        <span className="w-20 capitalize font-bold">{day}</span>
+                        <input
+                          type="time"
+                          value={localSettings.operatingHours?.[day as keyof StoreOperatingHours]?.openTime || ''}
+                          onChange={(e) => setLocalSettings({
+                            ...localSettings,
+                            operatingHours: { ...localSettings.operatingHours, [day]: { ...localSettings.operatingHours?.[day as keyof StoreOperatingHours], openTime: e.target.value } }
+                          })}
+                          className="p-1 rounded border border-slate-300"
+                        />
+                        <span>-</span>
+                        <input
+                          type="time"
+                          value={localSettings.operatingHours?.[day as keyof StoreOperatingHours]?.closeTime || ''}
+                          onChange={(e) => setLocalSettings({
+                            ...localSettings,
+                            operatingHours: { ...localSettings.operatingHours, [day]: { ...localSettings.operatingHours?.[day as keyof StoreOperatingHours], closeTime: e.target.value } }
+                          })}
+                          className="p-1 rounded border border-slate-300"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Redes Sociais: INSTAGRAM e WhatsApp */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -2265,7 +2298,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
-                      <span>Consumo no Local (Mesa)</span>
+                      <span>Consumir no local (Mesa)</span>
                     </label>
                   </div>
                 </div>

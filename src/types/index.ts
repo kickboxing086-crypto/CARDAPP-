@@ -109,6 +109,24 @@ export interface NeighborhoodDeliveryFee {
   estimatedTime?: string; // e.g. "30-45 min"
 }
 
+export interface OperatingHours {
+  openTime: string;
+  closeTime: string;
+  hasBreak?: boolean;
+  breakStartTime?: string;
+  breakEndTime?: string;
+}
+
+export interface StoreOperatingHours {
+  monday?: OperatingHours;
+  tuesday?: OperatingHours;
+  wednesday?: OperatingHours;
+  thursday?: OperatingHours;
+  friday?: OperatingHours;
+  saturday?: OperatingHours;
+  sunday?: OperatingHours;
+}
+
 export interface StoreSettings {
   storeName: string;
   tagline: string;
@@ -117,6 +135,7 @@ export interface StoreSettings {
   phoneWhatsapp: string;
   address: string;
   isOpen: boolean;
+  operatingHours?: StoreOperatingHours;
   deliveryFee: number;
   estimatedDeliveryTime: string;
   pixKey: string;

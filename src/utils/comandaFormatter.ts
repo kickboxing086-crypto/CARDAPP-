@@ -37,7 +37,7 @@ export function getDeliveryTypeLabel(order: Order): string {
 }
 
 /**
- * Gera a comanda digitada completa para envio no WhatsApp da loja,
+ * Gera o pedido digitado completo para envio no WhatsApp da loja,
  * com o pedido detalhado, 5 dígitos e informações do sistema.
  */
 export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings): string {
@@ -49,43 +49,32 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
   lines.push('================================');
   lines.push(`*${deliveryHeader}*`);
   lines.push('================================');
-  lines.push(`*${formatDateTime(order.createdAt)}*`);
-  lines.push(`*Previsão:* ${estWindow}`);
+  lines.push(`*PEDIDO ${order.displayId}*`);
+  lines.push(`*Data:* ${formatDateTime(order.createdAt)}`);
   lines.push(`*Loja:* ${settings.storeName}`);
   lines.push('================================');
-  lines.push(`*PEDIDO ${order.displayId}*`);
-  lines.push('================================');
   lines.push('');
-  lines.push('*DADOS DO CLIENTE:*');
-  lines.push(`• *Nome:* ${order.customer.name}`);
-  lines.push(`• *WhatsApp:* ${order.customer.phone}`);
+  lines.push('*CLIENTE:*');
+  lines.push(`• ${order.customer.name} (${order.customer.phone})`);
 
   if (order.customer.deliveryType === 'delivery' && order.customer.address) {
     const addr = order.customer.address;
-    lines.push(`• *Endereço:* ${addr.street}, ${addr.number} - ${addr.neighborhood}`);
-    if (addr.complement) lines.push(`• *Complemento:* ${addr.complement}`);
-    lines.push(`• *Cidade:* ${addr.city}${addr.state ? ` - ${addr.state}` : ''}`);
-    if (addr.cep) lines.push(`• *CEP:* ${addr.cep}`);
+    lines.push(`• Endereço: ${addr.street}, ${addr.number} - ${addr.neighborhood}`);
   } else if (order.customer.deliveryType === 'mesa') {
-    lines.push(`• *Atendimento:* Consumo no Restaurante (${order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'Salão'})`);
+    lines.push(`• Atendimento: Consumir no local (${order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'Salão'})`);
   } else {
-    lines.push('• *Retirada:* Retirada direta no Balcão');
+    lines.push('• Retirada no Balcão');
   }
 
   lines.push('');
-  lines.push('--------------------------------');
-  lines.push('*ITENS:*');
-  lines.push('--------------------------------');
+  lines.push('*PEDIDO:*');
 
   order.items.forEach((item) => {
-    lines.push(`(${item.quantity}) ${item.product.name}   ${formatCurrency(item.totalPrice)}`);
+    lines.push(`• (${item.quantity}) ${item.product.name} ${formatCurrency(item.totalPrice)}`);
     if (item.selectedComplements && item.selectedComplements.length > 0) {
       item.selectedComplements.forEach((c) => {
         lines.push(`   - ${c.name}${c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}`);
       });
-    }
-    if (item.appliedPromotion) {
-      lines.push(`   * Promoção aplicada (${item.appliedPromotion.promoQuantity} un)`);
     }
     if (item.notes) {
       lines.push(`   - Obs: ${item.notes}`);
@@ -93,33 +82,17 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
   });
 
   lines.push('--------------------------------');
-  lines.push(`*SUBTOTAL:* ${formatCurrency(order.subtotal)}`);
-  if (order.deliveryFee > 0) {
-    lines.push(`*TAXA DE ENTREGA:* ${formatCurrency(order.deliveryFee)}`);
-  } else {
-    lines.push(`*TAXA:* Grátis`);
-  }
-  lines.push(`*TOTAL A PAGAR:* ${formatCurrency(order.total)}`);
-
-  const paymentText = order.customer.paymentMethod.replace('_', ' ').toUpperCase();
-  lines.push(`*FORMA DE PAGAMENTO:* ${paymentText}`);
-
-  if (order.customer.paymentMethod === 'dinheiro' && order.customer.cashGiven) {
-    lines.push(`• *Dinheiro entregue:* ${formatCurrency(order.customer.cashGiven)}`);
-    lines.push(`• *Troco a levar:* ${formatCurrency(order.customer.changeToReturn || 0)}`);
-  }
-
+  lines.push(`*TOTAL:* ${formatCurrency(order.total)}`);
+  lines.push(`*PAGAMENTO:* ${paymentText}`);
   lines.push('================================');
-  lines.push('RAPIDO');
-  lines.push('*Powered By: SF TECNOLOGIA*');
-  lines.push('Acesse: https://cardapp-us.vercel.app');
+  lines.push('PEDIDO VIA CARDÁPIO DIGITAL');
   lines.push('================================');
 
   return lines.join('\n');
 }
 
 /**
- * Cria a URL direta do WhatsApp com a comanda formatada
+ * Cria a URL direta do WhatsApp com o pedido formatado
  */
 export function getOrderWhatsAppUrl(order: Order, settings: StoreSettings): string {
   let cleanPhone = (settings.phoneWhatsapp || '5584986113980').replace(/\D/g, '');

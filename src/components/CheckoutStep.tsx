@@ -421,7 +421,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
               >
                 <UtensilsCrossed className={`w-6 h-6 mb-2 ${deliveryType === 'mesa' ? 'text-amber-600' : 'text-slate-500'}`} />
                 <div>
-                  <span className="block font-bold text-sm text-slate-900">Consumo no Local</span>
+                  <span className="block font-bold text-sm text-slate-900">Consumir no local</span>
                   <span className="text-xs text-slate-500">Servir na Mesa</span>
                 </div>
               </button>

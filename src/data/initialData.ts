@@ -45,7 +45,6 @@ export const INITIAL_SETTINGS: StoreSettings = {
 };
 
 export const INITIAL_CATEGORIES: Category[] = [
-  { id: 'todos', name: 'Todos os Itens' },
   { id: 'acai', name: 'Açaí & Sobremesas' },
   { id: 'burgers', name: 'Hambúrgueres Artesanais' },
   { id: 'pizzas', name: 'Pizzas Especiais' },
