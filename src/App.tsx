@@ -588,6 +588,12 @@ export default function App() {
 
   // Navigation handlers
   const handleOpenDemoMenu = () => {
+    storageService.setStoreId('default_store');
+    setProducts(storageService.getProducts());
+    setOrders(storageService.getOrders());
+    setCategories(storageService.getCategories());
+    setSettings(storageService.getSettings());
+    setCurrentUser(null);
     setCurrentView('menu');
     setShowSplash(true);
     localStorage.setItem('cardapp_last_view', 'menu');
@@ -740,15 +746,6 @@ export default function App() {
             onOpenCart={() => setCurrentStep(2)}
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
-            showCeoControls={false}
-            currentUser={currentUser}
-            onOpenCeoMenu={currentUser ? () => {
-              if (currentUser.role === 'super_admin') {
-                setIsSuperAdminModalOpen(true);
-              } else {
-                setIsCeoModalOpen(true);
-              }
-            } : undefined}
             hasActiveOrder={Boolean(currentActiveOrder)}
             activeOrderStatus={currentActiveOrder?.status}
             activeOrderDisplayId={currentActiveOrder?.displayId}
