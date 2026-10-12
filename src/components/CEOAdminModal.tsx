@@ -2364,14 +2364,16 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Ex: Mesa 08"
+                      placeholder="Ex: 08"
                       className="flex-1 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
                           const val = e.currentTarget.value.trim();
                           if (val) {
-                            setLocalSettings({ ...localSettings, tables: [...(localSettings.tables || []), val] });
+                            const updatedTables = [...(localSettings.tables || []), `Mesa ${val}`];
+                            setLocalSettings({ ...localSettings, tables: updatedTables });
+                            onSaveSettings({ ...localSettings, tables: updatedTables });
                             e.currentTarget.value = '';
                           }
                         }
