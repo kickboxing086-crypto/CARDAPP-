@@ -2340,12 +2340,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                 {/* GERENCIAMENTO DE MESAS */}
                 <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
-                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
+                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-3">
                     Gerenciamento de Mesas:
                   </span>
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  
+                  {/* Grid de Mesas */}
+                  <div className="grid grid-cols-5 sm:grid-cols-8 gap-2 mb-4">
                     {(localSettings.tables || []).map((table, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700">
+                      <div key={index} className="relative p-2 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 text-center shadow-xs">
                         {table}
                         <button
                           type="button"
@@ -2353,32 +2355,45 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             const newTables = [...(localSettings.tables || [])];
                             newTables.splice(index, 1);
                             setLocalSettings({ ...localSettings, tables: newTables });
+                            onSaveSettings({ ...localSettings, tables: newTables });
                           }}
-                          className="text-red-500 hover:text-red-700"
+                          className="absolute -top-1 -right-1 p-0.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200"
                         >
-                          ✕
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
                   </div>
+
+                  {/* Gerar Mesas em Massa */}
                   <div className="flex gap-2">
                     <input
-                      type="text"
-                      placeholder="Ex: 08"
-                      className="flex-1 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = e.currentTarget.value.trim();
-                          if (val) {
-                            const updatedTables = [...(localSettings.tables || []), `Mesa ${val}`];
-                            setLocalSettings({ ...localSettings, tables: updatedTables });
-                            onSaveSettings({ ...localSettings, tables: updatedTables });
-                            e.currentTarget.value = '';
+                      type="number"
+                      placeholder="Qtd de mesas"
+                      className="w-24 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
+                      id="num-tables-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById('num-tables-input') as HTMLInputElement;
+                        const qty = parseInt(input.value);
+                        if (!isNaN(qty) && qty > 0) {
+                          const currentTables = localSettings.tables || [];
+                          const newTables = [...currentTables];
+                          for (let i = 1; i <= qty; i++) {
+                            const nextNumber = (currentTables.length + i).toString().padStart(2, '0');
+                            newTables.push(`Mesa ${nextNumber}`);
                           }
+                          setLocalSettings({ ...localSettings, tables: newTables });
+                          onSaveSettings({ ...localSettings, tables: newTables });
+                          input.value = '';
                         }
                       }}
-                    />
+                      className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs"
+                    >
+                      Gerar Mesas
+                    </button>
                   </div>
                 </div>
 
