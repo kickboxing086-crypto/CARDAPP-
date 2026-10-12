@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { accountService } from '../services/accountService';
+import { storageService } from '../services/storageService';
 import {
   X,
   LayoutDashboard,
@@ -104,10 +105,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedCeoLink, setCopiedCeoLink] = useState(false);
   const [copiedLoginLink, setCopiedLoginLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
 
-  // Two-step logout confirmation state
+  // Loja Oficial e Login Oficial com ID real da loja do CEO
+  const currentSession = accountService.getCurrentSession();
+  const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
+  const officialStoreUrl = useMemo(() => {
+    return getClientAppUrl(currentStoreId);
+  }, [currentStoreId]);
+
+  const officialLoginUrl = useMemo(() => {
+    return getLoginAppUrl();
+  }, []);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [logoutConfirmationStep, setLogoutConfirmationStep] = useState<1 | 2>(1);
 
@@ -2390,14 +2399,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <Share2 className="w-7 h-7" />
                 </div>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-                  Links de Acesso do Sistema (Cliente & CEO)
+                  Links da Loja & Login
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Links separados e organizados para o cliente fazer pedidos e para o CEO administrar a loja.
+                  Apenas os links essenciais: o link oficial da sua loja para os clientes e o link oficial de login.
                 </p>
               </div>
 
-              {/* OPÇÃO DO CLIENTE */}
+              {/* OPÇÃO 1: LINK OFICIAL DA LOJA (PARA O CLIENTE) */}
               <div className="bg-white rounded-3xl border-2 border-amber-400 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -2405,116 +2414,100 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       1
                     </span>
                     <h4 className="font-black text-base text-slate-950">
-                      Link do Cardápio para o CLIENTE
+                      Link Oficial da Loja para os Clientes
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                    Acesso dos Clientes
+                    Loja Oficial
                   </span>
                 </div>
 
                 <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                  Envie este link no WhatsApp, redes sociais ou coloque na bio do Instagram. O cliente vê os produtos, adiciona com "+", escolhe complementos e acompanha o pedido nas 4 etapas.
+                  Envie este link no WhatsApp, redes sociais ou coloque na bio do Instagram. O cliente abre diretamente a sua loja oficial, escolhe os produtos, adiciona complementos e acompanha o pedido.
                 </p>
 
-                {/* Input e Botão de Copiar Link do Cliente - Vercel Oficial */}
+                {/* Input e Botão de Copiar Link Oficial da Loja */}
                 <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/70 mb-5">
                   <input
                     type="text"
                     readOnly
-                    value={`${OFFICIAL_APP_URL}/?view=cliente`}
+                    value={officialStoreUrl}
                     className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      const clientUrl = `${OFFICIAL_APP_URL}/?view=cliente`;
-                      navigator.clipboard.writeText(clientUrl);
+                      navigator.clipboard.writeText(officialStoreUrl);
                       setCopiedClientLink(true);
                       setTimeout(() => setCopiedClientLink(false), 2500);
                     }}
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
                   >
                     {copiedClientLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedClientLink ? 'Copiado!' : 'Copiar Link do Cliente'}</span>
+                    <span>{copiedClientLink ? 'Copiado!' : 'Copiar Link da Loja'}</span>
                   </button>
                 </div>
 
-                {/* QR Code Real do Cardápio do Cliente */}
+                {/* QR Code Real e Altamente Legível para Qualquer Dispositivo */}
                 <div className="p-5 bg-slate-950 rounded-2xl text-center text-white flex flex-col sm:flex-row items-center justify-center gap-5">
-                  <div className="w-36 h-36 bg-white p-2.5 rounded-xl flex items-center justify-center text-slate-950 shrink-0">
-                    <svg
-                      viewBox="0 0 100 100"
-                      className="w-full h-full fill-slate-950"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <rect x="5" y="5" width="26" height="26" rx="4" fill="#000" />
-                      <rect x="9" y="9" width="18" height="18" rx="2" fill="#fff" />
-                      <rect x="13" y="13" width="10" height="10" rx="1" fill="#000" />
-                      <rect x="69" y="5" width="26" height="26" rx="4" fill="#000" />
-                      <rect x="73" y="9" width="18" height="18" rx="2" fill="#fff" />
-                      <rect x="77" y="13" width="10" height="10" rx="1" fill="#000" />
-                      <rect x="5" y="69" width="26" height="26" rx="4" fill="#000" />
-                      <rect x="9" y="73" width="18" height="18" rx="2" fill="#fff" />
-                      <rect x="13" y="77" width="10" height="10" rx="1" fill="#000" />
-                      <rect x="36" y="8" width="6" height="6" />
-                      <rect x="46" y="8" width="6" height="6" />
-                      <rect x="56" y="8" width="6" height="6" />
-                      <rect x="36" y="18" width="6" height="6" />
-                      <rect x="46" y="24" width="6" height="6" />
-                      <rect x="56" y="18" width="6" height="6" />
-                      <rect x="8" y="36" width="6" height="6" />
-                      <rect x="18" y="44" width="6" height="6" />
-                      <rect x="24" y="36" width="6" height="6" />
-                      <rect x="36" y="36" width="8" height="8" rx="1" fill="#EAB308" />
-                      <rect x="48" y="36" width="6" height="6" />
-                      <rect x="58" y="36" width="8" height="8" rx="1" fill="#EAB308" />
-                      <rect x="70" y="36" width="6" height="6" />
-                      <rect x="82" y="36" width="6" height="6" />
-                      <rect x="36" y="48" width="6" height="6" />
-                      <rect x="46" y="46" width="8" height="8" rx="1" fill="#000" />
-                      <rect x="58" y="48" width="6" height="6" />
-                      <rect x="68" y="48" width="6" height="6" />
-                      <rect x="80" y="46" width="6" height="6" />
-                      <rect x="8" y="56" width="6" height="6" />
-                      <rect x="20" y="56" width="6" height="6" />
-                      <rect x="36" y="60" width="6" height="6" />
-                      <rect x="48" y="58" width="6" height="6" />
-                      <rect x="58" y="60" width="6" height="6" />
-                      <rect x="74" y="60" width="6" height="6" />
-                      <rect x="84" y="58" width="6" height="6" />
-                      <rect x="36" y="72" width="6" height="6" />
-                      <rect x="46" y="72" width="6" height="6" />
-                      <rect x="58" y="70" width="8" height="8" rx="1" fill="#EAB308" />
-                      <rect x="70" y="72" width="6" height="6" />
-                      <rect x="82" y="72" width="6" height="6" />
-                      <rect x="36" y="84" width="6" height="6" />
-                      <rect x="48" y="84" width="6" height="6" />
-                      <rect x="56" y="84" width="6" height="6" />
-                      <rect x="68" y="84" width="6" height="6" />
-                      <rect x="80" y="84" width="6" height="6" />
-                    </svg>
+                  <div className="w-40 h-40 bg-white p-2 rounded-2xl flex items-center justify-center text-slate-950 shrink-0 shadow-lg">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(officialStoreUrl)}`}
+                      alt="QR Code Oficial da Loja"
+                      className="w-full h-full object-contain"
+                      loading="eager"
+                    />
                   </div>
-                  <div className="text-left space-y-1">
+                  <div className="text-left space-y-1.5 max-w-sm">
                     <span className="text-xs font-black uppercase text-amber-400 tracking-wide block">
-                      QR Code Oficial do Cardápio ({OFFICIAL_APP_URL})
+                      QR Code Oficial da Loja
                     </span>
-                    <p className="text-[11px] text-slate-300">
-                      Imprima este QR Code para colocar nas mesas ou no balcão da sua loja. O cliente aponta a câmera e abre o cardápio automaticamente no link oficial Vercel.
+                    <p className="text-[11px] text-slate-300 leading-snug">
+                      QR Code otimizado e legível em qualquer celular (Android ou iPhone). Basta apontar a câmera do smartphone para abrir sua loja oficial instantaneamente.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => window.print()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-[11px] mt-2 cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Imprimir QR Code</span>
-                    </button>
+                    <div className="pt-1 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const printWindow = window.open('', '_blank');
+                          if (printWindow) {
+                            printWindow.document.write(`
+                              <html>
+                                <head>
+                                  <title>QR Code - ${settings.storeName}</title>
+                                  <style>
+                                    body { font-family: sans-serif; text-align: center; padding: 40px; }
+                                    h1 { margin-bottom: 8px; }
+                                    p { color: #666; margin-bottom: 24px; }
+                                    img { width: 320px; height: 320px; }
+                                    .url { font-family: monospace; font-weight: bold; margin-top: 16px; font-size: 14px; }
+                                  </style>
+                                </head>
+                                <body>
+                                  <h1>${settings.storeName}</h1>
+                                  <p>Aponte a câmera do seu celular para ver nosso cardápio</p>
+                                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(officialStoreUrl)}" />
+                                  <div class="url">${officialStoreUrl}</div>
+                                  <script>window.onload = function() { window.print(); };</script>
+                                </body>
+                              </html>
+                            `);
+                            printWindow.document.close();
+                          } else {
+                            window.print();
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer shadow-xs"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Imprimir QR Code</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* OPÇÃO DO CEO */}
+              {/* OPÇÃO 2: LINK DE LOGIN */}
               <div className="bg-white rounded-3xl border border-slate-300 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -2522,7 +2515,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       2
                     </span>
                     <h4 className="font-black text-base text-slate-950">
-                      Link Administrativo para o CEO
+                      Link de Login Oficial
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-900">
@@ -2531,64 +2524,29 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                  Link oficial para o lojista e administradores realizarem login e gerenciarem os pedidos, financeiro, cardápio e configurações no Vercel.
+                  Link oficial para o lojista e administrador acessar o painel do CEO com usuário e senha.
                 </p>
 
-                {/* Input e Botão de Copiar Link de Login Oficial - Vercel */}
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                      Link de Login Oficial (Vercel):
-                    </label>
-                    <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/60">
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${OFFICIAL_APP_URL}/?view=login`}
-                        className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const loginUrl = `${OFFICIAL_APP_URL}/?view=login`;
-                          navigator.clipboard.writeText(loginUrl);
-                          setCopiedLoginLink(true);
-                          setTimeout(() => setCopiedLoginLink(false), 2500);
-                        }}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
-                      >
-                        {copiedLoginLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedLoginLink ? 'Copiado!' : 'Copiar Link de Login'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                      Link Direto do Painel do CEO:
-                    </label>
-                    <div className="flex items-center gap-2 p-2 rounded-2xl border border-slate-300 bg-slate-50">
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${OFFICIAL_APP_URL}/?view=ceo`}
-                        className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ceoUrl = `${OFFICIAL_APP_URL}/?view=ceo`;
-                          navigator.clipboard.writeText(ceoUrl);
-                          setCopiedCeoLink(true);
-                          setTimeout(() => setCopiedCeoLink(false), 2500);
-                        }}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
-                      >
-                        {copiedCeoLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedCeoLink ? 'Copiado!' : 'Copiar Link do CEO'}</span>
-                      </button>
-                    </div>
-                  </div>
+                {/* Input e Botão de Copiar Link de Login Oficial */}
+                <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/60">
+                  <input
+                    type="text"
+                    readOnly
+                    value={officialLoginUrl}
+                    className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(officialLoginUrl);
+                      setCopiedLoginLink(true);
+                      setTimeout(() => setCopiedLoginLink(false), 2500);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
+                  >
+                    {copiedLoginLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedLoginLink ? 'Copiado!' : 'Copiar Link de Login'}</span>
+                  </button>
                 </div>
               </div>
             </div>

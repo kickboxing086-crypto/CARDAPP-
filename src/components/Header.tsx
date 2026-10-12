@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, Menu, Info, Lock, UserCheck } from 'lucide-react';
+import { ShoppingBag, Menu, Info, Lock, UserCheck, Clock3 } from 'lucide-react';
 import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 
@@ -14,6 +14,10 @@ interface HeaderProps {
   currentUser?: UserAccount | null;
   onOpenLoginModal?: () => void;
   showCeoControls?: boolean;
+  hasActiveOrder?: boolean;
+  activeOrderStatus?: string;
+  activeOrderDisplayId?: string;
+  onViewTracking?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,6 +31,10 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onOpenLoginModal,
   showCeoControls = false,
+  hasActiveOrder = false,
+  activeOrderStatus,
+  activeOrderDisplayId,
+  onViewTracking,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-200 shadow-xs">
@@ -103,6 +111,35 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="hidden sm:inline">Entrar</span>
                 </>
               )}
+            </button>
+          )}
+
+          {/* Botão de Análise e Acompanhamento do Status do Pedido do Cliente */}
+          {hasActiveOrder && onViewTracking && (
+            <button
+              type="button"
+              onClick={onViewTracking}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs shadow-md transition-all active:scale-95 cursor-pointer ring-2 ring-amber-300 animate-pulse"
+              title="Acompanhar análise e status do pedido em tempo real"
+            >
+              <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping inline-block" />
+              <Clock3 className="w-4 h-4 stroke-[2.5]" />
+              <div className="flex flex-col text-left leading-none">
+                <span className="text-[10px] uppercase font-black tracking-wider text-slate-900">
+                  Status do Pedido
+                </span>
+                <span className="text-[9px] font-bold text-slate-800">
+                  {activeOrderStatus === 'recebido'
+                    ? '1. Recebido'
+                    : activeOrderStatus === 'em_producao'
+                    ? '2. Em Preparo'
+                    : activeOrderStatus === 'em_rota'
+                    ? '3. Saiu p/ Entrega'
+                    : activeOrderStatus === 'finalizado'
+                    ? '4. Entregue'
+                    : 'Em Análise'}
+                </span>
+              </div>
             </button>
           )}
 

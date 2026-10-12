@@ -1,13 +1,14 @@
 export const OFFICIAL_APP_URL = 'https://cardapp-us.vercel.app';
 
-export function getClientAppUrl(): string {
+export function getClientAppUrl(storeId?: string): string {
+  const storeQuery = storeId && storeId !== 'default_store' && storeId !== 'master_admin' ? `&store=${encodeURIComponent(storeId)}` : '';
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
     if (origin.includes('vercel.app') || origin.includes('localhost') || origin.includes('run.app')) {
-      return `${origin}/?view=cliente`;
+      return `${origin}/?view=cliente${storeQuery}`;
     }
   }
-  return `${OFFICIAL_APP_URL}/?view=cliente`;
+  return `${OFFICIAL_APP_URL}/?view=cliente${storeQuery}`;
 }
 
 export function getCeoAppUrl(): string {
@@ -30,9 +31,10 @@ export function getLoginAppUrl(): string {
   return `${OFFICIAL_APP_URL}/?view=login`;
 }
 
-export function getCurrentEnvUrl(view: 'cliente' | 'ceo' | 'login'): string {
+export function getCurrentEnvUrl(view: 'cliente' | 'ceo' | 'login', storeId?: string): string {
+  const storeQuery = storeId && storeId !== 'default_store' && storeId !== 'master_admin' ? `&store=${encodeURIComponent(storeId)}` : '';
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}/?view=${view}`;
+    return `${window.location.origin}/?view=${view}${storeQuery}`;
   }
-  return `${OFFICIAL_APP_URL}/?view=${view}`;
+  return `${OFFICIAL_APP_URL}/?view=${view}${storeQuery}`;
 }

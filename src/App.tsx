@@ -608,6 +608,10 @@ export default function App() {
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
             showCeoControls={false}
+            hasActiveOrder={Boolean(currentActiveOrder)}
+            activeOrderStatus={currentActiveOrder?.status}
+            activeOrderDisplayId={currentActiveOrder?.displayId}
+            onViewTracking={() => setCurrentStep(4)}
           />
 
           {/* 4 ETAPAS TRACKER FOR CLIENT */}
@@ -615,6 +619,7 @@ export default function App() {
             currentStep={currentStep}
             onStepClick={(step) => setCurrentStep(step)}
             cartCount={totalCartCount}
+            hasActiveOrder={Boolean(currentActiveOrder)}
           />
 
           {/* MAIN CONTENT AREA */}

@@ -5,12 +5,14 @@ interface StepTrackerProps {
   currentStep: 1 | 2 | 3 | 4;
   onStepClick?: (step: 1 | 2 | 3 | 4) => void;
   cartCount: number;
+  hasActiveOrder?: boolean;
 }
 
 export const StepTracker: React.FC<StepTrackerProps> = ({
   currentStep,
   onStepClick,
   cartCount,
+  hasActiveOrder = false,
 }) => {
   const steps = [
     {
@@ -82,7 +84,7 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
             const Icon = step.icon;
 
             const isClickable =
-              onStepClick && (isCompleted || (step.num === 1 && currentStep <= 3) || (step.num === 2 && cartCount > 0));
+              onStepClick && (isCompleted || (step.num === 1 && currentStep <= 3) || (step.num === 2 && cartCount > 0) || (step.num === 4 && hasActiveOrder));
 
             return (
               <button
