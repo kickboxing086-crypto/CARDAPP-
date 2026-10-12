@@ -35,6 +35,11 @@ import { LoginModal } from './components/LoginModal';
 import { SuperAdminModal } from './components/SuperAdminModal';
 import { InstagramStoreProfile } from './components/InstagramStoreProfile';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
+import {
+  INITIAL_PRODUCTS,
+  INITIAL_CATEGORIES,
+  INITIAL_SETTINGS,
+} from './data/initialData';
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
 import {
@@ -331,14 +336,16 @@ export default function App() {
     return orders;
   }, [orders, clientOrderIds]);
 
-  // Active Order for Step 4
+  // Active Order for Step 4 (ignores finalized orders so they disappear from client active tracking and stay only in history)
   const currentActiveOrder = useMemo(() => {
     if (activeOrderId) {
-      const found = orders.find((o) => o.id === activeOrderId);
+      const found = orders.find((o) => o.id === activeOrderId && o.status !== 'finalizado');
       if (found) return found;
     }
-    if (clientOrders.length > 0) return clientOrders[0];
-    return orders.length > 0 ? orders[0] : null;
+    const unfinishedClient = clientOrders.find((o) => o.status !== 'finalizado');
+    if (unfinishedClient) return unfinishedClient;
+    const unfinishedAll = orders.find((o) => o.status !== 'finalizado');
+    return unfinishedAll || null;
   }, [orders, activeOrderId, clientOrders]);
 
   // Listen for real-time order status updates to trigger Push Notifications & Sound
@@ -589,10 +596,12 @@ export default function App() {
   // Navigation handlers
   const handleOpenDemoMenu = () => {
     storageService.setStoreId('default_store');
-    setProducts(storageService.getProducts());
-    setOrders(storageService.getOrders());
-    setCategories(storageService.getCategories());
-    setSettings(storageService.getSettings());
+    localStorage.setItem(storageService.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
+    localStorage.setItem(storageService.getCategoriesKey(), JSON.stringify(INITIAL_CATEGORIES));
+    localStorage.setItem(storageService.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
+    setProducts(INITIAL_PRODUCTS);
+    setCategories(INITIAL_CATEGORIES);
+    setSettings(INITIAL_SETTINGS);
     setCurrentUser(null);
     setCurrentView('menu');
     setShowSplash(true);
