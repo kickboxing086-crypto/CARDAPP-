@@ -937,48 +937,25 @@ export default function App() {
                   <span>Landing Page</span>
                 </button>
 
-                {currentUser ? (
-                  <>
-                    <span className="text-slate-300">•</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (currentUser.role === 'super_admin') {
-                          setIsSuperAdminModalOpen(true);
-                        } else {
-                          setIsCeoModalOpen(true);
-                        }
-                      }}
-                      className="text-amber-600 hover:text-amber-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                      title="Abrir Painel CEO"
-                    >
-                      <Crown className="w-3.5 h-3.5" />
-                      <span>Painel CEO</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-slate-300">•</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginModalMode('login');
-                        setCurrentView('login');
-                        setIsLoginModalOpen(false);
-                        try {
-                          window.history.pushState({}, '', '/?view=login');
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                      title="Ir para a aba de Login"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Entrar / Login</span>
-                    </button>
-                  </>
-                )}
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginModalMode('login');
+                    setCurrentView('login');
+                    setIsLoginModalOpen(false);
+                    try {
+                      window.history.pushState({}, '', '/?view=login');
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Ir para a aba de Login"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Entrar / Login</span>
+                </button>
               </div>
             </div>
           </footer>
