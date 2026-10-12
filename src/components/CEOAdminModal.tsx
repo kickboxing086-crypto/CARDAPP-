@@ -2191,29 +2191,24 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
                     Horários de Funcionamento:
                   </span>
-                  <div className="space-y-2">
-                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
-                      <div key={day} className="flex items-center gap-2 text-xs">
-                        <span className="w-20 capitalize font-bold">{day}</span>
-                        <input
-                          type="time"
-                          value={localSettings.operatingHours?.[day as keyof StoreOperatingHours]?.openTime || ''}
-                          onChange={(e) => setLocalSettings({
-                            ...localSettings,
-                            operatingHours: { ...localSettings.operatingHours, [day]: { ...localSettings.operatingHours?.[day as keyof StoreOperatingHours], openTime: e.target.value } }
-                          })}
-                          className="p-1 rounded border border-slate-300"
-                        />
-                        <span>-</span>
-                        <input
-                          type="time"
-                          value={localSettings.operatingHours?.[day as keyof StoreOperatingHours]?.closeTime || ''}
-                          onChange={(e) => setLocalSettings({
-                            ...localSettings,
-                            operatingHours: { ...localSettings.operatingHours, [day]: { ...localSettings.operatingHours?.[day as keyof StoreOperatingHours], closeTime: e.target.value } }
-                          })}
-                          className="p-1 rounded border border-slate-300"
-                        />
+                  <div className="space-y-3">
+                    {[{id: 'monday', name: 'Segunda'}, {id: 'tuesday', name: 'Terça'}, {id: 'wednesday', name: 'Quarta'}, {id: 'thursday', name: 'Quinta'}, {id: 'friday', name: 'Sexta'}, {id: 'saturday', name: 'Sábado'}, {id: 'sunday', name: 'Domingo'}].map((day) => (
+                      <div key={day.id} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="w-20 font-bold">{day.name}</span>
+                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.openTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], openTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                        <span>às</span>
+                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.closeTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], closeTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                        <label className="flex items-center gap-1 ml-2">
+                          <input type="checkbox" checked={!!localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.hasBreak} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], hasBreak: e.target.checked }}})} />
+                          <span>Intervalo?</span>
+                        </label>
+                        {localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.hasBreak && (
+                          <div className="flex items-center gap-1">
+                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakStartTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakStartTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                            <span>-</span>
+                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakEndTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakEndTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
