@@ -2,8 +2,13 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { setupZoomLock } from './utils/zoomLock';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Inicializa e trava o zoom do sistema em 80%
 setupZoomLock();
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

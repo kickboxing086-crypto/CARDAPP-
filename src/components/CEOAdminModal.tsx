@@ -51,7 +51,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
-import { OFFICIAL_APP_URL, getClientAppUrl, getCeoAppUrl } from '../utils/constants';
+import { OFFICIAL_APP_URL, getClientAppUrl, getCeoAppUrl, getLoginAppUrl } from '../utils/constants';
 import {
   getEstimatedTimeWindow,
   getDeliveryTypeLabel,
@@ -106,6 +106,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedLoginLink, setCopiedLoginLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
   // Loja Oficial e Login Oficial com ID real da loja do CEO
   const currentSession = accountService.getCurrentSession();

@@ -17,6 +17,7 @@ import {
   Share2,
   Copy,
   Check,
+  Lock,
 } from 'lucide-react';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
@@ -138,8 +139,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={onOpenLogin}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-800 hover:bg-amber-50 border border-slate-200 transition-all cursor-pointer"
+                className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold text-slate-800 hover:bg-amber-50 border border-slate-200 transition-all cursor-pointer"
+                title="Entrar na conta da loja"
               >
+                <Lock className="w-3.5 h-3.5 text-amber-600" />
                 <span>Entrar</span>
               </button>
             )}
@@ -557,10 +560,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="flex items-center gap-3 font-bold text-[11px]">
+            {onOpenLogin && (
+              <button
+                type="button"
+                onClick={onOpenLogin}
+                className="text-amber-400 hover:text-amber-300 cursor-pointer flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Entrar na Conta</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenDemoMenu}
-              className="text-amber-400 hover:text-amber-300 cursor-pointer flex items-center gap-1.5"
+              className="text-slate-400 hover:text-white cursor-pointer flex items-center gap-1.5"
             >
               <ForkKnifeIcon className="w-3.5 h-3.5 text-amber-400" />
               <span>Ver Cardápio Demo</span>

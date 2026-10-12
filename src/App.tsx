@@ -584,7 +584,14 @@ export default function App() {
           isStandalone={true}
           initialMode={loginModalMode}
           onLoginSuccess={handleLoginSuccess}
-          onClose={() => {}}
+          onClose={() => {
+            setCurrentView('landing');
+            try {
+              window.history.pushState({}, '', '/');
+            } catch {
+              // ignore
+            }
+          }}
         />
       )}
 
