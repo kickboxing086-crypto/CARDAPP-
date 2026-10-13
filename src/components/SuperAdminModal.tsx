@@ -19,6 +19,10 @@ import {
   EyeOff,
   ExternalLink,
   Share2,
+  QrCode,
+  RefreshCw,
+  KeyRound,
+  Sparkles,
 } from 'lucide-react';
 import { UserAccount, UserAccessRequest } from '../types';
 import { accountService } from '../services/accountService';
@@ -68,6 +72,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // State to track which account has visible password
   const [visiblePasswordAccountIds, setVisiblePasswordAccountIds] = useState<Record<string, boolean>>({});
 
+  // Gateway Pix Management State (BCB PIX)
+  const [adminPixKeyInput, setAdminPixKeyInput] = useState(() => accountService.getPixKey());
+  const [pixKeyFeedback, setPixKeyFeedback] = useState<string | null>(null);
+  const [copiedPixKeyAdmin, setCopiedPixKeyAdmin] = useState(false);
+
   const togglePasswordVisibility = (accId: string) => {
     setVisiblePasswordAccountIds((prev) => ({
       ...prev,
@@ -75,12 +84,38 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }));
   };
 
+  const handleSavePixKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = adminPixKeyInput.trim();
+    if (!trimmed) return;
+    accountService.setPixKey(trimmed);
+    setPixKeyFeedback('Chave Pix atualizada com sucesso! Sincronizada em tempo real com todos os CEOs.');
+    setTimeout(() => setPixKeyFeedback(null), 4000);
+  };
+
+  const handlePrependBcbPix = () => {
+    let val = adminPixKeyInput.trim();
+    if (!val.startsWith('bcb.pix')) {
+      val = `bcb.pix.${val}`;
+    }
+    setAdminPixKeyInput(val);
+  };
+
+  const handleResetDefaultPix = () => {
+    accountService.resetDefaultPixKey();
+    setAdminPixKeyInput(accountService.getPixKey());
+    setPixKeyFeedback('Chave Pix restaurada para o padrão oficial com prefixo bcb.pix.');
+    setTimeout(() => setPixKeyFeedback(null), 4000);
+  };
+
   useEffect(() => {
     setAccounts(accountService.getAccounts());
     setAccessRequests(accountService.getAccessRequests());
+    setAdminPixKeyInput(accountService.getPixKey());
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
+      setAdminPixKeyInput(accountService.getPixKey());
     });
     return () => unsub();
   }, []);
@@ -940,12 +975,140 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           )}
 
           {activeTab === 'payments' && (
-            <div className="max-w-xl mx-auto p-4 space-y-4">
-              <h3 className="font-black text-sm text-slate-950">Gateway de Pagamento</h3>
-              <div className="bg-white p-4 rounded-2xl border border-emerald-200">
-                <p className="text-xs font-bold text-slate-700">Chave Pix Ativa:</p>
-                <p className="font-mono text-sm bg-slate-100 p-2 rounded-lg mt-1">{accountService.pixKey}</p>
-                <p className="text-[10px] text-slate-500 mt-2">Clientes têm 7 dias de acesso gratuito antes do bloqueio.</p>
+            <div className="max-w-2xl mx-auto p-4 space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-base text-slate-950 flex items-center gap-2">
+                    <QrCode className="w-5 h-5 text-emerald-600" />
+                    <span>Gateway de Pagamento Pix • SF Tecnologia</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Configure a chave Pix que inicia com <strong>bcb.pix...</strong> exibida na Gateway de 5 minutos do painel do CEO.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">
+                  Sincronizado em Tempo Real
+                </span>
+              </div>
+
+              {/* Mensagem de Feedback de Atualização */}
+              {pixKeyFeedback && (
+                <div className="p-3.5 rounded-2xl bg-emerald-500 text-white shadow-md flex items-center gap-2.5 text-xs font-bold animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  <span>{pixKeyFeedback}</span>
+                </div>
+              )}
+
+              {/* Card da Chave Pix Ativa no Sistema */}
+              <div className="bg-white p-5 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                      Chave Pix Ativa na Gateway dos Clientes:
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    Padrão BCB PIX
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-900 text-emerald-400 font-mono text-xs sm:text-sm font-bold flex items-center justify-between gap-3 border border-slate-800">
+                  <span className="break-all select-all">{accountService.pixKey}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(accountService.pixKey);
+                      setCopiedPixKeyAdmin(true);
+                      setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
+                    }}
+                    className={`p-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
+                      copiedPixKeyAdmin
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-white/10 hover:bg-white/20 text-white'
+                    }`}
+                    title="Copiar Chave Pix Ativa"
+                  >
+                    {copiedPixKeyAdmin ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Favorecido:</span>
+                    <strong className="text-slate-900">SF TECNOLOGIA / Samuel</strong>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Tempo Limite:</span>
+                    <strong className="text-slate-900">5 Minutos p/ Bloqueio</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formulário de Edição da Chave Pix */}
+              <form onSubmit={handleSavePixKey} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <KeyRound className="w-4 h-4 text-slate-700" />
+                  <h4 className="font-black text-xs uppercase tracking-wider text-slate-800">
+                    Definir / Atualizar Chave Pix (Inicia com: bcb.pix...)
+                  </h4>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Digite ou cole a sua Chave Pix (iniciando com bcb.pix...):
+                  </label>
+                  <input
+                    type="text"
+                    value={adminPixKeyInput}
+                    onChange={(e) => setAdminPixKeyInput(e.target.value)}
+                    placeholder="bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55"
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 font-mono text-xs sm:text-sm text-slate-900 outline-hidden transition-all"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 flex items-center justify-between">
+                    <span>A chave será transmitida instantaneamente para todos os painéis de estabelecimentos (CEOs).</span>
+                    {!adminPixKeyInput.startsWith('bcb.pix') && (
+                      <button
+                        type="button"
+                        onClick={handlePrependBcbPix}
+                        className="text-emerald-600 font-bold hover:underline cursor-pointer ml-2 shrink-0"
+                      >
+                        + Adicionar prefixo "bcb.pix."
+                      </button>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetDefaultPix}
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Restaurar Padrão</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-md transition-all"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Salvar e Ativar Chave Pix</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Regras e Diretrizes do Sistema */}
+              <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-xs text-slate-700 space-y-1.5">
+                <p className="font-bold text-slate-900">Diretrizes da Gateway Automática:</p>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
+                  <li>Todos os novos clientes recebem 7 dias grátis de degustação na criação automática de acesso.</li>
+                  <li>No painel do CEO (opção 7: Status da Conta), a Gateway Pix oficial opera com prazo de 5 minutos por sessão.</li>
+                  <li>Se o CEO não realizar o pagamento em 5 minutos, o acesso é bloqueado automaticamente até a quitação.</li>
+                  <li>O Administrador Geral não precisa repassar a chave Pix por mensagem: o sistema exibe e liquida automaticamente.</li>
+                </ul>
               </div>
             </div>
           )}

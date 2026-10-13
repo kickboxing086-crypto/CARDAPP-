@@ -128,6 +128,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
+      setPixKey(accountService.getPixKey());
       if (updated?.planStatus === 'bloqueado') {
         setActiveTab('status');
       }
@@ -136,7 +137,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   }, []);
 
   // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO)
-  const PIX_KEY = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+  const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
   const PIX_BENEFICIARY = 'SF TECNOLOGIA / Samuel';
   const PIX_AMOUNT = 49.90;
   const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
@@ -148,6 +149,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [verifyStep, setVerifyStep] = useState<1 | 2 | 3>(1);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState(false);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
+
+  // Função auxiliar para gerar payload EMV Pix com chave padrão BCB
+  const generateBcbPixPayload = (key: string, amount: number) => {
+    const cleanKey = key.trim();
+    const keyLen = String(cleanKey.length).padStart(2, '0');
+    const merchantAccount = `0014BR.GOV.BCB.PIX01${keyLen}${cleanKey}`;
+    const maLen = String(merchantAccount.length).padStart(2, '0');
+    const amtStr = amount.toFixed(2);
+    const amtTag = `54${String(amtStr.length).padStart(2, '0')}${amtStr}`;
+    return `00020126${maLen}${merchantAccount}520400005303986${amtTag}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+  };
 
   // Chave de armazenamento da sessão da Gateway
   const getSessionStorageKey = () => `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
@@ -170,7 +182,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Gerar QR Code Oficial do Pix
   useEffect(() => {
-    const pixPayload = `00020126580014BR.GOV.BCB.PIX0136${PIX_KEY}5204000053039865405${PIX_AMOUNT.toFixed(2)}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+    const pixPayload = generateBcbPixPayload(pixKey, PIX_AMOUNT);
     QRCode.toDataURL(pixPayload, {
       width: 280,
       margin: 1,
@@ -181,11 +193,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     })
       .then((url) => setPixQrDataUrl(url))
       .catch(() => {
-        QRCode.toDataURL(PIX_KEY, { width: 280, margin: 1 })
+        QRCode.toDataURL(pixKey, { width: 280, margin: 1 })
           .then((url) => setPixQrDataUrl(url))
           .catch(() => {});
       });
-  }, []);
+  }, [pixKey]);
 
   // Intervalo regressivo de 5 minutos e bloqueio automático quando o tempo esgotar
   useEffect(() => {
@@ -267,7 +279,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Copiar chave Pix com feedback
   const handleCopyPixKey = async () => {
     try {
-      await navigator.clipboard.writeText(PIX_KEY);
+      await navigator.clipboard.writeText(pixKey);
       setCopiedPixKey(true);
       setTimeout(() => setCopiedPixKey(false), 3000);
     } catch {}
@@ -276,7 +288,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Copiar código Pix Copia e Cola
   const handleCopyPixPayload = async () => {
     try {
-      const payload = `00020126580014BR.GOV.BCB.PIX0136${PIX_KEY}5204000053039865405${PIX_AMOUNT.toFixed(2)}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+      const payload = generateBcbPixPayload(pixKey, PIX_AMOUNT);
       await navigator.clipboard.writeText(payload);
       setCopiedPixPayload(true);
       setTimeout(() => setCopiedPixPayload(false), 3000);
@@ -3129,15 +3141,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       {/* Chave Pix Cadastrada */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                          <span>Chave Pix Oficial (Aleatória):</span>
-                          <span className="text-[10px] text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded font-black">
-                            SF Tecnologia
+                          <span>Chave Pix Oficial (Padrão BCB PIX):</span>
+                          <span className="text-[10px] text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded font-black">
+                            BCB PIX
                           </span>
                         </div>
 
                         <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between gap-2">
                           <code className="text-xs font-mono font-bold text-slate-900 break-all select-all">
-                            {PIX_KEY}
+                            {pixKey}
                           </code>
                           <button
                             type="button"
@@ -3147,7 +3159,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                 ? 'bg-emerald-500 text-white'
                                 : 'bg-slate-950 hover:bg-slate-800 text-white'
                             }`}
-                            title="Copiar Chave Pix"
+                            title="Copiar Chave BCB PIX"
                           >
                             {copiedPixKey ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
                           </button>
@@ -3162,7 +3174,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-500">Tipo de Chave:</span>
-                          <span className="font-semibold text-slate-900">Aleatória (EVP)</span>
+                          <span className="font-semibold text-emerald-700 font-mono text-[11px]">Chave BCB PIX (Banco Central)</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-500">Validade do Prazo:</span>
@@ -3249,7 +3261,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 {/* WhatsApp Support Action */}
                 <div className="pt-2">
                   <a
-                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Chave Pix: ${PIX_KEY}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
+                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Chave Pix: ${pixKey}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full py-3 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"

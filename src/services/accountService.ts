@@ -6,6 +6,8 @@ import { storageService } from './storageService';
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
+const PIX_KEY_STORAGE_KEY = 'cardapp_gateway_pix_key_v1';
+const DEFAULT_PIX_KEY = 'bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55';
 
 const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
@@ -26,7 +28,7 @@ class AccountService {
   private accessRequests: UserAccessRequest[] = [];
   private currentSession: UserAccount | null = null;
   private listeners: (() => void)[] = [];
-  public pixKey: string = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+  public pixKey: string = DEFAULT_PIX_KEY;
 
   constructor() {
     this.loadFromStorage();
@@ -37,6 +39,13 @@ class AccountService {
 
   private loadFromStorage() {
     try {
+      const storedPix = localStorage.getItem(PIX_KEY_STORAGE_KEY);
+      if (storedPix && storedPix.trim()) {
+        this.pixKey = storedPix.trim();
+      } else {
+        this.pixKey = DEFAULT_PIX_KEY;
+      }
+
       const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
       if (stored) {
         this.accounts = JSON.parse(stored);
@@ -91,26 +100,61 @@ class AccountService {
       const masterDoc = doc(db, 'accounts', MASTER_ADMIN.id);
       setDoc(masterDoc, MASTER_ADMIN, { merge: true }).catch(() => {});
       const col = collection(db, 'accounts');
-      onSnapshot(col, (snapshot) => {
-        const list: UserAccount[] = [];
-        snapshot.forEach((d) => list.push(d.data() as UserAccount));
-        if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
-        this.accounts = list;
-        this.saveToStorage();
-      });
-    } catch (e) { console.warn('Firestore sync error:', e); }
+      onSnapshot(
+        col,
+        (snapshot) => {
+          const list: UserAccount[] = [];
+          snapshot.forEach((d) => list.push(d.data() as UserAccount));
+          if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
+          this.accounts = list;
+          this.saveToStorage();
+        },
+        (error) => {
+          console.warn('Firestore accounts listener offline/reconnecting:', error?.message);
+        }
+      );
+
+      // Sincronizar chave Pix da Gateway oficial
+      const configDoc = doc(db, 'systemConfig', 'pixGateway');
+      onSnapshot(
+        configDoc,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data?.pixKey && typeof data.pixKey === 'string' && data.pixKey.trim()) {
+              this.pixKey = data.pixKey.trim();
+              try { localStorage.setItem(PIX_KEY_STORAGE_KEY, this.pixKey); } catch {}
+              this.notify();
+            }
+          }
+        },
+        (error) => {
+          console.warn('Firestore pixGateway listener offline/reconnecting:', error?.message);
+        }
+      );
+    } catch (e) {
+      console.warn('Firestore sync error:', e);
+    }
   }
 
   private initFirestoreSyncRequests() {
     try {
       const col = collection(db, 'accessRequests');
-      onSnapshot(col, (snapshot) => {
-        const list: UserAccessRequest[] = [];
-        snapshot.forEach((d) => list.push(d.data() as UserAccessRequest));
-        this.accessRequests = list;
-        this.saveRequestsToStorage();
-      });
-    } catch {}
+      onSnapshot(
+        col,
+        (snapshot) => {
+          const list: UserAccessRequest[] = [];
+          snapshot.forEach((d) => list.push(d.data() as UserAccessRequest));
+          this.accessRequests = list;
+          this.saveRequestsToStorage();
+        },
+        (error) => {
+          console.warn('Firestore accessRequests listener offline/reconnecting:', error?.message);
+        }
+      );
+    } catch (e) {
+      console.warn('Firestore sync requests error:', e);
+    }
   }
 
   private checkExpirations() {
@@ -308,6 +352,28 @@ class AccountService {
       }
     } catch {}
     return false;
+  }
+
+  public getPixKey(): string {
+    return this.pixKey || DEFAULT_PIX_KEY;
+  }
+
+  public setPixKey(newKey: string): void {
+    let clean = newKey.trim();
+    if (!clean) clean = DEFAULT_PIX_KEY;
+    this.pixKey = clean;
+    try {
+      localStorage.setItem(PIX_KEY_STORAGE_KEY, this.pixKey);
+    } catch {}
+    try {
+      const configDoc = doc(db, 'systemConfig', 'pixGateway');
+      setDoc(configDoc, { pixKey: this.pixKey, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+    } catch {}
+    this.notify();
+  }
+
+  public resetDefaultPixKey(): void {
+    this.setPixKey(DEFAULT_PIX_KEY);
   }
 }
 
