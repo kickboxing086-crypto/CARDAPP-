@@ -46,6 +46,12 @@ import {
   Sparkles,
   ShieldCheck,
   AlertCircle,
+  Shield,
+  FileText,
+  Building2,
+  HelpCircle,
+  Award,
+  KeyRound,
 } from 'lucide-react';
 import {
   Product,
@@ -136,21 +142,31 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return unsub;
   }, []);
 
-  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO)
+  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO • PLANO R$ 24,99/MÊS)
   const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
-  const PIX_BENEFICIARY = 'SF TECNOLOGIA / Samuel';
-  const PIX_AMOUNT = 49.90;
+  const PIX_BENEFICIARY = 'SF TECNOLOGIA Soluções Digitais / Samuel';
+  const PIX_COMPANY_NAME = 'SF TECNOLOGIA SOLUÇÕES DIGITAIS';
+  const PIX_CITY_UF = 'NATAL - RN';
+  const PIX_AMOUNT = 24.99; // Valor oficial confirmado pelo administrador: R$ 24,99/Mês
   const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
 
   const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
   const [copiedPixKey, setCopiedPixKey] = useState(false);
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
+  const [copiedTxId, setCopiedTxId] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [verifyStep, setVerifyStep] = useState<1 | 2 | 3>(1);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState(false);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
 
-  // Função auxiliar para gerar payload EMV Pix com chave padrão BCB
+  // Identificador Único de Transação / Protocolo Bancário
+  const transactionId = useMemo(() => {
+    const rawCode = (currentSession?.storeId || 'CARDAPP').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase();
+    return `PIX-SF-${rawCode}-2026`;
+  }, [currentSession?.storeId]);
+
+  // Função auxiliar para gerar payload EMV Pix com chave padrão BCB e valor R$ 24,99
   const generateBcbPixPayload = (key: string, amount: number) => {
     const cleanKey = key.trim();
     const keyLen = String(cleanKey.length).padStart(2, '0');
@@ -158,7 +174,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     const maLen = String(merchantAccount.length).padStart(2, '0');
     const amtStr = amount.toFixed(2);
     const amtTag = `54${String(amtStr.length).padStart(2, '0')}${amtStr}`;
-    return `00020126${maLen}${merchantAccount}520400005303986${amtTag}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+    return `00020126${maLen}${merchantAccount}520400005303986${amtTag}5802BR5928SF TECNOLOGIA SOLUCOES DIG6005NATAL62190515${transactionId.slice(0, 15)}6304`;
   };
 
   // Chave de armazenamento da sessão da Gateway
@@ -292,6 +308,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       await navigator.clipboard.writeText(payload);
       setCopiedPixPayload(true);
       setTimeout(() => setCopiedPixPayload(false), 3000);
+    } catch {}
+  };
+
+  // Copiar Identificador / Protocolo de Transação TxID
+  const handleCopyTxId = async () => {
+    try {
+      await navigator.clipboard.writeText(transactionId);
+      setCopiedTxId(true);
+      setTimeout(() => setCopiedTxId(false), 3000);
     } catch {}
   };
 
@@ -2954,29 +2979,33 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
               )}
 
-              <div className="text-center pb-1">
+              <div className="text-center pb-2">
                 <div className={`w-14 h-14 rounded-3xl mx-auto flex items-center justify-center mb-3 shadow-xs ${
                   currentSession?.planStatus === 'bloqueado'
                     ? 'bg-red-100 text-red-700'
-                    : 'bg-amber-100 text-amber-900'
+                    : 'bg-emerald-100 text-emerald-800'
                 }`}>
                   {currentSession?.planStatus === 'bloqueado' ? (
                     <Lock className="w-7 h-7" />
                   ) : (
-                    <QrCode className="w-7 h-7" />
+                    <ShieldCheck className="w-7 h-7" />
                   )}
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-black uppercase tracking-wider mb-2">
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>Gateway Pix Autorizada • SF Tecnologia Soluções Digitais</span>
                 </div>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">
                   Status da Conta & Gateway de Pagamento Pix
                 </h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Acompanhe a situação do seu plano e realize o pagamento Pix diretamente pela Gateway oficial com limite de 5 minutos.
+                <p className="text-xs text-slate-500 max-w-lg mx-auto">
+                  Ambiente seguro e certificado para ativação e renovação do seu plano CARDAPP por apenas <strong>R$ 24,99/mês</strong> com liquidação instantânea pelo Banco Central.
                 </p>
               </div>
 
               {/* CARD PRINCIPAL DA GATEWAY DE PAGAMENTO PIX COM CRONÔMETRO DE 5 MINUTOS */}
-              <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-md overflow-hidden">
-                {/* Banner do Cronômetro de 5 Minutos */}
+              <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
+                {/* Banner Superior com Cronômetro de 5 Minutos e Protocolo */}
                 <div className={`p-4 sm:p-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors ${
                   currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
                     ? 'bg-red-600'
@@ -2985,17 +3014,22 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     : 'bg-slate-950'
                 }`}>
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center font-bold shrink-0">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center font-bold shrink-0 border border-white/10">
                       <Timer className="w-6 h-6 stroke-[2.4]" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
-                        Gateway Pix • Limite Máximo de 5 Minutos
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">
+                          Sessão Segura • Limite de 5 Minutos
+                        </span>
+                        <span className="text-[9px] font-mono bg-white/15 px-2 py-0.5 rounded text-white/80">
+                          {transactionId}
+                        </span>
+                      </div>
                       <h4 className="text-sm sm:text-base font-black">
                         {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
-                          ? 'Tempo Esgotado • Acesso Bloqueado'
-                          : 'Tempo Restante para Concluir o Pagamento'}
+                          ? 'Tempo Esgotado • Acesso Temporariamente Bloqueado'
+                          : 'Tempo Restante para Concluir a Transferência Pix'}
                       </h4>
                     </div>
                   </div>
@@ -3039,13 +3073,33 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   />
                 </div>
 
-                {/* Conteúdo da Gateway Pix */}
+                {/* Selos de Confiança e Certificação Bancária */}
+                <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-bold text-slate-600">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>SSL 256-Bit Seguro</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Pix SPI Banco Central</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Desbloqueio Imediato</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>SF Tecnologia Oficial</span>
+                  </div>
+                </div>
+
+                {/* Conteúdo Principal da Gateway */}
                 <div className="p-5 sm:p-6 space-y-6">
                   {/* Status Banner */}
                   <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                     currentSession?.planStatus === 'bloqueado'
                       ? 'bg-red-50 border-red-200 text-red-900'
-                      : 'bg-amber-50/70 border-amber-200 text-amber-950'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-950'
                   }`}>
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
@@ -3061,14 +3115,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </div>
                       <div>
                         <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
-                          Situação Atual da Assinatura
+                          Situação do seu Estabelecimento
                         </span>
                         <h4 className="text-sm font-black uppercase">
                           {currentSession?.planStatus === 'bloqueado'
                             ? 'Conta Bloqueada por Falta de Pagamento'
                             : currentSession?.planStatus === 'ativo'
-                            ? 'Conta Ativa • Período Vigente'
-                            : 'Em Análise / Pendente de Pagamento'}
+                            ? 'Conta Ativa • Operação 100% Liberada'
+                            : 'Em Análise / Aguardando Regularização Pix'}
                         </h4>
                       </div>
                     </div>
@@ -3079,28 +3133,46 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           ? 'bg-red-100 text-red-800'
                           : 'bg-emerald-100 text-emerald-800'
                       }`}>
-                        {currentSession?.planStatus === 'bloqueado' ? 'Bloqueado' : 'Ativo (Válido)'}
+                        {currentSession?.planStatus === 'bloqueado' ? 'Acesso Bloqueado' : 'Plano Ativo (Válido)'}
                       </span>
                     </div>
                   </div>
 
-                  {/* Informação sobre os 5 minutos de limite */}
-                  <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-                    <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <p className="text-[11px] leading-relaxed">
-                      <strong>Aviso Automático:</strong> Você tem um <strong>limite máximo de 5 minutos</strong> a partir da abertura desta sessão para efetuar a transferência Pix. Caso o pagamento não seja concluído antes do cronômetro zerar, o sistema bloqueará automaticamente o acesso à sua loja.
-                    </p>
+                  {/* Detalhes do Plano Contratado & Valor R$ 24,99 */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
+                    <div className="space-y-1">
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider">
+                        Plano Profissional CARDAPP
+                      </span>
+                      <h4 className="text-base font-black">
+                        Assinatura Mensal de Gestão & Cardápio Digital
+                      </h4>
+                      <p className="text-xs text-slate-300">
+                        Acesso irrestrito a pedidos em tempo real, painel de cozinha (KDS), entregadores e comandas.
+                      </p>
+                    </div>
+
+                    <div className="text-right sm:text-right w-full sm:w-auto shrink-0 bg-white/10 p-3 rounded-2xl border border-white/15">
+                      <span className="text-[10px] text-white/70 block uppercase font-bold">Valor Oficial</span>
+                      <div className="text-2xl sm:text-3xl font-black text-emerald-400">
+                        {formatCurrency(PIX_AMOUNT)}
+                        <span className="text-xs font-bold text-white/80"> /mês</span>
+                      </div>
+                      <span className="text-[9px] text-emerald-300 font-bold block mt-0.5">
+                        Sem carência • Cancele quando quiser
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Detalhes da Transferência Pix & QR Code */}
+                  {/* Grid: QR Code Oficial + Dados Institucionais & Ações */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
-                    {/* QR Code Oficial */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-3">
-                      <div className="bg-white p-3 rounded-2xl border-2 border-slate-900 shadow-sm relative">
+                    {/* QR Code Container de Segurança */}
+                    <div className="bg-slate-50 p-5 rounded-3xl border-2 border-slate-200 flex flex-col items-center justify-center text-center space-y-3 shadow-inner">
+                      <div className="bg-white p-3.5 rounded-2xl border-2 border-slate-900 shadow-md relative">
                         {pixQrDataUrl ? (
                           <img
                             src={pixQrDataUrl}
-                            alt="QR Code Pix"
+                            alt="QR Code Pix R$ 24,99"
                             className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
                           />
                         ) : (
@@ -3108,53 +3180,47 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             <QrCode className="w-16 h-16 animate-pulse" />
                           </div>
                         )}
-                        <div className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full bg-emerald-500 text-white font-black text-[9px] uppercase tracking-wider shadow-xs">
-                          PIX Instantâneo
+                        <div className="absolute -top-2.5 -right-2.5 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1 border border-emerald-300">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>PIX OFICIAL BACEN</span>
                         </div>
                       </div>
 
                       <div className="space-y-0.5">
                         <span className="text-[10px] font-black uppercase text-slate-500">
-                          Escanear com o App do Banco
+                          Escanear com o App do seu Banco
                         </span>
                         <p className="text-xs font-bold text-slate-800">
-                          Abra o app do seu banco &gt; Pix &gt; Pagar com QR Code
+                          Abra o App &gt; Pix &gt; Pagar com QR Code
+                        </p>
+                        <p className="text-[10px] text-emerald-700 font-bold">
+                          Valor conferido na tela: R$ 24,99
                         </p>
                       </div>
                     </div>
 
-                    {/* Dados da Chave Pix & Valores */}
+                    {/* Dados da Chave Pix & Ações Rápidas */}
                     <div className="space-y-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                          Valor da Assinatura / Renovação
-                        </span>
-                        <div className="text-2xl font-black text-slate-950 flex items-baseline gap-1.5">
-                          <span>{formatCurrency(PIX_AMOUNT)}</span>
-                          <span className="text-xs font-bold text-slate-500">/ mês</span>
-                        </div>
-                        <p className="text-[11px] text-emerald-700 font-bold">
-                          ✓ Acesso completo por 30 dias a todos os módulos do CardApp
-                        </p>
-                      </div>
-
-                      {/* Chave Pix Cadastrada */}
+                      {/* Chave Pix Cadastrada (Padrão BCB PIX) */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                          <span>Chave Pix Oficial (Padrão BCB PIX):</span>
-                          <span className="text-[10px] text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded font-black">
-                            BCB PIX
+                          <span className="flex items-center gap-1">
+                            <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Chave Pix Oficial da SF Tecnologia:</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-black">
+                            BCB PIX ATIVA
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between gap-2">
+                        <div className="p-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-between gap-2 shadow-xs">
                           <code className="text-xs font-mono font-bold text-slate-900 break-all select-all">
                             {pixKey}
                           </code>
                           <button
                             type="button"
                             onClick={handleCopyPixKey}
-                            className={`p-2 rounded-lg font-black text-xs shrink-0 transition-all cursor-pointer ${
+                            className={`p-2.5 rounded-xl font-black text-xs shrink-0 transition-all cursor-pointer shadow-xs ${
                               copiedPixKey
                                 ? 'bg-emerald-500 text-white'
                                 : 'bg-slate-950 hover:bg-slate-800 text-white'
@@ -3166,31 +3232,45 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Dados do Favorecido */}
-                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1 text-slate-700">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Favorecido:</span>
+                      {/* Tabela de Transparência Institucional */}
+                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5 text-slate-700">
+                        <div className="flex justify-between items-center pb-1 border-b border-slate-200/60">
+                          <span className="text-slate-500 flex items-center gap-1">
+                            <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Empresa Emissora:</span>
+                          </span>
+                          <strong className="text-slate-900 font-bold">{PIX_COMPANY_NAME}</strong>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Favorecido / Gestor:</span>
                           <strong className="text-slate-900">{PIX_BENEFICIARY}</strong>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Tipo de Chave:</span>
-                          <span className="font-semibold text-emerald-700 font-mono text-[11px]">Chave BCB PIX (Banco Central)</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Praça de Liquidação:</span>
+                          <span className="font-semibold text-slate-800">{PIX_CITY_UF} (SPI Banco Central)</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Validade do Prazo:</span>
-                          <span className={`font-mono font-bold ${secondsRemaining <= 60 ? 'text-red-600' : 'text-slate-900'}`}>
-                            {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
-                            {String(secondsRemaining % 60).padStart(2, '0')}
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Protocolo da Cobrança:</span>
+                          <span className="font-mono text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                            {transactionId}
+                            <button
+                              type="button"
+                              onClick={handleCopyTxId}
+                              className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                              title="Copiar Protocolo"
+                            >
+                              {copiedTxId ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            </button>
                           </span>
                         </div>
                       </div>
 
-                      {/* Botões de Ação */}
+                      {/* Botões de Ação Imediata */}
                       <div className="space-y-2 pt-1">
                         <button
                           type="button"
                           onClick={handleCopyPixPayload}
-                          className="w-full py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+                          className="w-full py-3 px-4 rounded-xl border-2 border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-900 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 shadow-xs"
                         >
                           {copiedPixPayload ? <Check className="w-4 h-4 text-emerald-600 stroke-[3]" /> : <Copy className="w-4 h-4 text-slate-500" />}
                           <span>{copiedPixPayload ? 'Código Copiado com Sucesso!' : 'Copiar Código Pix Copia e Cola'}</span>
@@ -3200,37 +3280,77 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           type="button"
                           disabled={isVerifyingPayment}
                           onClick={handleConfirmPayment}
-                          className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md disabled:opacity-60"
+                          className="w-full py-4 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg hover:shadow-emerald-500/25 disabled:opacity-60"
                         >
                           {isVerifyingPayment ? (
                             <>
-                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <RefreshCw className="w-5 h-5 animate-spin" />
                               <span>
                                 {verifyStep === 1
                                   ? 'Conectando à Gateway SF Tecnologia...'
                                   : verifyStep === 2
-                                  ? 'Consultando Liquidação do Pix...'
-                                  : 'Pagamento Identificado! Liberando...'}
+                                  ? 'Consultando Liquidação SPI Banco Central...'
+                                  : 'Pagamento Identificado! Liberando Acesso...'}
                               </span>
                             </>
                           ) : (
                             <>
-                              <ShieldCheck className="w-4 h-4" />
-                              <span>Confirmar Pagamento Realizado</span>
+                              <ShieldCheck className="w-5 h-5" />
+                              <span>Confirmar Pagamento Realizado (R$ 24,99)</span>
                             </>
                           )}
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowInvoiceModal(true)}
+                          className="w-full py-2 px-3 text-slate-600 hover:text-slate-900 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer hover:underline"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Visualizar Fatura Pro Forma & Recibo Digital</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Guia Passo a Passo para Pagamento Seguro */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <h5 className="text-xs font-black uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-1.5">
+                      <HelpCircle className="w-4 h-4 text-slate-500" />
+                      <span>Instruções Passo a Passo para Pagamento</span>
+                    </h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-[10px] flex items-center justify-center">1</span>
+                        <strong className="block text-slate-900 font-bold">Abra seu Banco</strong>
+                        <p className="text-[11px] text-slate-500">Acesse o app de qualquer instituição bancária no seu celular.</p>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-[10px] flex items-center justify-center">2</span>
+                        <strong className="block text-slate-900 font-bold">Acesse a Área Pix</strong>
+                        <p className="text-[11px] text-slate-500">Escolha "Pagar com QR Code" ou a opção "Pix Copia e Cola".</p>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-[10px] flex items-center justify-center">3</span>
+                        <strong className="block text-slate-900 font-bold">Confira os Dados</strong>
+                        <p className="text-[11px] text-slate-500">Confirme o valor de R$ 24,99 e o favorecido SF Tecnologia.</p>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[10px] flex items-center justify-center">4</span>
+                        <strong className="block text-slate-900 font-bold">Desbloqueio Imediato</strong>
+                        <p className="text-[11px] text-slate-500">Clique em "Confirmar Pagamento Realizado" para ativar o sistema.</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* DADOS DA CONTA CADASTRADA */}
+              {/* DADOS DO ESTABELECIMENTO CADASTRADO */}
               <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h5 className="font-black text-xs uppercase tracking-wider text-slate-800">
-                    Dados do Estabelecimento Cadastrado
+                  <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                    <Store className="w-4 h-4 text-slate-600" />
+                    <span>Dados do Estabelecimento Cadastrado</span>
                   </h5>
                   <span className="text-[10px] text-slate-500 font-mono">
                     ID: {currentSession?.storeId || 'store_official'}
@@ -3261,16 +3381,110 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 {/* WhatsApp Support Action */}
                 <div className="pt-2">
                   <a
-                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Chave Pix: ${pixKey}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
+                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Protocolo: ${transactionId}\n• Valor do Plano: R$ 24,99/mês\n• Chave Pix: ${pixKey}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full py-3 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                    className="w-full py-3.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
                   >
                     <MessageCircle className="w-4 h-4 fill-white" />
-                    <span>Falar com o Suporte Técnico no WhatsApp</span>
+                    <span>Falar com o Suporte Técnico no WhatsApp (Samuel / SF Tecnologia)</span>
                   </a>
                 </div>
               </div>
+
+              {/* MODAL DE FATURA PRO FORMA & RECIBO DIGITAL */}
+              {showInvoiceModal && (
+                <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+                  <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+                    <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                          Fatura Pro Forma Digital
+                        </span>
+                        <h4 className="text-lg font-black text-slate-900 mt-1">
+                          Demonstrativo de Faturamento • CARDAPP
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Protocolo: <span className="font-mono font-bold text-slate-800">{transactionId}</span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowInvoiceModal(false)}
+                        className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs text-slate-700">
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Prestador do Serviço</span>
+                        <strong className="text-slate-900 block">{PIX_COMPANY_NAME}</strong>
+                        <p className="text-slate-500 text-[11px]">Responsável: Samuel F. • {PIX_CITY_UF}</p>
+                        <p className="text-slate-500 text-[11px]">Chave Pix: {pixKey}</p>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Tomador do Serviço (Cliente)</span>
+                        <strong className="text-slate-900 block">{currentSession?.storeName || settings.storeName}</strong>
+                        <p className="text-slate-500 text-[11px]">Responsável: {currentSession?.name || 'Não informado'}</p>
+                        <p className="text-slate-500 text-[11px]">ID da Loja: {currentSession?.storeId || 'store_official'}</p>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-xl overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-100 text-slate-700 font-bold text-[11px]">
+                            <tr>
+                              <th className="p-2.5">Descrição do Serviço</th>
+                              <th className="p-2.5 text-center">Período</th>
+                              <th className="p-2.5 text-right">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            <tr>
+                              <td className="p-2.5 font-medium">
+                                Assinatura Mensal CARDAPP Plataforma Multi-Dispositivos
+                                <span className="block text-[10px] text-slate-400 font-normal">
+                                  Cardápio Digital QR Code, Cozinha (KDS), Entregadores, Delivery e Financeiro
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center font-medium">30 dias</td>
+                              <td className="p-2.5 text-right font-black text-slate-900">{formatCurrency(PIX_AMOUNT)}</td>
+                            </tr>
+                          </tbody>
+                          <tfoot className="bg-slate-50 border-t border-slate-200 font-bold">
+                            <tr>
+                              <td colSpan={2} className="p-2.5 text-slate-900">Total a Liquidar via Pix:</td>
+                              <td className="p-2.5 text-right font-black text-emerald-600 text-sm">
+                                {formatCurrency(PIX_AMOUNT)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Printer className="w-4 h-4" />
+                        <span>Imprimir Fatura</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowInvoiceModal(false)}
+                        className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs cursor-pointer"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

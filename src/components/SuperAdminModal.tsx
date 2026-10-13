@@ -1033,10 +1033,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-600 pt-1">
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
                     <span className="text-slate-400 font-bold">Favorecido:</span>
                     <strong className="text-slate-900">SF TECNOLOGIA / Samuel</strong>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Valor do Plano:</span>
+                    <strong className="text-emerald-700 font-black">R$ 24,99 / mês</strong>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
                     <span className="text-slate-400 font-bold">Tempo Limite:</span>
