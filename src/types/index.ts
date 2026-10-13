@@ -174,6 +174,16 @@ export interface ClientRegistrationFormData {
   password: string;
 }
 
+export interface UserAccessRequest {
+  id: string;
+  name: string;
+  email: string;
+  phoneWhatsapp: string;
+  storeName: string;
+  createdAt: string;
+  status: 'pendente' | 'aprovado' | 'rejeitado';
+}
+
 export interface EmailVerificationSession {
   email: string;
   code: string;

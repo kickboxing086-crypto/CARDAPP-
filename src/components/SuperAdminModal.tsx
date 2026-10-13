@@ -41,7 +41,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   onSwitchToStore,
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
-  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database'>('generator');
+  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests'>('generator');
 
   // Generator Form State
   const [newStoreName, setNewStoreName] = useState('');
@@ -347,6 +347,18 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           >
             <Database className="w-4 h-4" />
             <span>Banco de Dados & Backup</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('requests')}
+            className={`py-3 px-4 font-black text-xs border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'requests'
+                ? 'border-amber-500 text-amber-900 bg-amber-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>Solicitações de Acesso</span>
           </button>
         </div>
 
@@ -887,6 +899,39 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+          )}
+          
+          {/* TAB 4: SOLICITAÇÕES DE ACESSO */}
+          {activeTab === 'requests' && (
+            <div className="space-y-4 max-w-2xl mx-auto">
+               <h3 className="font-black text-sm text-slate-950">Solicitações de Acesso Pendentes</h3>
+               {accountService.getAccessRequests().filter(r => r.status === 'pendente').length === 0 && (
+                 <p className="text-xs text-slate-500 text-center py-6">Nenhuma solicitação pendente.</p>
+               )}
+               {accountService.getAccessRequests().filter(r => r.status === 'pendente').map(req => (
+                 <div key={req.id} className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm flex items-center justify-between">
+                   <div>
+                     <p className="font-black text-slate-900">{req.name}</p>
+                     <p className="text-xs text-slate-600">{req.storeName} • {req.email}</p>
+                     <p className="text-xs text-slate-500 font-mono">{req.phoneWhatsapp}</p>
+                   </div>
+                   <div className="flex gap-2">
+                     <button
+                        onClick={() => accountService.updateAccessRequestStatus(req.id, 'aprovado')}
+                        className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold"
+                     >
+                       Aprovar
+                     </button>
+                     <button
+                        onClick={() => accountService.updateAccessRequestStatus(req.id, 'rejeitado')}
+                        className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-bold"
+                     >
+                       Rejeitar
+                     </button>
+                   </div>
+                 </div>
+               ))}
             </div>
           )}
         </div>

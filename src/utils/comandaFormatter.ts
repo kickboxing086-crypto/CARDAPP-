@@ -50,8 +50,9 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
   lines.push(`*${deliveryHeader}*`);
   lines.push('================================');
   lines.push(`*PEDIDO ${order.displayId}*`);
-  lines.push(`*Data:* ${formatDateTime(order.createdAt)}`);
+  lines.push(`*Hora:* ${formatDateTime(order.createdAt).split(' ')[1]}`);
   lines.push(`*Loja:* ${settings.storeName}`);
+  lines.push(`*Tempo médio de preparo:* ${estWindow}`);
   lines.push('================================');
   lines.push('');
   lines.push('*CLIENTE:*');
