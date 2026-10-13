@@ -815,7 +815,7 @@ export default function App() {
                           : 'bg-white hover:bg-amber-50 text-slate-700 border border-amber-200/80'
                       }`}
                     >
-                      Todos os Itens ({products.length})
+                      Todos os Itens (Consumir no local)
                     </button>
 
                     {categories.map((cat) => {

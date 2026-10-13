@@ -83,7 +83,7 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
 
   lines.push('--------------------------------');
   lines.push(`*TOTAL:* ${formatCurrency(order.total)}`);
-  lines.push(`*PAGAMENTO:* ${paymentText}`);
+  lines.push(`*PAGAMENTO:* ${order.customer.paymentMethod.replace('_', ' ').toUpperCase()}`);
   lines.push('================================');
   lines.push('PEDIDO VIA CARDÁPIO DIGITAL');
   lines.push('================================');

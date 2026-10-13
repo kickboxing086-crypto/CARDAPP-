@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-1">
                 <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-950 group-hover:text-amber-800 transition-colors font-display">
-                  CARDAPP <span className="text-xs text-amber-600 font-semibold">Digital</span>
+                  {settings.storeName}
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] font-medium text-slate-500 truncate max-w-[120px] sm:max-w-xs">

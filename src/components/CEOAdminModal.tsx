@@ -44,6 +44,7 @@ import {
   Order,
   OrderStatus,
   StoreSettings,
+  StoreOperatingHours,
   ProductComplement,
   ProductPromotion,
   Category,
@@ -138,6 +139,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Two-step deletion modal state
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [deleteConfirmationStep, setDeleteConfirmationStep] = useState<1 | 2>(1);
+  const [tableToDelete, setTableToDelete] = useState<string | null>(null);
+  const [tableDeleteStep, setTableDeleteStep] = useState<1 | 2>(1);
+  const [deleteAllTablesStep, setDeleteAllTablesStep] = useState<0 | 1 | 2>(0);
 
   // Form State for Add / Edit Product
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -427,6 +431,45 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       setOrderToDelete(null);
       setDeleteConfirmationStep(1);
     }
+  };
+
+  // Sync Hours
+  const handleSyncHours = () => {
+    if (!localSettings.operatingHours?.monday) return;
+    const monday = { ...localSettings.operatingHours.monday };
+    setLocalSettings(prev => ({
+      ...prev,
+      operatingHours: {
+        monday,
+        tuesday: { ...monday },
+        wednesday: { ...monday },
+        thursday: { ...monday },
+        friday: { ...monday },
+        saturday: { ...monday },
+        sunday: { ...monday }
+      }
+    }));
+  };
+
+  // Table Deletion
+  const handleStartDeleteTable = (table: string) => {
+    setTableToDelete(table);
+    setTableDeleteStep(1);
+  };
+
+  const handleConfirmDeleteTable = () => {
+    if (!tableToDelete) return;
+    const newTables = (localSettings.tables || []).filter(t => t !== tableToDelete);
+    setLocalSettings({ ...localSettings, tables: newTables });
+    onSaveSettings({ ...localSettings, tables: newTables });
+    setTableToDelete(null);
+    setTableDeleteStep(1);
+  };
+
+  const handleConfirmDeleteAllTables = () => {
+    setLocalSettings({ ...localSettings, tables: [] });
+    onSaveSettings({ ...localSettings, tables: [] });
+    setDeleteAllTablesStep(1);
   };
 
   // Copy share link
@@ -2188,8 +2231,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                 {/* GERENCIAMENTO DE HORÁRIOS */}
                 <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
-                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2">
+                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center justify-between">
                     Horários de Funcionamento:
+                    <button type="button" onClick={handleSyncHours} className="px-2 py-1 rounded bg-amber-200 text-amber-900 text-[10px] font-bold hover:bg-amber-300">Sincronizar horários</button>
                   </span>
                   <div className="space-y-3">
                     {[{id: 'monday', name: 'Segunda'}, {id: 'tuesday', name: 'Terça'}, {id: 'wednesday', name: 'Quarta'}, {id: 'thursday', name: 'Quinta'}, {id: 'friday', name: 'Sexta'}, {id: 'saturday', name: 'Sábado'}, {id: 'sunday', name: 'Domingo'}].map((day) => (
@@ -2379,12 +2423,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         {table}
                         <button
                           type="button"
-                          onClick={() => {
-                            const newTables = [...(localSettings.tables || [])];
-                            newTables.splice(index, 1);
-                            setLocalSettings({ ...localSettings, tables: newTables });
-                            onSaveSettings({ ...localSettings, tables: newTables });
-                          }}
+                          onClick={() => handleStartDeleteTable(table)}
                           className="absolute -top-1 -right-1 p-0.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200"
                         >
                           <X className="w-3 h-3" />
@@ -2393,7 +2432,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     ))}
                   </div>
 
-                  {/* Gerar Mesas em Massa */}
+                  {/* Gerar Mesas em Massa e Apagar Tudo */}
+                  <div className="flex gap-2 mb-4">
+                    <button type="button" onClick={() => setDeleteAllTablesStep(1)} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-xs">Apagar Tudo</button>
+                  </div>
                   <div className="flex gap-2">
                     <input
                       type="number"
@@ -3187,6 +3229,43 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA EXCLUIR MESA INDIVIDUAL */}
+      {tableToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full border-2 border-red-300 shadow-2xl p-6 space-y-4">
+            <h3 className="text-lg font-black text-slate-950 text-center">Confirmar exclusão de {tableToDelete}?</h3>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setTableToDelete(null)} className="flex-1 py-2 rounded-xl border border-slate-300 text-xs font-bold">Cancelar</button>
+              <button type="button" onClick={handleConfirmDeleteTable} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-black">Confirmar Exclusão</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA EXCLUIR TODAS AS MESAS */}
+      {deleteAllTablesStep === 1 && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full border-2 border-red-300 shadow-2xl p-6 space-y-4">
+            <h3 className="text-lg font-black text-slate-950 text-center">Apagar todas as mesas?</h3>
+            <p className="text-xs text-center">Esta ação não pode ser desfeita. Deseja realmente apagar todas as mesas?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setDeleteAllTablesStep(0)} className="flex-1 py-2 rounded-xl border border-slate-300 text-xs font-bold">Cancelar</button>
+              <button type="button" onClick={() => setDeleteAllTablesStep(2)} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-black">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteAllTablesStep === 2 && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full border-2 border-red-300 shadow-2xl p-6 space-y-4">
+            <h3 className="text-lg font-black text-slate-950 text-center">Tem certeza absoluta?</h3>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setDeleteAllTablesStep(0)} className="flex-1 py-2 rounded-xl border border-slate-300 text-xs font-bold">Cancelar</button>
+              <button type="button" onClick={handleConfirmDeleteAllTables} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-black">Apagar Todas</button>
+            </div>
           </div>
         </div>
       )}
