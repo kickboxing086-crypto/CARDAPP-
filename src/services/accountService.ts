@@ -250,12 +250,38 @@ class AccountService {
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
         const updated = { ...acc, planStatus: newStatus };
-        try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }); } catch {}
+        try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {}); } catch {}
         return updated;
       }
       return acc;
     });
+    if (this.currentSession?.id === accountId) {
+      this.currentSession = { ...this.currentSession, planStatus: newStatus };
+      try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession)); } catch {}
+    }
     this.saveToStorage();
+  }
+
+  public renewAccountPlan(accountId: string, daysToAdd: number = 30) {
+    const now = new Date();
+    const expiry = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+    this.accounts = this.accounts.map((acc) => {
+      if (acc.id === accountId) {
+        const updated = { ...acc, planStatus: 'ativo' as const, expiresAt: expiry.toISOString() };
+        try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {}); } catch {}
+        return updated;
+      }
+      return acc;
+    });
+    if (this.currentSession?.id === accountId) {
+      this.currentSession = { ...this.currentSession, planStatus: 'ativo', expiresAt: expiry.toISOString() };
+      try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession)); } catch {}
+    }
+    this.saveToStorage();
+  }
+
+  public blockAccount(accountId: string) {
+    this.updateAccountStatus(accountId, 'bloqueado');
   }
 
   public deleteAccount(accountId: string): boolean {

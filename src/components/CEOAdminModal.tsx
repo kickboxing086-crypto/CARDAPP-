@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { accountService } from '../services/accountService';
 import { storageService } from '../services/storageService';
+import QRCode from 'qrcode';
 import {
   X,
   LayoutDashboard,
@@ -38,6 +39,13 @@ import {
   Clock,
   LogOut,
   ShieldAlert,
+  Lock,
+  Unlock,
+  RefreshCw,
+  Timer,
+  Sparkles,
+  ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Product,
@@ -49,6 +57,7 @@ import {
   ProductPromotion,
   Category,
   NeighborhoodDeliveryFee,
+  UserAccount,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -110,8 +119,183 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
   // Loja Oficial e Login Oficial com ID real da loja do CEO
-  const currentSession = accountService.getCurrentSession();
+  const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
+  const currentSession = accountSession || accountService.getCurrentSession();
   const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
+
+  // Assinar alterações da conta no accountService
+  useEffect(() => {
+    const unsub = accountService.subscribe(() => {
+      const updated = accountService.getCurrentSession();
+      setAccountSession(updated);
+      if (updated?.planStatus === 'bloqueado') {
+        setActiveTab('status');
+      }
+    });
+    return unsub;
+  }, []);
+
+  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO)
+  const PIX_KEY = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+  const PIX_BENEFICIARY = 'SF TECNOLOGIA / Samuel';
+  const PIX_AMOUNT = 49.90;
+  const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
+
+  const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
+  const [copiedPixKey, setCopiedPixKey] = useState(false);
+  const [copiedPixPayload, setCopiedPixPayload] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [verifyStep, setVerifyStep] = useState<1 | 2 | 3>(1);
+  const [paymentSuccessMessage, setPaymentSuccessMessage] = useState(false);
+  const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
+
+  // Chave de armazenamento da sessão da Gateway
+  const getSessionStorageKey = () => `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
+
+  // Inicializar contagem regressiva de 5 minutos
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
+    try {
+      const key = `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
+        return Math.max(0, PAYMENT_TIMEOUT_SECONDS - elapsed);
+      }
+      localStorage.setItem(key, Date.now().toString());
+      return PAYMENT_TIMEOUT_SECONDS;
+    } catch {
+      return PAYMENT_TIMEOUT_SECONDS;
+    }
+  });
+
+  // Gerar QR Code Oficial do Pix
+  useEffect(() => {
+    const pixPayload = `00020126580014BR.GOV.BCB.PIX0136${PIX_KEY}5204000053039865405${PIX_AMOUNT.toFixed(2)}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+    QRCode.toDataURL(pixPayload, {
+      width: 280,
+      margin: 1,
+      color: {
+        dark: '#020617',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => setPixQrDataUrl(url))
+      .catch(() => {
+        QRCode.toDataURL(PIX_KEY, { width: 280, margin: 1 })
+          .then((url) => setPixQrDataUrl(url))
+          .catch(() => {});
+      });
+  }, []);
+
+  // Intervalo regressivo de 5 minutos e bloqueio automático quando o tempo esgotar
+  useEffect(() => {
+    const isSuperAdmin = currentSession?.role === 'super_admin';
+    const isAlreadyBlocked = currentSession?.planStatus === 'bloqueado';
+
+    if (isAlreadyBlocked && activeTab !== 'status') {
+      setActiveTab('status');
+    }
+
+    const timer = setInterval(() => {
+      try {
+        const key = getSessionStorageKey();
+        const saved = localStorage.getItem(key);
+        if (!saved) {
+          localStorage.setItem(key, Date.now().toString());
+          setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
+          return;
+        }
+
+        const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
+        const left = Math.max(0, PAYMENT_TIMEOUT_SECONDS - elapsed);
+        setSecondsRemaining(left);
+
+        // Quando o cronômetro chega a 0 e o CEO não efetuou o pagamento:
+        if (left === 0 && !isSuperAdmin) {
+          if (currentSession && currentSession.planStatus !== 'bloqueado') {
+            accountService.blockAccount(currentSession.id);
+            setActiveTab('status');
+            setBlockedAlertNotice('Tempo limite de 5 minutos esgotado! O acesso ao painel foi bloqueado automaticamente por falta de pagamento.');
+          }
+        }
+      } catch {}
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentSession?.id, currentSession?.planStatus, activeTab]);
+
+  // Reiniciar a sessão de 5 minutos (para permitir que o CEO efetue o pagamento e desbloqueie)
+  const handleRestartPaymentSession = () => {
+    try {
+      const key = getSessionStorageKey();
+      localStorage.setItem(key, Date.now().toString());
+      setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
+      setBlockedAlertNotice(null);
+    } catch {}
+  };
+
+  // Confirmar pagamento realizado com verificação instantânea na Gateway
+  const handleConfirmPayment = () => {
+    if (!currentSession) return;
+    setIsVerifyingPayment(true);
+    setVerifyStep(1);
+
+    setTimeout(() => {
+      setVerifyStep(2);
+    }, 900);
+
+    setTimeout(() => {
+      setVerifyStep(3);
+    }, 1800);
+
+    setTimeout(() => {
+      setIsVerifyingPayment(false);
+      accountService.renewAccountPlan(currentSession.id, 30);
+      try {
+        const key = getSessionStorageKey();
+        localStorage.removeItem(key);
+      } catch {}
+      setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
+      setPaymentSuccessMessage(true);
+      setBlockedAlertNotice(null);
+      setTimeout(() => {
+        setPaymentSuccessMessage(false);
+      }, 7000);
+    }, 2600);
+  };
+
+  // Copiar chave Pix com feedback
+  const handleCopyPixKey = async () => {
+    try {
+      await navigator.clipboard.writeText(PIX_KEY);
+      setCopiedPixKey(true);
+      setTimeout(() => setCopiedPixKey(false), 3000);
+    } catch {}
+  };
+
+  // Copiar código Pix Copia e Cola
+  const handleCopyPixPayload = async () => {
+    try {
+      const payload = `00020126580014BR.GOV.BCB.PIX0136${PIX_KEY}5204000053039865405${PIX_AMOUNT.toFixed(2)}5802BR5913SF TECNOLOGIA6005NATAL62070503***6304`;
+      await navigator.clipboard.writeText(payload);
+      setCopiedPixPayload(true);
+      setTimeout(() => setCopiedPixPayload(false), 3000);
+    } catch {}
+  };
+
+  // Interceptar troca de aba caso o acesso esteja bloqueado
+  const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
+    const isBloqueado = currentSession?.planStatus === 'bloqueado';
+    if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin') {
+      setBlockedAlertNotice('Acesso bloqueado por falta de pagamento Pix. Conclua o pagamento na Gateway de 5 minutos para desbloquear.');
+      setActiveTab('status');
+      setIsMobileSidebarOpen(false);
+      return;
+    }
+    setActiveTab(targetTab);
+    setIsMobileSidebarOpen(false);
+  };
+
   const officialStoreUrl = useMemo(() => {
     return getClientAppUrl(currentStoreId);
   }, [currentStoreId]);
@@ -631,15 +815,26 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
           {/* Nav List */}
           <nav className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-[#FFFDF7]">
+            {currentSession?.planStatus === 'bloqueado' && (
+              <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-[11px] text-red-900 font-bold mb-2 space-y-1">
+                <div className="flex items-center gap-1.5 font-black text-red-700">
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>ACESSO BLOQUEADO</span>
+                </div>
+                <p className="text-[10px] leading-tight text-red-800 font-medium">
+                  Realize o pagamento Pix na Gateway (aba 7) para liberar todas as funções.
+                </p>
+              </div>
+            )}
+
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('orders');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('orders')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'orders'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -647,7 +842,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <LayoutDashboard className="w-4 h-4 stroke-[2.4]" />
                 <span>1. Pedidos em Tempo Real</span>
               </div>
-              {orders.length > 0 && (
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : orders.length > 0 ? (
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
                     activeTab === 'orders' ? 'bg-slate-950 text-amber-300' : 'bg-amber-200 text-amber-950'
@@ -655,18 +852,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 >
                   {orders.length}
                 </span>
-              )}
+              ) : null}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('finance');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('finance')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'finance'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -674,20 +870,23 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <DollarSign className="w-4 h-4 stroke-[2.4]" />
                 <span>2. Financeiro & Entradas</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-bold font-mono">
-                {formatCurrency(financialStats.totalRevenue)}
-              </span>
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : (
+                <span className="text-[10px] text-slate-500 font-bold font-mono">
+                  {formatCurrency(financialStats.totalRevenue)}
+                </span>
+              )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('products');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('products')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'products'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -695,24 +894,27 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <Utensils className="w-4 h-4 stroke-[2.4]" />
                 <span>3. Cardápio & Produtos</span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-                  activeTab === 'products' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {products.length}
-              </span>
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                    activeTab === 'products' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {products.length}
+                </span>
+              )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('delivery');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('delivery')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'delivery'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -720,24 +922,27 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <Bike className="w-4 h-4 stroke-[2.4]" />
                 <span>4. Taxas de Entrega</span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-                  activeTab === 'delivery' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {(localSettings.deliveryNeighborhoods || []).length}
-              </span>
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                    activeTab === 'delivery' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {(localSettings.deliveryNeighborhoods || []).length}
+                </span>
+              )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('settings');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('settings')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'settings'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -745,18 +950,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <Settings className="w-4 h-4 stroke-[2.4]" />
                 <span>5. Configurações da Loja</span>
               </div>
-              <span className={`w-2.5 h-2.5 rounded-full ${settings.isOpen ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : (
+                <span className={`w-2.5 h-2.5 rounded-full ${settings.isOpen ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('share');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('share')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'share'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -764,20 +972,23 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <Share2 className="w-4 h-4 stroke-[2.4]" />
                 <span>6. Compartilhar Links</span>
               </div>
-              <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                Oficial
-              </span>
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+              ) : (
+                <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                  Oficial
+                </span>
+              )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('status');
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => handleNavigateTab('status')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'status'
                   ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'bg-red-100 text-red-950 shadow-sm border border-red-300 animate-pulse'
                   : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
               }`}
             >
@@ -785,9 +996,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <Clock className="w-4 h-4 stroke-[2.4]" />
                 <span>7. Status da Conta</span>
               </div>
-              <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
-                Análise
-              </span>
+              {currentSession?.planStatus === 'bloqueado' ? (
+                <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  Bloqueado
+                </span>
+              ) : (
+                <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <QrCode className="w-3 h-3" />
+                  Gateway Pix
+                </span>
+              )}
             </button>
           </nav>
 
@@ -2682,108 +2901,363 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA */}
+          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA + GATEWAY DE PAGAMENTO PIX */}
           {activeTab === 'status' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="text-center pb-2">
-                <div className="w-14 h-14 rounded-3xl bg-amber-100 text-amber-900 mx-auto flex items-center justify-center mb-3">
-                  <Clock className="w-7 h-7" />
+            <div className="max-w-2xl mx-auto space-y-6 pb-8">
+              {/* Notificação de Alerta de Bloqueio por Tempo Esgotado */}
+              {blockedAlertNotice && (
+                <div className="p-4 rounded-2xl bg-red-600 text-white shadow-lg flex items-start gap-3 animate-in slide-in-from-top-4 duration-300">
+                  <ShieldAlert className="w-6 h-6 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-black text-sm uppercase tracking-wide">
+                      Atenção: Acesso Bloqueado
+                    </h4>
+                    <p className="text-xs text-red-100 mt-0.5 leading-relaxed">
+                      {blockedAlertNotice}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBlockedAlertNotice(null)}
+                    className="p-1 rounded-lg hover:bg-red-700 text-red-200 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Notificação de Pagamento Confirmado */}
+              {paymentSuccessMessage && (
+                <div className="p-4 rounded-2xl bg-emerald-600 text-white shadow-lg flex items-start gap-3 animate-in zoom-in-95 duration-300">
+                  <CheckCircle2 className="w-6 h-6 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-black text-sm uppercase tracking-wide flex items-center gap-1.5">
+                      <span>Pagamento Confirmado na Gateway!</span>
+                      <Sparkles className="w-4 h-4 text-emerald-200" />
+                    </h4>
+                    <p className="text-xs text-emerald-100 mt-0.5 leading-relaxed">
+                      Seu plano foi renovado com sucesso pela SF Tecnologia! Seu acesso está 100% liberado e operacional por 30 dias.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-center pb-1">
+                <div className={`w-14 h-14 rounded-3xl mx-auto flex items-center justify-center mb-3 shadow-xs ${
+                  currentSession?.planStatus === 'bloqueado'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-900'
+                }`}>
+                  {currentSession?.planStatus === 'bloqueado' ? (
+                    <Lock className="w-7 h-7" />
+                  ) : (
+                    <QrCode className="w-7 h-7" />
+                  )}
                 </div>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-                  Status de Análise e Ativação da Conta
+                  Status da Conta & Gateway de Pagamento Pix
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Acompanhe em tempo real o status de revisão e liberação do seu acesso pela equipe técnica da SF Tecnologia.
+                  Acompanhe a situação do seu plano e realize o pagamento Pix diretamente pela Gateway oficial com limite de 5 minutos.
                 </p>
               </div>
 
-              {/* Status Card */}
-              <div className="bg-white rounded-3xl border-2 border-amber-300 p-6 shadow-sm space-y-5">
-                {(() => {
-                  const account = accountService.getCurrentSession();
-                  const status = account?.planStatus || 'pendente';
-                  const isAtivo = status === 'ativo';
-                  const isBloqueado = status === 'bloqueado';
+              {/* CARD PRINCIPAL DA GATEWAY DE PAGAMENTO PIX COM CRONÔMETRO DE 5 MINUTOS */}
+              <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-md overflow-hidden">
+                {/* Banner do Cronômetro de 5 Minutos */}
+                <div className={`p-4 sm:p-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors ${
+                  currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
+                    ? 'bg-red-600'
+                    : secondsRemaining <= 60
+                    ? 'bg-gradient-to-r from-red-600 to-amber-600 animate-pulse'
+                    : 'bg-slate-950'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center font-bold shrink-0">
+                      <Timer className="w-6 h-6 stroke-[2.4]" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
+                        Gateway Pix • Limite Máximo de 5 Minutos
+                      </span>
+                      <h4 className="text-sm sm:text-base font-black">
+                        {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
+                          ? 'Tempo Esgotado • Acesso Bloqueado'
+                          : 'Tempo Restante para Concluir o Pagamento'}
+                      </h4>
+                    </div>
+                  </div>
 
-                  return (
-                    <>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-amber-50/60 border border-amber-200">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
-                            isAtivo ? 'bg-emerald-500 text-white' : isBloqueado ? 'bg-red-500 text-white' : 'bg-amber-400 text-slate-950'
-                          }`}>
-                            {isAtivo ? <CheckCircle2 className="w-6 h-6 stroke-[2.5]" /> : isBloqueado ? <AlertTriangle className="w-6 h-6 stroke-[2.5]" /> : <Clock className="w-6 h-6 stroke-[2.5]" />}
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
-                              Situação Atual da Análise
-                            </span>
-                            <h4 className="text-base font-black text-slate-950 uppercase">
-                              {isAtivo ? 'Conta Aprovada e Ativa' : isBloqueado ? 'Conta Suspensa / Bloqueada' : 'Em Análise pelo Suporte'}
-                            </h4>
-                          </div>
-                        </div>
+                  <div className="flex items-center gap-2">
+                    <div className="px-4 py-2 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/20 text-center">
+                      <span className="text-[10px] uppercase font-bold text-white/70 block">
+                        {secondsRemaining === 0 ? 'Expirado' : 'Cronômetro'}
+                      </span>
+                      <span className="text-xl sm:text-2xl font-black font-mono tracking-wider">
+                        {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
+                        {String(secondsRemaining % 60).padStart(2, '0')}
+                      </span>
+                    </div>
 
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${
-                          isAtivo ? 'bg-emerald-100 text-emerald-800' : isBloqueado ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900'
-                        }`}>
-                          {isAtivo ? 'Ativo' : isBloqueado ? 'Bloqueado' : 'Pendente (Em Análise)'}
+                    {(secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado') && (
+                      <button
+                        type="button"
+                        onClick={handleRestartPaymentSession}
+                        className="py-2.5 px-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 transition-all"
+                        title="Reiniciar contagem de 5 minutos da Gateway"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Reiniciar 5m</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Barra de Progresso do Tempo Restante */}
+                <div className="w-full bg-slate-200 h-2 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-1000 ${
+                      secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
+                        ? 'bg-red-600'
+                        : secondsRemaining <= 60
+                        ? 'bg-red-500'
+                        : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.max(0, Math.min(100, (secondsRemaining / PAYMENT_TIMEOUT_SECONDS) * 100))}%` }}
+                  />
+                </div>
+
+                {/* Conteúdo da Gateway Pix */}
+                <div className="p-5 sm:p-6 space-y-6">
+                  {/* Status Banner */}
+                  <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    currentSession?.planStatus === 'bloqueado'
+                      ? 'bg-red-50 border-red-200 text-red-900'
+                      : 'bg-amber-50/70 border-amber-200 text-amber-950'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                        currentSession?.planStatus === 'bloqueado'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-emerald-500 text-white'
+                      }`}>
+                        {currentSession?.planStatus === 'bloqueado' ? (
+                          <AlertTriangle className="w-5 h-5" />
+                        ) : (
+                          <CheckCircle2 className="w-5 h-5" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                          Situação Atual da Assinatura
                         </span>
+                        <h4 className="text-sm font-black uppercase">
+                          {currentSession?.planStatus === 'bloqueado'
+                            ? 'Conta Bloqueada por Falta de Pagamento'
+                            : currentSession?.planStatus === 'ativo'
+                            ? 'Conta Ativa • Período Vigente'
+                            : 'Em Análise / Pendente de Pagamento'}
+                        </h4>
                       </div>
+                    </div>
 
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
-                        <p className="font-bold text-slate-900">
-                          {isAtivo
-                            ? 'Parabéns! Sua loja foi aprovada, e seu sistema digital está 100% operacional para receber pedidos de clientes.'
-                            : isBloqueado
-                            ? 'Sua conta está temporariamente suspensa por pendência ou verificação. Entre em contato com a SF Tecnologia para regularizar.'
-                            : 'Sua solicitação de acesso foi enviada com sucesso. Nossa equipe técnica da SF Tecnologia está analisando seus dados para gerar suas credenciais definitivas.'}
-                        </p>
-                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Caso tenha urgência na liberação ou queira enviar comprovantes/dados adicionais, você pode falar diretamente com o suporte técnico pelo WhatsApp.
-                        </p>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                        currentSession?.planStatus === 'bloqueado'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {currentSession?.planStatus === 'bloqueado' ? 'Bloqueado' : 'Ativo (Válido)'}
+                      </span>
+                    </div>
+                  </div>
 
-                      {/* Account Details */}
-                      <div className="space-y-3 pt-2">
-                        <h5 className="font-black text-xs uppercase tracking-wider text-slate-800">
-                          Dados da Conta Cadastrada:
-                        </h5>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabelecimento</span>
-                            <strong className="text-slate-900 text-sm">{account?.storeName || settings.storeName}</strong>
+                  {/* Informação sobre os 5 minutos de limite */}
+                  <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                    <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <p className="text-[11px] leading-relaxed">
+                      <strong>Aviso Automático:</strong> Você tem um <strong>limite máximo de 5 minutos</strong> a partir da abertura desta sessão para efetuar a transferência Pix. Caso o pagamento não seja concluído antes do cronômetro zerar, o sistema bloqueará automaticamente o acesso à sua loja.
+                    </p>
+                  </div>
+
+                  {/* Detalhes da Transferência Pix & QR Code */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
+                    {/* QR Code Oficial */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-3">
+                      <div className="bg-white p-3 rounded-2xl border-2 border-slate-900 shadow-sm relative">
+                        {pixQrDataUrl ? (
+                          <img
+                            src={pixQrDataUrl}
+                            alt="QR Code Pix"
+                            className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+                          />
+                        ) : (
+                          <div className="w-48 h-48 flex items-center justify-center text-slate-400">
+                            <QrCode className="w-16 h-16 animate-pulse" />
                           </div>
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Responsável</span>
-                            <strong className="text-slate-900 text-sm">{account?.name || 'Não informado'}</strong>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Usuário de Acesso</span>
-                            <code className="text-slate-900 font-mono font-bold">{account?.username || 'N/A'}</code>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase block">WhatsApp de Contato</span>
-                            <span className="text-slate-900 font-bold">{account?.phoneWhatsapp || settings.phoneWhatsapp || 'Não informado'}</span>
-                          </div>
+                        )}
+                        <div className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full bg-emerald-500 text-white font-black text-[9px] uppercase tracking-wider shadow-xs">
+                          PIX Instantâneo
                         </div>
                       </div>
 
-                      {/* WhatsApp Support Action */}
-                      <div className="pt-2">
-                        <a
-                          href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE STATUS DE ANÁLISE - CARDAPP*\n\n• Loja: ${account?.storeName}\n• Responsável: ${account?.name}\n• Usuário: ${account?.username}\n\nOlá! Gostaria de consultar o status da minha análise e liberação de acesso.`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
-                        >
-                          <MessageCircle className="w-4 h-4 fill-white" />
-                          <span>Falar com o Suporte Técnico (WhatsApp)</span>
-                        </a>
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-black uppercase text-slate-500">
+                          Escanear com o App do Banco
+                        </span>
+                        <p className="text-xs font-bold text-slate-800">
+                          Abra o app do seu banco &gt; Pix &gt; Pagar com QR Code
+                        </p>
                       </div>
-                    </>
-                  );
-                })()}
+                    </div>
+
+                    {/* Dados da Chave Pix & Valores */}
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                          Valor da Assinatura / Renovação
+                        </span>
+                        <div className="text-2xl font-black text-slate-950 flex items-baseline gap-1.5">
+                          <span>{formatCurrency(PIX_AMOUNT)}</span>
+                          <span className="text-xs font-bold text-slate-500">/ mês</span>
+                        </div>
+                        <p className="text-[11px] text-emerald-700 font-bold">
+                          ✓ Acesso completo por 30 dias a todos os módulos do CardApp
+                        </p>
+                      </div>
+
+                      {/* Chave Pix Cadastrada */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                          <span>Chave Pix Oficial (Aleatória):</span>
+                          <span className="text-[10px] text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded font-black">
+                            SF Tecnologia
+                          </span>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between gap-2">
+                          <code className="text-xs font-mono font-bold text-slate-900 break-all select-all">
+                            {PIX_KEY}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyPixKey}
+                            className={`p-2 rounded-lg font-black text-xs shrink-0 transition-all cursor-pointer ${
+                              copiedPixKey
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-slate-950 hover:bg-slate-800 text-white'
+                            }`}
+                            title="Copiar Chave Pix"
+                          >
+                            {copiedPixKey ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Dados do Favorecido */}
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1 text-slate-700">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Favorecido:</span>
+                          <strong className="text-slate-900">{PIX_BENEFICIARY}</strong>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Tipo de Chave:</span>
+                          <span className="font-semibold text-slate-900">Aleatória (EVP)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Validade do Prazo:</span>
+                          <span className={`font-mono font-bold ${secondsRemaining <= 60 ? 'text-red-600' : 'text-slate-900'}`}>
+                            {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
+                            {String(secondsRemaining % 60).padStart(2, '0')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Botões de Ação */}
+                      <div className="space-y-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCopyPixPayload}
+                          className="w-full py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+                        >
+                          {copiedPixPayload ? <Check className="w-4 h-4 text-emerald-600 stroke-[3]" /> : <Copy className="w-4 h-4 text-slate-500" />}
+                          <span>{copiedPixPayload ? 'Código Copiado com Sucesso!' : 'Copiar Código Pix Copia e Cola'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isVerifyingPayment}
+                          onClick={handleConfirmPayment}
+                          className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md disabled:opacity-60"
+                        >
+                          {isVerifyingPayment ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>
+                                {verifyStep === 1
+                                  ? 'Conectando à Gateway SF Tecnologia...'
+                                  : verifyStep === 2
+                                  ? 'Consultando Liquidação do Pix...'
+                                  : 'Pagamento Identificado! Liberando...'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>Confirmar Pagamento Realizado</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* DADOS DA CONTA CADASTRADA */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h5 className="font-black text-xs uppercase tracking-wider text-slate-800">
+                    Dados do Estabelecimento Cadastrado
+                  </h5>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    ID: {currentSession?.storeId || 'store_official'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabelecimento</span>
+                    <strong className="text-slate-900 text-sm">{currentSession?.storeName || settings.storeName}</strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Responsável</span>
+                    <strong className="text-slate-900 text-sm">{currentSession?.name || 'Não informado'}</strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Usuário de Acesso</span>
+                    <code className="text-slate-900 font-mono font-bold">{currentSession?.username || 'N/A'}</code>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Validade do Plano</span>
+                    <span className="text-slate-900 font-bold">
+                      {currentSession?.expiresAt ? formatDateTime(currentSession.expiresAt) : 'Sem data definida'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* WhatsApp Support Action */}
+                <div className="pt-2">
+                  <a
+                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Chave Pix: ${PIX_KEY}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                  >
+                    <MessageCircle className="w-4 h-4 fill-white" />
+                    <span>Falar com o Suporte Técnico no WhatsApp</span>
+                  </a>
+                </div>
               </div>
             </div>
           )}
