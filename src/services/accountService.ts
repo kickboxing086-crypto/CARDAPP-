@@ -2,6 +2,7 @@ import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from 'firebase
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserAccount, ClientRegistrationFormData, UserAccessRequest } from '../types';
 import { storageService } from './storageService';
+import { extractCleanPixKey } from '../utils/pixPayload';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
@@ -356,6 +357,10 @@ class AccountService {
 
   public getPixKey(): string {
     return this.pixKey || DEFAULT_PIX_KEY;
+  }
+
+  public getCleanPixKey(): string {
+    return extractCleanPixKey(this.getPixKey());
   }
 
   public setPixKey(newKey: string): void {

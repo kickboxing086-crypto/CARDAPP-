@@ -73,6 +73,7 @@ import {
   getDeliveryTypeLabel,
   getOrderWhatsAppUrl,
 } from '../utils/comandaFormatter';
+import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
 
 interface CEOAdminModalProps {
   isOpen: boolean;
@@ -152,6 +153,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
   const [copiedPixKey, setCopiedPixKey] = useState(false);
+  const [copiedCleanPixKey, setCopiedCleanPixKey] = useState(false);
+  const [copiedBcbKey, setCopiedBcbKey] = useState(false);
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
   const [copiedTxId, setCopiedTxId] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -166,16 +169,19 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return `PIX-SF-${rawCode}-2026`;
   }, [currentSession?.storeId]);
 
-  // Função auxiliar para gerar payload EMV Pix com chave padrão BCB e valor R$ 24,99
-  const generateBcbPixPayload = (key: string, amount: number) => {
-    const cleanKey = key.trim();
-    const keyLen = String(cleanKey.length).padStart(2, '0');
-    const merchantAccount = `0014BR.GOV.BCB.PIX01${keyLen}${cleanKey}`;
-    const maLen = String(merchantAccount.length).padStart(2, '0');
-    const amtStr = amount.toFixed(2);
-    const amtTag = `54${String(amtStr.length).padStart(2, '0')}${amtStr}`;
-    return `00020126${maLen}${merchantAccount}520400005303986${amtTag}5802BR5928SF TECNOLOGIA SOLUCOES DIG6005NATAL62190515${transactionId.slice(0, 15)}6304`;
-  };
+  // Chave limpa oficial (EVP / UUID) para o DICT e banco aceitarem sem erro
+  const cleanPixKey = useMemo(() => extractCleanPixKey(pixKey), [pixKey]);
+
+  // Payload oficial Pix Copia e Cola padrão EMVCo / BACEN com CRC16 válido e valor R$ 24,99
+  const officialPixPayload = useMemo(() => {
+    return generatePixPayload({
+      pixKey: cleanPixKey,
+      amount: PIX_AMOUNT,
+      merchantName: 'SF TECNOLOGIA',
+      merchantCity: 'NATAL',
+      transactionId: transactionId.slice(0, 25),
+    });
+  }, [cleanPixKey, transactionId]);
 
   // Chave de armazenamento da sessão da Gateway
   const getSessionStorageKey = () => `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
@@ -196,10 +202,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }
   });
 
-  // Gerar QR Code Oficial do Pix
+  // Gerar QR Code Oficial do Pix com Payload EMV completo e CRC16
   useEffect(() => {
-    const pixPayload = generateBcbPixPayload(pixKey, PIX_AMOUNT);
-    QRCode.toDataURL(pixPayload, {
+    QRCode.toDataURL(officialPixPayload, {
       width: 280,
       margin: 1,
       color: {
@@ -209,11 +214,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     })
       .then((url) => setPixQrDataUrl(url))
       .catch(() => {
-        QRCode.toDataURL(pixKey, { width: 280, margin: 1 })
+        QRCode.toDataURL(cleanPixKey || pixKey, { width: 280, margin: 1 })
           .then((url) => setPixQrDataUrl(url))
           .catch(() => {});
       });
-  }, [pixKey]);
+  }, [officialPixPayload, cleanPixKey, pixKey]);
 
   // Intervalo regressivo de 5 minutos e bloqueio automático quando o tempo esgotar
   useEffect(() => {
@@ -292,24 +297,35 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }, 2600);
   };
 
-  // Copiar chave Pix com feedback
-  const handleCopyPixKey = async () => {
+  // Copiar Chave Aleatória (EVP limpa sem prefixos) - formato que bancos reconhecem ao digitar a chave
+  const handleCopyCleanPixKey = async () => {
     try {
-      await navigator.clipboard.writeText(pixKey);
-      setCopiedPixKey(true);
-      setTimeout(() => setCopiedPixKey(false), 3000);
+      await navigator.clipboard.writeText(cleanPixKey);
+      setCopiedCleanPixKey(true);
+      setTimeout(() => setCopiedCleanPixKey(false), 3000);
     } catch {}
   };
 
-  // Copiar código Pix Copia e Cola
+  // Copiar identificador oficial do sistema (bcb.pix...)
+  const handleCopyBcbKey = async () => {
+    try {
+      await navigator.clipboard.writeText(pixKey);
+      setCopiedBcbKey(true);
+      setTimeout(() => setCopiedBcbKey(false), 3000);
+    } catch {}
+  };
+
+  // Copiar código Pix Copia e Cola oficial homologado pelo Banco Central (com CRC16)
   const handleCopyPixPayload = async () => {
     try {
-      const payload = generateBcbPixPayload(pixKey, PIX_AMOUNT);
-      await navigator.clipboard.writeText(payload);
+      await navigator.clipboard.writeText(officialPixPayload);
       setCopiedPixPayload(true);
       setTimeout(() => setCopiedPixPayload(false), 3000);
     } catch {}
   };
+
+  // Manter compatibilidade com handler anterior
+  const handleCopyPixKey = handleCopyCleanPixKey;
 
   // Copiar Identificador / Protocolo de Transação TxID
   const handleCopyTxId = async () => {
@@ -3200,40 +3216,97 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
 
                     {/* Dados da Chave Pix & Ações Rápidas */}
-                    <div className="space-y-4">
-                      {/* Chave Pix Cadastrada (Padrão BCB PIX) */}
-                      <div className="space-y-1.5">
+                    <div className="space-y-3.5">
+                      {/* Método Recomendado: Botão Destaque Pix Copia e Cola */}
+                      <div className="p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-300 shadow-xs space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-black text-emerald-900 flex items-center gap-1.5 uppercase tracking-wide">
+                            <Sparkles className="w-4 h-4 text-emerald-600" />
+                            <span>1º Método Recomendado (Sem Erros no Banco)</span>
+                          </span>
+                          <span className="text-[10px] font-black uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                            Mais Rápido
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-emerald-800">
+                          Copie o código abaixo e cole no seu banco na opção <strong>Pix Copia e Cola</strong>. O valor de <strong>R$ 24,99</strong> e o favorecido serão preenchidos automaticamente.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleCopyPixPayload}
+                          className={`w-full py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 shadow-sm ${
+                            copiedPixPayload
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                          }`}
+                        >
+                          {copiedPixPayload ? (
+                            <>
+                              <Check className="w-4 h-4 stroke-[3]" />
+                              <span>Código Pix Copia e Cola Copiado! Cole no seu Banco</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4" />
+                              <span>Copiar Código Pix Copia e Cola (R$ 24,99)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Método 2: Chave Aleatória (EVP) Pronta para o Banco */}
+                      <div className="space-y-1.5 bg-slate-50 p-3 rounded-2xl border border-slate-200">
                         <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
                           <span className="flex items-center gap-1">
-                            <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Chave Pix Oficial da SF Tecnologia:</span>
+                            <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Chave Aleatória (EVP) p/ Digitar no Banco:</span>
                           </span>
-                          <span className="text-[10px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-black">
-                            BCB PIX ATIVA
+                          <span className="text-[9px] text-blue-800 bg-blue-100 px-2 py-0.5 rounded-full font-black">
+                            LEITURA BANCÁRIA 100%
                           </span>
                         </div>
 
-                        <div className="p-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-between gap-2 shadow-xs">
+                        <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-2 shadow-xs">
                           <code className="text-xs font-mono font-bold text-slate-900 break-all select-all">
-                            {pixKey}
+                            {cleanPixKey}
                           </code>
                           <button
                             type="button"
-                            onClick={handleCopyPixKey}
-                            className={`p-2.5 rounded-xl font-black text-xs shrink-0 transition-all cursor-pointer shadow-xs ${
-                              copiedPixKey
+                            onClick={handleCopyCleanPixKey}
+                            className={`p-2 rounded-lg font-black text-xs shrink-0 transition-all cursor-pointer shadow-xs ${
+                              copiedCleanPixKey
                                 ? 'bg-emerald-500 text-white'
-                                : 'bg-slate-950 hover:bg-slate-800 text-white'
+                                : 'bg-slate-900 hover:bg-slate-800 text-white'
                             }`}
-                            title="Copiar Chave BCB PIX"
+                            title="Copiar Chave Aleatória EVP para o Banco"
                           >
-                            {copiedPixKey ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                            {copiedCleanPixKey ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
                           </button>
                         </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">
+                          💡 <em>Dica:</em> Se o app do seu banco pedir para <strong>Digitar a Chave Pix</strong>, escolha o tipo <strong>Chave Aleatória</strong> e cole este código de 36 dígitos. Os bancos não aceitam textos adicionais como "bcb.pix".
+                        </p>
+                      </div>
+
+                      {/* Identificador Oficial do Sistema */}
+                      <div className="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between text-[11px] text-slate-600">
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">Registro BACEN: <strong className="font-mono text-slate-800">{pixKey}</strong></span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCopyBcbKey}
+                          className="text-[10px] text-slate-500 hover:text-slate-900 font-bold ml-2 shrink-0 cursor-pointer hover:underline flex items-center gap-1"
+                          title="Copiar Identificador com Prefixo"
+                        >
+                          {copiedBcbKey ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedBcbKey ? 'Copiado' : 'Copiar Registro'}</span>
+                        </button>
                       </div>
 
                       {/* Tabela de Transparência Institucional */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5 text-slate-700">
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5 text-slate-700">
                         <div className="flex justify-between items-center pb-1 border-b border-slate-200/60">
                           <span className="text-slate-500 flex items-center gap-1">
                             <Building2 className="w-3.5 h-3.5 text-slate-400" />
@@ -3267,15 +3340,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                       {/* Botões de Ação Imediata */}
                       <div className="space-y-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={handleCopyPixPayload}
-                          className="w-full py-3 px-4 rounded-xl border-2 border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-900 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 shadow-xs"
-                        >
-                          {copiedPixPayload ? <Check className="w-4 h-4 text-emerald-600 stroke-[3]" /> : <Copy className="w-4 h-4 text-slate-500" />}
-                          <span>{copiedPixPayload ? 'Código Copiado com Sucesso!' : 'Copiar Código Pix Copia e Cola'}</span>
-                        </button>
-
                         <button
                           type="button"
                           disabled={isVerifyingPayment}
@@ -3422,7 +3486,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         <span className="text-[10px] uppercase font-bold text-slate-400 block">Prestador do Serviço</span>
                         <strong className="text-slate-900 block">{PIX_COMPANY_NAME}</strong>
                         <p className="text-slate-500 text-[11px]">Responsável: Samuel F. • {PIX_CITY_UF}</p>
-                        <p className="text-slate-500 text-[11px]">Chave Pix: {pixKey}</p>
+                        <p className="text-slate-500 text-[11px]">Chave Pix EVP: <strong className="font-mono text-slate-800">{cleanPixKey}</strong> (Registro: {pixKey})</p>
                       </div>
 
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">

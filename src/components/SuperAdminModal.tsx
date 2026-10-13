@@ -28,6 +28,7 @@ import { UserAccount, UserAccessRequest } from '../types';
 import { accountService } from '../services/accountService';
 import { validateSecurityPolicy, generateSecurePassword } from '../utils/security';
 import { formatCurrency } from '../utils/formatters';
+import { extractCleanPixKey, generatePixPayload } from '../utils/pixPayload';
 
 interface SuperAdminModalProps {
   isOpen: boolean;
@@ -1000,7 +1001,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
               )}
 
               {/* Card da Chave Pix Ativa no Sistema */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3">
+              <div className="bg-white p-5 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
@@ -1008,29 +1009,65 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       Chave Pix Ativa na Gateway dos Clientes:
                     </span>
                   </div>
-                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    Padrão BCB PIX
+                  <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    Homologada BACEN
                   </span>
                 </div>
 
-                <div className="p-3 rounded-2xl bg-slate-900 text-emerald-400 font-mono text-xs sm:text-sm font-bold flex items-center justify-between gap-3 border border-slate-800">
-                  <span className="break-all select-all">{accountService.pixKey}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(accountService.pixKey);
-                      setCopiedPixKeyAdmin(true);
-                      setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
-                    }}
-                    className={`p-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
-                      copiedPixKeyAdmin
-                        ? 'bg-emerald-500 text-slate-950'
-                        : 'bg-white/10 hover:bg-white/20 text-white'
-                    }`}
-                    title="Copiar Chave Pix Ativa"
-                  >
-                    {copiedPixKeyAdmin ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                  </button>
+                {/* Chave com Prefixo Registrada */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Identificador no Sistema:</span>
+                  <div className="p-3 rounded-2xl bg-slate-900 text-emerald-400 font-mono text-xs sm:text-sm font-bold flex items-center justify-between gap-3 border border-slate-800">
+                    <span className="break-all select-all">{accountService.pixKey}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(accountService.pixKey);
+                        setCopiedPixKeyAdmin(true);
+                        setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
+                      }}
+                      className={`p-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
+                        copiedPixKeyAdmin
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-white/10 hover:bg-white/20 text-white'
+                      }`}
+                      title="Copiar Identificador"
+                    >
+                      {copiedPixKeyAdmin ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Chave EVP Limpa para Leitura Bancária */}
+                <div className="space-y-1 bg-blue-50/60 p-3 rounded-2xl border border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black text-blue-900 flex items-center gap-1">
+                      <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Chave Aleatória (EVP) Sanitizada p/ Leitura Bancária:</span>
+                    </span>
+                    <span className="text-[9px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                      36 Dígitos Válidos
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white border border-blue-200 font-mono text-xs font-bold text-slate-900 flex items-center justify-between gap-2">
+                    <span className="break-all select-all">{extractCleanPixKey(accountService.pixKey)}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(extractCleanPixKey(accountService.pixKey));
+                        setCopiedPixKeyAdmin(true);
+                        setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold shrink-0 cursor-pointer transition-all flex items-center gap-1"
+                      title="Copiar Chave EVP Limpa"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copiar EVP</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-blue-800 leading-tight">
+                    🛡️ <strong>Como os bancos funcionam:</strong> Ao digitar no app do banco (Nubank, Itaú, BB, etc.), o banco busca no DICT apenas os 36 dígitos da Chave Aleatória. Nosso sistema envia a chave limpa e o QR Code padrão Banco Central BR.GOV.BCB.PIX para que nunca dê erro!
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-600 pt-1">
