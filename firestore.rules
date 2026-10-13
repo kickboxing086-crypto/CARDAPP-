@@ -23,6 +23,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+    
+    match /accessRequests/{requestId} {
+      allow read: if true;
+      allow write: if true;
+    }
 
     // Configurações, Cardápio e Pedidos por Loja
     match /stores/{storeId} {
@@ -48,11 +53,6 @@ service cloud.firestore {
         allow read: if true;
         allow create: if true;
         allow update, delete: if true;
-      }
-      
-      match /accessRequests/{requestId} {
-        allow read: if true;
-        allow write: if true;
       }
     }
   }
