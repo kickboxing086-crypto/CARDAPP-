@@ -20,7 +20,7 @@ import {
   ExternalLink,
   Share2,
 } from 'lucide-react';
-import { UserAccount } from '../types';
+import { UserAccount, UserAccessRequest } from '../types';
 import { accountService } from '../services/accountService';
 import { validateSecurityPolicy, generateSecurePassword } from '../utils/security';
 import { formatCurrency } from '../utils/formatters';
@@ -41,6 +41,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   onSwitchToStore,
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
+  const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
   const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests'>('generator');
 
   // Generator Form State
@@ -76,8 +77,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   useEffect(() => {
     setAccounts(accountService.getAccounts());
+    setAccessRequests(accountService.getAccessRequests());
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
+      setAccessRequests(accountService.getAccessRequests());
     });
     return () => unsub();
   }, []);
@@ -233,7 +236,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-amber-400 overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-6xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-amber-400 overflow-hidden">
         {/* Top Header */}
         <div className="bg-slate-950 text-white p-4 sm:p-5 flex items-center justify-between border-b border-amber-500/40 shrink-0">
           <div className="flex items-center gap-3">
@@ -904,31 +907,20 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           
           {/* TAB 4: SOLICITAÇÕES DE ACESSO */}
           {activeTab === 'requests' && (
-            <div className="space-y-4 max-w-2xl mx-auto">
+            <div className="space-y-4 max-w-4xl mx-auto">
                <h3 className="font-black text-sm text-slate-950">Solicitações de Acesso Pendentes</h3>
-               {accountService.getAccessRequests().filter(r => r.status === 'pendente').length === 0 && (
-                 <p className="text-xs text-slate-500 text-center py-6">Nenhuma solicitação pendente.</p>
+               {accessRequests.filter(r => r.status === 'pendente').length === 0 && (
+                 <p className="text-sm text-slate-500">Nenhuma solicitação pendente.</p>
                )}
-               {accountService.getAccessRequests().filter(r => r.status === 'pendente').map(req => (
-                 <div key={req.id} className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm flex items-center justify-between">
+               {accessRequests.filter(r => r.status === 'pendente').map(r => (
+                 <div key={r.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between">
                    <div>
-                     <p className="font-black text-slate-900">{req.name}</p>
-                     <p className="text-xs text-slate-600">{req.storeName} • {req.email}</p>
-                     <p className="text-xs text-slate-500 font-mono">{req.phoneWhatsapp}</p>
+                     <p className="font-black text-sm">{r.name} ({r.storeName})</p>
+                     <p className="text-xs text-slate-500">{r.email} - {r.phoneWhatsapp}</p>
                    </div>
                    <div className="flex gap-2">
-                     <button
-                        onClick={() => accountService.updateAccessRequestStatus(req.id, 'aprovado')}
-                        className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold"
-                     >
-                       Aprovar
-                     </button>
-                     <button
-                        onClick={() => accountService.updateAccessRequestStatus(req.id, 'rejeitado')}
-                        className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-bold"
-                     >
-                       Rejeitar
-                     </button>
+                     <button onClick={() => accountService.updateAccessRequestStatus(r.id, 'aprovado')} className="px-3 py-1 bg-emerald-500 text-white text-xs font-bold rounded-lg cursor-pointer">Aprovar</button>
+                     <button onClick={() => accountService.updateAccessRequestStatus(r.id, 'rejeitado')} className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-lg cursor-pointer">Rejeitar</button>
                    </div>
                  </div>
                ))}
