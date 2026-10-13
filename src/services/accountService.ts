@@ -26,11 +26,13 @@ class AccountService {
   private accessRequests: UserAccessRequest[] = [];
   private currentSession: UserAccount | null = null;
   private listeners: (() => void)[] = [];
+  public pixKey: string = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
 
   constructor() {
     this.loadFromStorage();
     this.initFirestoreSync();
     this.initFirestoreSyncRequests();
+    this.checkExpirations();
   }
 
   private loadFromStorage() {
@@ -111,6 +113,19 @@ class AccountService {
     } catch {}
   }
 
+  private checkExpirations() {
+    const now = new Date();
+    let updated = false;
+    this.accounts = this.accounts.map(acc => {
+        if (acc.role !== 'super_admin' && acc.planStatus === 'ativo' && new Date(acc.expiresAt) < now) {
+            updated = true;
+            return { ...acc, planStatus: 'bloqueado' };
+        }
+        return acc;
+    });
+    if (updated) this.saveToStorage();
+  }
+
   public getAccounts(): UserAccount[] { return [...this.accounts]; }
   public getAccessRequests(): UserAccessRequest[] { return [...this.accessRequests]; }
   public getCurrentSession(): UserAccount | null { return this.currentSession; }
@@ -131,11 +146,26 @@ class AccountService {
   }
 
   public updateAccessRequestStatus(id: string, status: 'aprovado' | 'rejeitado') {
+    const request = this.accessRequests.find(r => r.id === id);
+    if (!request) return;
+
     this.accessRequests = this.accessRequests.map(r => r.id === id ? { ...r, status } : r);
     this.saveRequestsToStorage();
     try {
         setDoc(doc(db, 'accessRequests', id), { status }, { merge: true });
     } catch {}
+
+    if (status === 'aprovado' && request) {
+        this.createAccount({
+            username: request.email.split('@')[0] + '_' + Math.random().toString(36).substring(2, 5),
+            password: 'User@' + Math.random().toString(36).substring(2, 8),
+            name: request.name,
+            storeName: request.storeName,
+            phoneWhatsapp: request.phoneWhatsapp,
+            planStatus: 'ativo',
+            daysValid: 7
+        });
+    }
   }
 
   public login(username: string, password: string): { success: boolean; message: string; user?: UserAccount } {

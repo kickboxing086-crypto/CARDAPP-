@@ -42,7 +42,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests'>('generator');
+  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests' | 'payments'>('generator');
 
   // Generator Form State
   const [newStoreName, setNewStoreName] = useState('');
@@ -350,6 +350,18 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           >
             <Database className="w-4 h-4" />
             <span>Banco de Dados & Backup</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('payments')}
+            className={`py-3 px-4 font-black text-xs border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'payments'
+                ? 'border-amber-500 text-amber-900 bg-amber-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>Pagamentos</span>
           </button>
           <button
             type="button"
@@ -924,6 +936,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                    </div>
                  </div>
                ))}
+            </div>
+          )}
+
+          {activeTab === 'payments' && (
+            <div className="max-w-xl mx-auto p-4 space-y-4">
+              <h3 className="font-black text-sm text-slate-950">Gateway de Pagamento</h3>
+              <div className="bg-white p-4 rounded-2xl border border-emerald-200">
+                <p className="text-xs font-bold text-slate-700">Chave Pix Ativa:</p>
+                <p className="font-mono text-sm bg-slate-100 p-2 rounded-lg mt-1">{accountService.pixKey}</p>
+                <p className="text-[10px] text-slate-500 mt-2">Clientes têm 7 dias de acesso gratuito antes do bloqueio.</p>
+              </div>
             </div>
           )}
         </div>
