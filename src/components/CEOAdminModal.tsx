@@ -145,8 +145,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO • PLANO R$ 24,99/MÊS)
   const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
-  const PIX_BENEFICIARY = 'SF TECNOLOGIA Soluções Digitais / Samuel';
-  const PIX_COMPANY_NAME = 'SF TECNOLOGIA SOLUÇÕES DIGITAIS';
+  const PIX_BENEFICIARY = 'Erijan Gois / SF Tecnologia';
+  const PIX_COMPANY_NAME = 'ERIJAN GOIS';
   const PIX_CITY_UF = 'NATAL - RN';
   const PIX_AMOUNT = 24.99; // Valor oficial confirmado pelo administrador: R$ 24,99/Mês
   const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
@@ -158,8 +158,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
   const [copiedTxId, setCopiedTxId] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
-  const [verifyStep, setVerifyStep] = useState<1 | 2 | 3>(1);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState(false);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
 
@@ -177,7 +175,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return generatePixPayload({
       pixKey: cleanPixKey,
       amount: PIX_AMOUNT,
-      merchantName: 'SF TECNOLOGIA',
+      merchantName: 'ERIJAN GOIS',
       merchantCity: 'NATAL',
       transactionId: transactionId.slice(0, 25),
     });
@@ -265,36 +263,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
       setBlockedAlertNotice(null);
     } catch {}
-  };
-
-  // Confirmar pagamento realizado com verificação instantânea na Gateway
-  const handleConfirmPayment = () => {
-    if (!currentSession) return;
-    setIsVerifyingPayment(true);
-    setVerifyStep(1);
-
-    setTimeout(() => {
-      setVerifyStep(2);
-    }, 900);
-
-    setTimeout(() => {
-      setVerifyStep(3);
-    }, 1800);
-
-    setTimeout(() => {
-      setIsVerifyingPayment(false);
-      accountService.renewAccountPlan(currentSession.id, 30);
-      try {
-        const key = getSessionStorageKey();
-        localStorage.removeItem(key);
-      } catch {}
-      setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
-      setPaymentSuccessMessage(true);
-      setBlockedAlertNotice(null);
-      setTimeout(() => {
-        setPaymentSuccessMessage(false);
-      }, 7000);
-    }, 2600);
   };
 
   // Copiar Chave Aleatória (EVP limpa sem prefixos) - formato que bancos reconhecem ao digitar a chave
@@ -3338,37 +3306,22 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Botões de Ação Imediata */}
+                      {/* Instrução de Pagamento Real */}
                       <div className="space-y-2 pt-1">
-                        <button
-                          type="button"
-                          disabled={isVerifyingPayment}
-                          onClick={handleConfirmPayment}
-                          className="w-full py-4 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg hover:shadow-emerald-500/25 disabled:opacity-60"
-                        >
-                          {isVerifyingPayment ? (
-                            <>
-                              <RefreshCw className="w-5 h-5 animate-spin" />
-                              <span>
-                                {verifyStep === 1
-                                  ? 'Conectando à Gateway SF Tecnologia...'
-                                  : verifyStep === 2
-                                  ? 'Consultando Liquidação SPI Banco Central...'
-                                  : 'Pagamento Identificado! Liberando Acesso...'}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <ShieldCheck className="w-5 h-5" />
-                              <span>Confirmar Pagamento Realizado (R$ 24,99)</span>
-                            </>
-                          )}
-                        </button>
+                        <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1.5 shadow-xs">
+                          <div className="flex items-center gap-1.5 font-black uppercase">
+                            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Validação de Pagamento Bancário</span>
+                          </div>
+                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                            Para sua segurança, o sistema <strong>não confirma pagamentos automaticamente por cliques</strong>. Copie o código Pix Copia e Cola acima, pague no seu aplicativo bancário e envie o comprovante para o Administrador <strong>Erijan Gois</strong> via WhatsApp para liberação imediata.
+                          </p>
+                        </div>
 
                         <button
                           type="button"
                           onClick={() => setShowInvoiceModal(true)}
-                          className="w-full py-2 px-3 text-slate-600 hover:text-slate-900 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer hover:underline"
+                          className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all border border-slate-200"
                         >
                           <FileText className="w-3.5 h-3.5" />
                           <span>Visualizar Fatura Pro Forma & Recibo Digital</span>
