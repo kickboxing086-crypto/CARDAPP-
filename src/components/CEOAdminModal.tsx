@@ -3278,17 +3278,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         <div className="flex justify-between items-center pb-1 border-b border-slate-200/60">
                           <span className="text-slate-500 flex items-center gap-1">
                             <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Empresa Emissora:</span>
+                            <span>Liquidação Bancária:</span>
                           </span>
-                          <strong className="text-slate-900 font-bold">{PIX_COMPANY_NAME}</strong>
+                          <strong className="text-slate-900 font-bold">SPI Banco Central</strong>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-500">Favorecido / Gestor:</span>
-                          <strong className="text-slate-900">{PIX_BENEFICIARY}</strong>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-500">Praça de Liquidação:</span>
-                          <span className="font-semibold text-slate-800">{PIX_CITY_UF} (SPI Banco Central)</span>
+                          <span className="text-slate-500">Praça:</span>
+                          <span className="font-semibold text-slate-800">{PIX_CITY_UF}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500">Protocolo da Cobrança:</span>
@@ -3314,7 +3310,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             <span>Validação de Pagamento Bancário</span>
                           </div>
                           <p className="text-[11px] text-amber-800 leading-relaxed">
-                            Para sua segurança, o sistema <strong>não confirma pagamentos automaticamente por cliques</strong>. Copie o código Pix Copia e Cola acima, pague no seu aplicativo bancário e envie o comprovante para o Administrador <strong>Erijan Gois</strong> via WhatsApp para liberação imediata.
+                            Para sua segurança, o sistema <strong>não confirma pagamentos automaticamente</strong>. Copie o código Pix Copia e Cola acima, pague no seu aplicativo bancário e envie o comprovante para o Suporte Técnico via WhatsApp para liberação imediata.
                           </p>
                         </div>
 
@@ -3362,49 +3358,32 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
               </div>
 
-              {/* DADOS DO ESTABELECIMENTO CADASTRADO */}
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
+              {/* Suporte Técnico & Contato */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                    <Store className="w-4 h-4 text-slate-600" />
-                    <span>Dados do Estabelecimento Cadastrado</span>
+                    <HelpCircle className="w-4 h-4 text-slate-600" />
+                    <span>Precisa de Ajuda com o Pagamento?</span>
                   </h5>
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    ID: {currentSession?.storeId || 'store_official'}
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
+                    Atendimento Rápido
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabelecimento</span>
-                    <strong className="text-slate-900 text-sm">{currentSession?.storeName || settings.storeName}</strong>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Responsável</span>
-                    <strong className="text-slate-900 text-sm">{currentSession?.name || 'Não informado'}</strong>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Usuário de Acesso</span>
-                    <code className="text-slate-900 font-mono font-bold">{currentSession?.username || 'N/A'}</code>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Validade do Plano</span>
-                    <span className="text-slate-900 font-bold">
-                      {currentSession?.expiresAt ? formatDateTime(currentSession.expiresAt) : 'Sem data definida'}
-                    </span>
-                  </div>
-                </div>
+                <p className="text-xs text-slate-600">
+                  Após realizar a transferência via Pix Copia e Cola, envie o comprovante para o nosso suporte técnico para ativação imediata do seu plano.
+                </p>
 
                 {/* WhatsApp Support Action */}
-                <div className="pt-2">
+                <div className="pt-1">
                   <a
-                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*CONSULTA DE GATEWAY DE PAGAMENTO - CARDAPP*\n\n• Loja: ${currentSession?.storeName || settings.storeName}\n• Responsável: ${currentSession?.name}\n• Usuário: ${currentSession?.username}\n• Protocolo: ${transactionId}\n• Valor do Plano: R$ 24,99/mês\n• Chave Pix: ${pixKey}\n\nOlá Samuel! Estou na Gateway de Pagamento e gostaria de suporte sobre o status da minha conta.`)}`}
+                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*COMPROVANTE DE PAGAMENTO - CARDAPP*\n\n• Protocolo: ${transactionId}\n• Valor: R$ 24,99/mês\n\nOlá! Segue o comprovante do pagamento Pix do plano. Gostaria de solicitar a ativação do acesso.`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full py-3.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
                   >
                     <MessageCircle className="w-4 h-4 fill-white" />
-                    <span>Falar com o Suporte Técnico no WhatsApp (Samuel / SF Tecnologia)</span>
+                    <span>Enviar Comprovante ao Suporte no WhatsApp</span>
                   </a>
                 </div>
               </div>
@@ -3437,9 +3416,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="space-y-3 text-xs text-slate-700">
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block">Prestador do Serviço</span>
-                        <strong className="text-slate-900 block">{PIX_COMPANY_NAME}</strong>
-                        <p className="text-slate-500 text-[11px]">Responsável: Samuel F. • {PIX_CITY_UF}</p>
-                        <p className="text-slate-500 text-[11px]">Chave Pix EVP: <strong className="font-mono text-slate-800">{cleanPixKey}</strong> (Registro: {pixKey})</p>
+                        <strong className="text-slate-900 block">CARDAPP Plataforma Digital</strong>
+                        <p className="text-slate-500 text-[11px]">Liquidação SPI Banco Central • {PIX_CITY_UF}</p>
+                        <p className="text-slate-500 text-[11px]">Chave Pix EVP: <strong className="font-mono text-slate-800">{cleanPixKey}</strong></p>
                       </div>
 
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
