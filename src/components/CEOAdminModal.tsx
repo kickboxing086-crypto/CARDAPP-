@@ -53,6 +53,7 @@ import {
   HelpCircle,
   Award,
   KeyRound,
+  Receipt,
 } from 'lucide-react';
 import {
   Product,
@@ -65,6 +66,7 @@ import {
   Category,
   NeighborhoodDeliveryFee,
   UserAccount,
+  PaymentInvoice,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -174,10 +176,36 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedBcbKey, setCopiedBcbKey] = useState(false);
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
   const [copiedTxId, setCopiedTxId] = useState(false);
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
+  const [invoicesList, setInvoicesList] = useState<PaymentInvoice[]>(() => {
+    return currentSession?.id ? accountService.getInvoices(currentSession.id) : [];
+  });
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
+
+  // Sincronizar faturas do cliente
+  useEffect(() => {
+    if (currentSession?.id) {
+      setInvoicesList(accountService.getInvoices(currentSession.id));
+    }
+  }, [currentSession?.id, currentSession?.invoices]);
+
+  // Cálculo dos dias restantes para o vencimento do plano
+  const daysUntilExpiry = useMemo(() => {
+    if (!currentSession?.expiresAt) return 0;
+    const now = new Date();
+    const expiry = new Date(currentSession.expiresAt);
+    const diffTime = expiry.getTime() - now.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, [currentSession?.expiresAt]);
+
+  // REGRA DO USUÁRIO: O QR CODE aparecerá SOMENTE quando estiver faltando 5 dias (ou menos) para o vencimento do plano!
+  const isPaymentDueSoon = useMemo(() => {
+    if (currentSession?.role === 'super_admin') return false;
+    if (currentSession?.planStatus === 'bloqueado' || currentSession?.planStatus === 'pendente') return true;
+    return daysUntilExpiry <= 5;
+  }, [currentSession?.role, currentSession?.planStatus, daysUntilExpiry]);
 
   // Identificador Único de Transação / Protocolo Bancário
   const transactionId = useMemo(() => {
@@ -300,17 +328,24 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
       if (currentSession?.id) {
-        accountService.renewAccountPlan(currentSession.id, 30);
+        // Automaticamente gera a fatura de confirmação para registrar o pagamento
+        const generatedInvoice = accountService.renewAccountPlan(currentSession.id, 30);
         accountService.updateAccountStatus(currentSession.id, 'ativo');
         const updated = accountService.getCurrentSession();
         setAccountSession(updated);
         setBlockedAlertNotice(null);
         handleRestartPaymentSession();
-        setPaymentSuccessFeedback('Pagamento identificado e confirmado com sucesso! Seu plano foi ativado por 30 dias.');
+
+        // Atualizar lista de faturas registradas
+        const updatedInvoices = accountService.getInvoices(currentSession.id);
+        setInvoicesList(updatedInvoices);
+
+        setPaymentSuccessFeedback(`Pagamento confirmado com sucesso! Fatura #${generatedInvoice.id} gerada e plano ativado por 30 dias.`);
+
+        // Automaticamente exibe a fatura gerada para que o cliente tenha o comprovante em mãos
         setTimeout(() => {
-          setPaymentSuccessFeedback(null);
-          setActiveTab('orders');
-        }, 2200);
+          setSelectedInvoice(generatedInvoice);
+        }, 600);
       }
     } catch (e) {
       console.error(e);
@@ -2976,214 +3011,374 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA + GATEWAY DE PAGAMENTO PIX */}
+          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA + CONTROLE DE VENCIMENTO & FATURAS */}
           {activeTab === 'status' && (
             <div className="space-y-6 max-w-xl mx-auto py-2">
-                  <div className="text-center pb-1">
+              {/* Header do Status */}
+              <div className="text-center pb-1">
                 <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-2.5 shadow-xs ${
                   currentSession?.planStatus === 'bloqueado'
                     ? 'bg-red-100 text-red-700'
+                    : isPaymentDueSoon
+                    ? 'bg-amber-100 text-amber-800'
                     : 'bg-emerald-100 text-emerald-800'
                 }`}>
                   {currentSession?.planStatus === 'bloqueado' ? (
                     <Lock className="w-6 h-6" />
+                  ) : isPaymentDueSoon ? (
+                    <Clock className="w-6 h-6" />
                   ) : (
                     <ShieldCheck className="w-6 h-6" />
                   )}
                 </div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                  Pagamento da Assinatura via Pix
+                  {currentSession?.planStatus === 'bloqueado'
+                    ? 'Acesso Bloqueado • Renovação Necessária'
+                    : isPaymentDueSoon
+                    ? 'Renovação da Assinatura via Pix'
+                    : 'Assinatura em Dia • Controle do Plano'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Faça o pagamento via Pix para ativar e liberar sua loja imediatamente.
+                  {currentSession?.planStatus === 'bloqueado'
+                    ? 'Efetue o Pix de R$ 2,00 para reativar seu cardápio imediatamente.'
+                    : isPaymentDueSoon
+                    ? `Faltam ${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia' : 'dias'} para o vencimento do seu plano. Renove via Pix.`
+                    : 'Seu cardápio está 100% ativo e funcionando com pedidos liberados.'}
                 </p>
               </div>
 
-              {/* CARD CENTRAL ÚNICO: CRONÔMETRO AUTOMÁTICO, QR CODE, CHAVE PIX E CONFIRMAÇÃO */}
-              <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
-                {/* Banner com Cronômetro Automático de 5 Minutos */}
-                <div className={`p-4 text-white flex items-center justify-between transition-colors ${
-                  currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
-                    ? 'bg-red-600'
-                    : secondsRemaining <= 60
-                    ? 'bg-gradient-to-r from-red-600 to-amber-600 animate-pulse'
-                    : 'bg-slate-950'
-                }`}>
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold shrink-0 border border-white/10">
-                      <Timer className="w-5 h-5 stroke-[2.2]" />
+              {/* CENÁRIO 1: O PLANO ESTÁ EM DIA E FALTAM MAIS DE 5 DIAS (QR CODE FICA OCULTO PARA CONTROLE) */}
+              {!isPaymentDueSoon && (
+                <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden p-6 space-y-5">
+                  <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-800">
+                        Status: Plano Ativo & Em Dia
+                      </span>
                     </div>
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                      Tudo Controlado
+                    </span>
+                  </div>
+
+                  {/* Banner de Dias Restantes */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
-                        Tempo de Pagamento Pix
+                      <span className="text-[10px] uppercase font-bold text-emerald-100 block">
+                        Tempo Restante da Assinatura
                       </span>
-                      <h4 className="text-xs sm:text-sm font-bold">
-                        {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
-                          ? 'Tempo Esgotado'
-                          : 'Contagem Regressiva Automática de 5 Minutos'}
+                      <h4 className="text-2xl font-black font-display">
+                        Faltam {daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}
                       </h4>
+                      <p className="text-xs text-emerald-100 mt-0.5">
+                        Válido até {currentSession?.expiresAt ? new Date(currentSession.expiresAt).toLocaleDateString('pt-BR') : '30 dias'}
+                      </p>
+                    </div>
+                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-7 h-7 text-white" />
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <div className="px-3.5 py-1.5 rounded-xl bg-white/15 backdrop-blur-xs border border-white/20 text-center">
-                      <span className="text-lg sm:text-xl font-black font-mono tracking-wider">
-                        {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
-                        {String(secondsRemaining % 60).padStart(2, '0')}
-                      </span>
+                  {/* Box de Transparência e Controle de Cobrança */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+                    <div className="flex items-center gap-2 font-black text-slate-900">
+                      <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Cobrança Inteligente & Sem Surpresas:</span>
                     </div>
-
-                    {(secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado') && (
-                      <button
-                        type="button"
-                        onClick={handleRestartPaymentSession}
-                        className="p-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow-md active:scale-95 transition-all"
-                        title="Reiniciar 5 minutos"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Barra de Progresso do Tempo Restante */}
-                <div className="w-full bg-slate-200 h-1.5 overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-1000 ${
-                      secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
-                        ? 'bg-red-600'
-                        : secondsRemaining <= 60
-                        ? 'bg-red-500'
-                        : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.max(0, Math.min(100, (secondsRemaining / PAYMENT_TIMEOUT_SECONDS) * 100))}%` }}
-                  />
-                </div>
-
-                {/* Conteúdo: SOMENTE QR Code e Chave Pix para Copiar + Botão de Confirmação */}
-                <div className="p-6 flex flex-col items-center text-center space-y-5">
-                  {/* Mensagem de Sucesso na Verificação */}
-                  {paymentSuccessFeedback && (
-                    <div className="w-full p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
-                      <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
-                      <span>{paymentSuccessFeedback}</span>
-                    </div>
-                  )}
-
-                  {/* Alerta de Bloqueio se houver */}
-                  {blockedAlertNotice && !paymentSuccessFeedback && (
-                    <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-900 font-bold text-xs flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
-                      <span className="text-left text-[11px]">{blockedAlertNotice}</span>
-                    </div>
-                  )}
-
-                  {/* 1. O QR CODE */}
-                  <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-md relative flex flex-col items-center">
-                    {pixQrDataUrl ? (
-                      <img
-                        src={pixQrDataUrl}
-                        alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
-                        className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
-                      />
-                    ) : (
-                      <div className="w-52 h-52 flex items-center justify-center text-slate-400">
-                        <QrCode className="w-16 h-16 animate-pulse" />
-                      </div>
-                    )}
-                    <div className="mt-2.5 text-center">
-                      <span className="text-[11px] font-bold text-slate-500 block">Valor do Plano</span>
-                      <span className="text-2xl font-black text-emerald-600">
-                        A partir de {formatCurrency(PIX_AMOUNT)}
-                        <span className="text-xs text-slate-500 font-normal"> /mês</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 2. A CHAVE PIX PARA COPIAR */}
-                  <div className="w-full space-y-2.5">
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block text-left">
-                        Chave Pix:
-                      </span>
-                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 shadow-inner">
-                        <code className="text-xs font-mono font-bold text-slate-900 truncate select-all">
-                          {cleanPixKey}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={handleCopyCleanPixKey}
-                          className={`py-2 px-3.5 rounded-lg font-black text-xs shrink-0 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
-                            copiedCleanPixKey
-                              ? 'bg-emerald-500 text-white'
-                              : 'bg-slate-900 hover:bg-slate-800 text-white'
-                          }`}
-                          title="Copiar Chave Pix"
-                        >
-                          {copiedCleanPixKey ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 stroke-[3]" />
-                              <span>Copiado!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>Copiar Chave Pix</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Botão Pix Copia e Cola */}
-                    <button
-                      type="button"
-                      onClick={handleCopyPixPayload}
-                      className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border ${
-                        copiedPixPayload
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
-                          : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {copiedPixPayload ? (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
-                          <span>Código Pix Copia e Cola Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 text-slate-500" />
-                          <span>Copiar Código Pix Copia e Cola</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* 3. BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO (ATUALIZAR E VERIFICAR) */}
-                  <div className="w-full pt-1">
-                    <button
-                      type="button"
-                      onClick={handleVerifyAndConfirmPayment}
-                      disabled={isVerifyingPayment}
-                      className="w-full py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                      {isVerifyingPayment ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>Atualizando e Verificando Pagamento...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                          <span>Confirmar Pagamento • Atualizar e Verificar</span>
-                        </>
-                      )}
-                    </button>
-                    <p className="text-[11px] text-slate-400 mt-2">
-                      Após realizar o Pix no seu banco, clique no botão acima para verificar e liberar seu acesso.
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      O <strong>QR Code Pix</strong> e a chave de pagamento só aparecerão automaticamente quando restarem <strong>5 dias</strong> para o vencimento do plano. Isso evita pagamentos duplicados e mantém sua gestão sob controle total.
                     </p>
                   </div>
+
+                  {/* Resumo dos Dados do Plano */}
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor Mensal</span>
+                      <span className="text-base font-black text-emerald-700">A partir de R$ 2,00</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Forma de Pagamento</span>
+                      <span className="text-xs font-bold text-slate-800">Pix Instantâneo (SPI)</span>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* CENÁRIO 2: FALTAM 5 DIAS OU MENOS, OU PLANO BLOQUEADO (O QR CODE APARECE) */}
+              {isPaymentDueSoon && (
+                <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
+                  {/* Banner com Cronômetro Automático de 5 Minutos */}
+                  <div className={`p-4 text-white flex items-center justify-between transition-colors ${
+                    currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
+                      ? 'bg-red-600'
+                      : secondsRemaining <= 60
+                      ? 'bg-gradient-to-r from-red-600 to-amber-600 animate-pulse'
+                      : 'bg-slate-950'
+                  }`}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold shrink-0 border border-white/10">
+                        <Timer className="w-5 h-5 stroke-[2.2]" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
+                          Tempo de Pagamento Pix
+                        </span>
+                        <h4 className="text-xs sm:text-sm font-bold">
+                          {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
+                            ? 'Tempo Esgotado'
+                            : 'Contagem Regressiva de 5 Minutos'}
+                        </h4>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="px-3.5 py-1.5 rounded-xl bg-white/15 backdrop-blur-xs border border-white/20 text-center">
+                        <span className="text-lg sm:text-xl font-black font-mono tracking-wider">
+                          {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
+                          {String(secondsRemaining % 60).padStart(2, '0')}
+                        </span>
+                      </div>
+
+                      {(secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado') && (
+                        <button
+                          type="button"
+                          onClick={handleRestartPaymentSession}
+                          className="p-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow-md active:scale-95 transition-all"
+                          title="Reiniciar 5 minutos"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Barra de Progresso do Tempo Restante */}
+                  <div className="w-full bg-slate-200 h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-1000 ${
+                        secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
+                          ? 'bg-red-600'
+                          : secondsRemaining <= 60
+                          ? 'bg-red-500'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.max(0, Math.min(100, (secondsRemaining / PAYMENT_TIMEOUT_SECONDS) * 100))}%` }}
+                    />
+                  </div>
+
+                  {/* Conteúdo: SOMENTE QR Code e Chave Pix para Copiar + Botão de Confirmação */}
+                  <div className="p-6 flex flex-col items-center text-center space-y-5">
+                    {/* Alerta de Dias Restantes (<= 5 dias) */}
+                    {daysUntilExpiry > 0 && currentSession?.planStatus !== 'bloqueado' && (
+                      <div className="w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 font-bold text-xs flex items-center gap-2 text-left">
+                        <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                        <span>
+                          Período de Renovação Aberto: Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> para o vencimento do plano ({new Date(currentSession?.expiresAt || Date.now()).toLocaleDateString('pt-BR')}). Pague o Pix de R$ 2,00 para renovar por 30 dias.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Mensagem de Sucesso na Verificação */}
+                    {paymentSuccessFeedback && (
+                      <div className="w-full p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
+                        <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
+                        <span>{paymentSuccessFeedback}</span>
+                      </div>
+                    )}
+
+                    {/* Alerta de Bloqueio se houver */}
+                    {blockedAlertNotice && !paymentSuccessFeedback && (
+                      <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-900 font-bold text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                        <span className="text-left text-[11px]">{blockedAlertNotice}</span>
+                      </div>
+                    )}
+
+                    {/* 1. O QR CODE */}
+                    <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-md relative flex flex-col items-center">
+                      {pixQrDataUrl ? (
+                        <img
+                          src={pixQrDataUrl}
+                          alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
+                          className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
+                        />
+                      ) : (
+                        <div className="w-52 h-52 flex items-center justify-center text-slate-400">
+                          <QrCode className="w-16 h-16 animate-pulse" />
+                        </div>
+                      )}
+                      <div className="mt-2.5 text-center">
+                        <span className="text-[11px] font-bold text-slate-500 block">Valor da Renovação</span>
+                        <span className="text-2xl font-black text-emerald-600">
+                          {formatCurrency(PIX_AMOUNT)}
+                          <span className="text-xs text-slate-500 font-normal"> /mês</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 2. A CHAVE PIX PARA COPIAR */}
+                    <div className="w-full space-y-2.5">
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block text-left">
+                          Chave Pix:
+                        </span>
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 shadow-inner">
+                          <code className="text-xs font-mono font-bold text-slate-900 truncate select-all">
+                            {cleanPixKey}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyCleanPixKey}
+                            className={`py-2 px-3.5 rounded-lg font-black text-xs shrink-0 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                              copiedCleanPixKey
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-slate-900 hover:bg-slate-800 text-white'
+                            }`}
+                            title="Copiar Chave Pix"
+                          >
+                            {copiedCleanPixKey ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                <span>Copiado!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copiar Chave Pix</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Botão Pix Copia e Cola */}
+                      <button
+                        type="button"
+                        onClick={handleCopyPixPayload}
+                        className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border ${
+                          copiedPixPayload
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
+                            : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {copiedPixPayload ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                            <span>Código Pix Copia e Cola Copiado!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 text-slate-500" />
+                            <span>Copiar Código Pix Copia e Cola</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* 3. BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO (ATUALIZAR E VERIFICAR) */}
+                    <div className="w-full pt-1">
+                      <button
+                        type="button"
+                        onClick={handleVerifyAndConfirmPayment}
+                        disabled={isVerifyingPayment}
+                        className="w-full py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                      >
+                        {isVerifyingPayment ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Atualizando e Verificando Pagamento...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                            <span>Confirmar Pagamento • Atualizar e Verificar</span>
+                          </>
+                        )}
+                      </button>
+                      <p className="text-[11px] text-slate-400 mt-2">
+                        Após realizar o Pix no seu banco, clique no botão acima para verificar, liberar seu acesso e emitir a fatura de confirmação.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SEÇÃO DE HISTÓRICO DE FATURAS E COMPROVANTES (REGISTRO AUTOMÁTICO DE CADA PAGAMENTO) */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold shrink-0">
+                      <Receipt className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-sm sm:text-base text-slate-900">
+                        Histórico de Faturas & Comprovantes
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        Faturas geradas automaticamente para cada pagamento realizado
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+                    {invoicesList.length} {invoicesList.length === 1 ? 'fatura salva' : 'faturas salvas'}
+                  </span>
+                </div>
+
+                {/* Lista de Faturas Registradas */}
+                {invoicesList.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {invoicesList.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="p-3.5 rounded-2xl bg-slate-50 hover:bg-amber-50/50 border border-slate-200 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-slate-900">
+                              #{inv.id}
+                            </span>
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              Confirmado
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600">
+                            Data: <strong>{new Date(inv.paidAt).toLocaleDateString('pt-BR')} às {new Date(inv.paidAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-mono truncate max-w-xs">
+                            Protocolo: {inv.protocol}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
+                          <span className="font-black text-sm text-slate-900">
+                            {formatCurrency(inv.amount || 2.00)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedInvoice(inv)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+                            title="Visualizar fatura e comprovante oficial"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Ver Fatura</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-center space-y-1.5">
+                    <FileText className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700">
+                      Nenhuma fatura registrada anteriormente
+                    </p>
+                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                      Assim que você confirmar seu pagamento via Pix, a fatura oficial será emitida automaticamente e ficará gravada aqui.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3665,6 +3860,190 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             <div className="flex gap-2">
               <button type="button" onClick={() => setDeleteAllTablesStep(0)} className="flex-1 py-2 rounded-xl border border-slate-300 text-xs font-bold">Cancelar</button>
               <button type="button" onClick={handleConfirmDeleteAllTables} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-black">Apagar Todas</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL DE FATURA DE CONFIRMAÇÃO DE PAGAMENTO OFICIAL */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto">
+            {/* Header do Modal */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold shrink-0">
+                  <Receipt className="w-5 h-5 stroke-[2.3]" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-950">
+                    Fatura & Comprovante Oficial
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-500 block">
+                    #{selectedInvoice.id}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedInvoice(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* DOCUMENTO DA FATURA ESTILIZADO PARA VISUALIZAÇÃO E IMPRESSÃO */}
+            <div id="printable-invoice-content" className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 text-xs select-text">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs">
+                    <ForkKnifeIcon className="w-4 h-4 stroke-[2.5]" />
+                  </div>
+                  <div>
+                    <span className="font-black text-slate-950 text-sm tracking-tight block">
+                      CARDAPP DIGITAL
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      SF TECNOLOGIA • Plataforma Oficial
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-black text-[10px] uppercase tracking-wider inline-block">
+                    PAGO E CONFIRMADO
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    Via Pix SPI (Banco Central)
+                  </span>
+                </div>
+              </div>
+
+              {/* Informações da Loja e Cobrança */}
+              <div className="grid grid-cols-2 gap-3 text-[11px] pt-1">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Cliente / Loja</span>
+                  <p className="font-bold text-slate-900 truncate">
+                    {selectedInvoice.storeName || currentSession?.storeName || 'CARDAPP Loja Parceira'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    ID: {currentSession?.storeId || 'CARDAPP'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Data de Liquidação</span>
+                  <p className="font-bold text-slate-900">
+                    {new Date(selectedInvoice.paidAt).toLocaleDateString('pt-BR')} às {new Date(selectedInvoice.paidAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Descrição do Serviço */}
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Item Faturado</span>
+                <div className="flex justify-between items-center font-bold text-slate-900">
+                  <span>{selectedInvoice.description || 'Assinatura Mensal da Plataforma CARDAPP Digital'}</span>
+                  <span className="text-emerald-700 font-black text-sm">{formatCurrency(selectedInvoice.amount || 2.00)}</span>
+                </div>
+                <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-100 mt-1">
+                  Vigência do Plano: <strong>Até {new Date(selectedInvoice.validUntil).toLocaleDateString('pt-BR')}</strong> (30 dias de acesso completo sem comissões)
+                </p>
+              </div>
+
+              {/* Protocolo Bancário SPI */}
+              <div className="p-3 rounded-xl bg-slate-100/80 font-mono text-[10px] text-slate-600 space-y-0.5">
+                <span className="font-bold text-slate-700 uppercase block text-[9px]">Autenticação Digital SPI (Banco Central):</span>
+                <p className="break-all font-semibold text-slate-900 select-all">{selectedInvoice.protocol}</p>
+              </div>
+
+              {/* Autenticidade */}
+              <p className="text-[10px] text-slate-400 text-center italic">
+                Comprovante gerado eletronicamente e registrado com segurança no histórico do cliente.
+              </p>
+            </div>
+
+            {/* Ações: Imprimir / Salvar PDF e Fechar */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const printWin = window.open('', '_blank', 'width=700,height=750');
+                  if (printWin) {
+                    printWin.document.write(`
+                      <!DOCTYPE html>
+                      <html lang="pt-BR">
+                        <head>
+                          <meta charset="utf-8">
+                          <title>Fatura ${selectedInvoice.id} - CARDAPP</title>
+                          <style>
+                            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 30px; color: #0f172a; max-width: 600px; margin: 0 auto; line-height: 1.5; }
+                            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 20px; }
+                            .title { font-size: 20px; font-weight: 900; margin: 0; }
+                            .badge { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+                            .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 15px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+                            .label { color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: bold; }
+                            .val { font-weight: bold; color: #0f172a; }
+                            .total { font-size: 18px; font-weight: 900; color: #059669; }
+                            .protocol { font-family: monospace; font-size: 11px; background: #e2e8f0; padding: 8px; border-radius: 6px; word-break: break-all; margin-top: 15px; }
+                            .footer { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 25px; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+                          </style>
+                        </head>
+                        <body>
+                          <div class="header">
+                            <div>
+                              <h1 class="title">CARDAPP DIGITAL</h1>
+                              <p style="margin:2px 0 0; font-size:12px; color:#64748b;">Comprovante Oficial de Pagamento</p>
+                            </div>
+                            <span class="badge">PAGO E CONFIRMADO</span>
+                          </div>
+                          <div class="box">
+                            <div class="row">
+                              <div><div class="label">Número da Fatura</div><div class="val">#${selectedInvoice.id}</div></div>
+                              <div style="text-align:right;"><div class="label">Data de Pagamento</div><div class="val">${new Date(selectedInvoice.paidAt).toLocaleDateString('pt-BR')} às ${new Date(selectedInvoice.paidAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div></div>
+                            </div>
+                            <div class="row" style="margin-top:12px;">
+                              <div><div class="label">Estabelecimento / Loja</div><div class="val">${selectedInvoice.storeName || currentSession?.storeName || 'Loja Parceira'}</div></div>
+                              <div style="text-align:right;"><div class="label">Forma de Liquidação</div><div class="val">Pix Instantâneo (SPI)</div></div>
+                            </div>
+                          </div>
+                          <div class="box">
+                            <div class="row" style="align-items:center;">
+                              <div><div class="val">${selectedInvoice.description || 'Assinatura Mensal da Plataforma CARDAPP Digital'}</div><div style="font-size:11px; color:#64748b; margin-top:3px;">Vigência: Válido até ${new Date(selectedInvoice.validUntil).toLocaleDateString('pt-BR')}</div></div>
+                              <div class="total">${formatCurrency(selectedInvoice.amount || 2.00)}</div>
+                            </div>
+                          </div>
+                          <div class="protocol">
+                            <strong style="display:block; margin-bottom:3px; font-size:10px; color:#475569;">PROTOCOLO ELETRÔNICO DO BANCO CENTRAL:</strong>
+                            ${selectedInvoice.protocol}
+                          </div>
+                          <div class="footer">
+                            CARDAPP DIGITAL • SF TECNOLOGIA • Todos os direitos reservados.
+                          </div>
+                          <script>window.onload = function() { window.print(); };</script>
+                        </body>
+                      </html>
+                    `);
+                    printWin.document.close();
+                  } else {
+                    window.print();
+                  }
+                }}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md active:scale-95"
+              >
+                <Printer className="w-4 h-4 text-amber-400" />
+                <span>Imprimir / Salvar PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedInvoice(null)}
+                className="py-3 px-5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

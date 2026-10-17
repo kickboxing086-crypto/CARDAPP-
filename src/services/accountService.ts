@@ -1,6 +1,6 @@
 import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { UserAccount, ClientRegistrationFormData, UserAccessRequest } from '../types';
+import { UserAccount, ClientRegistrationFormData, UserAccessRequest, PaymentInvoice } from '../types';
 import { storageService } from './storageService';
 import { extractCleanPixKey } from '../utils/pixPayload';
 
@@ -307,22 +307,73 @@ class AccountService {
     this.saveToStorage();
   }
 
-  public renewAccountPlan(accountId: string, daysToAdd: number = 30) {
+  public renewAccountPlan(accountId: string, daysToAdd: number = 30, customProtocol?: string): PaymentInvoice {
     const now = new Date();
     const expiry = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+    const invoiceId = `FAT-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const targetAccount = this.accounts.find((a) => a.id === accountId);
+    const invoice: PaymentInvoice = {
+      id: invoiceId,
+      accountId,
+      storeName: targetAccount?.storeName || this.currentSession?.storeName || 'CARDAPP Loja Parceira',
+      amount: 2.00,
+      paymentMethod: 'PIX',
+      status: 'confirmado',
+      paidAt: now.toISOString(),
+      validUntil: expiry.toISOString(),
+      protocol: customProtocol || `PIX-CONF-${invoiceId}`,
+      description: 'Assinatura Mensal Plataforma CARDAPP Digital (A partir de R$ 2,00)',
+    };
+
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
-        const updated = { ...acc, planStatus: 'ativo' as const, expiresAt: expiry.toISOString() };
+        const existingInvoices = acc.invoices || [];
+        const updatedInvoices = [invoice, ...existingInvoices];
+        const updated = {
+          ...acc,
+          planStatus: 'ativo' as const,
+          expiresAt: expiry.toISOString(),
+          invoices: updatedInvoices,
+        };
         try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {}); } catch {}
         return updated;
       }
       return acc;
     });
+
     if (this.currentSession?.id === accountId) {
-      this.currentSession = { ...this.currentSession, planStatus: 'ativo', expiresAt: expiry.toISOString() };
+      const existingInvoices = this.currentSession.invoices || [];
+      this.currentSession = {
+        ...this.currentSession,
+        planStatus: 'ativo',
+        expiresAt: expiry.toISOString(),
+        invoices: [invoice, ...existingInvoices],
+      };
       try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession)); } catch {}
     }
+
+    try {
+      const savedInvoicesKey = `cardapp_invoices_${accountId}`;
+      const saved = JSON.parse(localStorage.getItem(savedInvoicesKey) || '[]');
+      localStorage.setItem(savedInvoicesKey, JSON.stringify([invoice, ...saved]));
+    } catch {}
+
     this.saveToStorage();
+    return invoice;
+  }
+
+  public getInvoices(accountId: string): PaymentInvoice[] {
+    const target = this.accounts.find((a) => a.id === accountId);
+    if (target?.invoices && target.invoices.length > 0) {
+      return target.invoices;
+    }
+    try {
+      const savedInvoicesKey = `cardapp_invoices_${accountId}`;
+      const list = JSON.parse(localStorage.getItem(savedInvoicesKey) || '[]');
+      return list;
+    } catch {
+      return [];
+    }
   }
 
   public blockAccount(accountId: string) {

@@ -163,6 +163,20 @@ export interface UserAccount {
   phoneWhatsapp?: string;
   createdAt: string;
   expiresAt: string;
+  invoices?: PaymentInvoice[];
+}
+
+export interface PaymentInvoice {
+  id: string;
+  accountId: string;
+  storeName?: string;
+  amount: number;
+  paymentMethod: 'PIX';
+  status: 'confirmado' | 'pago';
+  paidAt: string;
+  validUntil: string;
+  protocol: string;
+  description: string;
 }
 
 export interface ClientRegistrationFormData {

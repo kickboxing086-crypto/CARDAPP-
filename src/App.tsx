@@ -746,7 +746,7 @@ export default function App() {
         />
       )}
 
-      {/* 1. SAAS LANDING PAGE (PLANO R$ 24,99/MÊS E PERSUASÃO) */}
+      {/* 1. SAAS LANDING PAGE (PLANO A PARTIR DE R$ 2,00/MÊS E ALTA CONVERSÃO) */}
       {currentView === 'landing' && (
         <LandingPage
           onOpenLogin={() => {
