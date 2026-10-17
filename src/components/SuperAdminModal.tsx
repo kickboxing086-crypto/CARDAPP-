@@ -166,7 +166,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       phoneWhatsapp: newPhone,
       daysValid,
       planStatus: 'ativo',
-      monthlyFee: 2.00,
+      monthlyFee: 24.99,
     });
 
     if (result.success && result.account) {
@@ -268,7 +268,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   const activeStoresCount = accounts.filter((a) => a.role === 'store_admin' && a.planStatus === 'ativo').length;
-  const totalMonthlyRevenue = activeStoresCount * 2.00;
+  const totalMonthlyRevenue = activeStoresCount * 24.99;
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">

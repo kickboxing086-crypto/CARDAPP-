@@ -167,7 +167,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const PIX_BENEFICIARY = 'Erijan Gois / SF Tecnologia';
   const PIX_COMPANY_NAME = 'ERIJAN GOIS';
   const PIX_CITY_UF = 'NATAL - RN';
-  const PIX_AMOUNT = 2.00; // Valor do plano a partir de R$ 2,00/Mês
+  const PIX_AMOUNT = 24.99; // Valor do plano mensal R$ 24,99/Mês
   const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
 
   const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
@@ -200,12 +200,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }, [currentSession?.expiresAt]);
 
-  // REGRA DO USUÁRIO: O QR CODE aparecerá SOMENTE quando estiver faltando 5 dias (ou menos) para o vencimento do plano!
+  // Sempre exibe a Gateway com o QR Code (período de teste grátis ou renovação imediata)
   const isPaymentDueSoon = useMemo(() => {
     if (currentSession?.role === 'super_admin') return false;
-    if (currentSession?.planStatus === 'bloqueado' || currentSession?.planStatus === 'pendente') return true;
-    return daysUntilExpiry <= 5;
-  }, [currentSession?.role, currentSession?.planStatus, daysUntilExpiry]);
+    return true;
+  }, [currentSession?.role]);
 
   // Identificador Único de Transação / Protocolo Bancário
   const transactionId = useMemo(() => {
@@ -3140,80 +3139,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                   {currentSession?.planStatus === 'bloqueado'
                     ? 'Acesso Bloqueado • Renovação Necessária'
-                    : isPaymentDueSoon
-                    ? 'Renovação da Assinatura via Pix'
-                    : 'Assinatura em Dia • Controle do Plano'}
+                    : 'Período de Teste Grátis • Gateway Pix'}
                 </h3>
                 <p className="text-xs text-slate-500">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Efetue o Pix de R$ 2,00 para reativar seu cardápio imediatamente.'
-                    : isPaymentDueSoon
-                    ? `Faltam ${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia' : 'dias'} para o vencimento do seu plano. Renove via Pix.`
-                    : 'Seu cardápio está 100% ativo e funcionando com pedidos liberados.'}
+                    ? 'Efetue o Pix de R$ 24,99 para reativar seu acesso imediatamente.'
+                    : `Você está no período de teste grátis (restam ${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}). Adquira o sistema abaixo via QR Code Pix se desejar antecipar.`}
                 </p>
               </div>
 
-              {/* CENÁRIO 1: O PLANO ESTÁ EM DIA E FALTAM MAIS DE 5 DIAS (QR CODE FICA OCULTO PARA CONTROLE) */}
-              {!isPaymentDueSoon && (
-                <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden p-6 space-y-5">
-                  <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-xs font-black uppercase tracking-wider text-emerald-800">
-                        Status: Plano Ativo & Em Dia
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                      Tudo Controlado
-                    </span>
-                  </div>
-
-                  {/* Banner de Dias Restantes */}
-                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-emerald-100 block">
-                        Tempo Restante da Assinatura
-                      </span>
-                      <h4 className="text-2xl font-black font-display">
-                        Faltam {daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}
-                      </h4>
-                      <p className="text-xs text-emerald-100 mt-0.5">
-                        Válido até {currentSession?.expiresAt ? new Date(currentSession.expiresAt).toLocaleDateString('pt-BR') : '30 dias'}
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
-                      <ShieldCheck className="w-7 h-7 text-white" />
-                    </div>
-                  </div>
-
-                  {/* Box de Transparência e Controle de Cobrança */}
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
-                    <div className="flex items-center gap-2 font-black text-slate-900">
-                      <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Cobrança Inteligente & Sem Surpresas:</span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                      O <strong>QR Code Pix</strong> e a chave de pagamento só aparecerão automaticamente quando restarem <strong>5 dias</strong> para o vencimento do plano. Isso evita pagamentos duplicados e mantém sua gestão sob controle total.
-                    </p>
-                  </div>
-
-                  {/* Resumo dos Dados do Plano */}
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor Mensal</span>
-                      <span className="text-base font-black text-emerald-700">A partir de R$ 2,00</span>
-                    </div>
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Forma de Pagamento</span>
-                      <span className="text-xs font-bold text-slate-800">Pix Instantâneo (SPI)</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* CENÁRIO 2: FALTAM 5 DIAS OU MENOS, OU PLANO BLOQUEADO (O QR CODE APARECE) */}
-              {isPaymentDueSoon && (
-                <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
+              {/* CENÁRIO: GATEWAY COM QR CODE E PERÍODO DE TESTE / RENOVAÇÃO */}
+              <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
                   {/* Banner com Cronômetro Automático de 5 Minutos */}
                   <div className={`p-4 text-white flex items-center justify-between transition-colors ${
                     currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
@@ -3228,7 +3164,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </div>
                       <div>
                         <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
-                          Tempo de Pagamento Pix
+                          Sessão Gateway Pix
                         </span>
                         <h4 className="text-xs sm:text-sm font-bold">
                           {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
@@ -3273,14 +3209,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     />
                   </div>
 
-                  {/* Conteúdo: SOMENTE QR Code e Chave Pix para Copiar + Botão de Confirmação */}
+                  {/* Conteúdo: QR Code e Chave Pix para Copiar + Botão de Confirmação */}
                   <div className="p-6 flex flex-col items-center text-center space-y-5">
-                    {/* Alerta de Dias Restantes (<= 5 dias) */}
-                    {daysUntilExpiry > 0 && currentSession?.planStatus !== 'bloqueado' && (
-                      <div className="w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 font-bold text-xs flex items-center gap-2 text-left">
-                        <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                    {/* Alerta de Período de Teste Grátis ou Bloqueio */}
+                    {currentSession?.planStatus === 'bloqueado' ? (
+                      <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                         <span>
-                          Período de Renovação Aberto: Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> para o vencimento do plano ({new Date(currentSession?.expiresAt || Date.now()).toLocaleDateString('pt-BR')}). Pague o Pix de R$ 2,00 para renovar por 30 dias.
+                          <strong>Acesso Bloqueado:</strong> Seu período de teste grátis expirou. Realize o pagamento do Pix de R$ 24,99 para reativar seu cardápio imediatamente.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
+                        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                        <span>
+                          <strong>Período de Teste Grátis:</strong> Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> de uso gratuito. Você pode adquirir o sistema imediatamente via QR Code Pix abaixo a qualquer momento (R$ 24,99/mês).
                         </span>
                       </div>
                     )}
@@ -3408,7 +3351,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
                   </div>
                 </div>
-              )}
 
               {/* SEÇÃO DE HISTÓRICO DE FATURAS E COMPROVANTES (REGISTRO AUTOMÁTICO DE CADA PAGAMENTO) */}
               <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">

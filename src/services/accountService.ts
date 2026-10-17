@@ -267,7 +267,7 @@ class AccountService {
       storeId: `store_${Date.now()}`,
       storeName: data.storeName,
       planStatus: data.planStatus || 'ativo',
-      monthlyFee: 2.00,
+      monthlyFee: 24.99,
       phoneWhatsapp: data.phoneWhatsapp,
       createdAt: now.toISOString(),
       expiresAt: expiry.toISOString(),
@@ -298,6 +298,7 @@ class AccountService {
       email: data.email,
       phoneWhatsapp: data.phoneWhatsapp,
       planStatus: 'ativo',
+      daysValid: 7, // 7 dias grátis de teste
     });
   }
 
@@ -326,13 +327,13 @@ class AccountService {
       id: invoiceId,
       accountId,
       storeName: targetAccount?.storeName || this.currentSession?.storeName || 'CARDAPP Loja Parceira',
-      amount: 2.00,
+      amount: 24.99,
       paymentMethod: 'PIX',
       status: 'confirmado',
       paidAt: now.toISOString(),
       validUntil: expiry.toISOString(),
       protocol: customProtocol || `PIX-CONF-${invoiceId}`,
-      description: 'Assinatura Mensal Plataforma CARDAPP Digital (A partir de R$ 2,00)',
+      description: 'Assinatura Mensal Plataforma CARDAPP Digital (R$ 24,99/mês)',
     };
 
     this.accounts = this.accounts.map((acc) => {

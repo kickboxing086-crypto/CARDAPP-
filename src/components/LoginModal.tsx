@@ -231,8 +231,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Finalizar e Enviar para o WhatsApp (Sem expor o número em tela)
-  const handleFinalSubmitWhatsApp = (e?: React.FormEvent) => {
+  // Finalizar Cadastro e Entrar Imediatamente com 7 Dias Grátis
+  const handleFinishRegistration = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setRegError('');
 
@@ -248,8 +248,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    // Registra a conta com o e-mail obrigatório
-    accountService.registerClientAccount({
+    // Registra a conta com 7 dias grátis de período de teste
+    const res = accountService.registerClientAccount({
       name: regName.trim(),
       storeName: regStoreName.trim(),
       phoneWhatsapp: regPhone.trim(),
@@ -258,19 +258,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       password: regPassword,
     });
 
-    const text =
-      `*SOLICITAÇÃO DE CADASTRO - CARDAPP*\n\n` +
-      `• *Loja:* ${regStoreName.trim()}\n` +
-      `• *Responsável:* ${regName.trim()}\n` +
-      `• *WhatsApp:* ${regPhone.trim()}\n` +
-      `• *E-mail Oficial:* ${regEmail.trim().toLowerCase()}\n` +
-      `• *Usuário Criado:* ${regUsername.trim()}\n` +
-      `• *Senha Definida:* ${regPassword}\n\n` +
-      `Olá! Conclui o cadastro da minha loja com e-mail obrigatório para recuperação e gostaria de solicitar a ativação do meu cardápio digital.`;
+    if (!res.success) {
+      setRegError(res.message);
+      return;
+    }
 
-    // Redireciona diretamente para o WhatsApp sem expor o número de telefone em texto na tela
-    const url = `https://wa.me/5584986113980?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // Faz o login automático na nova conta criada
+    const loginRes = accountService.login(regUsername.trim(), regPassword);
+    if (loginRes.success && loginRes.user) {
+      onLoginSuccess(loginRes.user);
+      if (onClose) onClose();
+    } else {
+      setActiveMode('login');
+      setLoginError('Conta criada com sucesso! Faça seu login abaixo.');
+    }
   };
 
   // Solicitar Código de Recuperação por E-mail (com Gmail OAuth ou API)
@@ -1233,10 +1234,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     Etapa 7 Final
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
-                    Tudo pronto! Vamos ativar sua loja?
+                    Tudo pronto! 7 Dias Grátis Liberados
                   </h3>
                   <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                    Seus dados e e-mail oficial foram validados com sucesso. Clique no botão abaixo para ir diretamente ao WhatsApp e receber a ativação imediata do seu cardápio.
+                    Sua conta foi criada com sucesso! Você tem <strong>7 dias grátis</strong> para cadastrar produtos, configurar e conhecer todo o sistema sem compromisso.
                   </p>
                 </div>
 
@@ -1269,11 +1270,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <div className="space-y-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => handleFinalSubmitWhatsApp()}
+                    onClick={() => handleFinishRegistration()}
                     className="w-full py-4 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2.5 transition-all shadow-lg hover:shadow-emerald-200 cursor-pointer"
                   >
-                    <MessageCircle className="w-5 h-5 fill-white" />
-                    <span>Ir Diretamente para o WhatsApp</span>
+                    <CheckCircle2 className="w-5 h-5 text-white" />
+                    <span>Acessar Sistema (7 Dias Grátis)</span>
                   </button>
 
                   <button
