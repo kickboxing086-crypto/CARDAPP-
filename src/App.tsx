@@ -54,29 +54,43 @@ export default function App() {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const view = urlParams.get('view');
+      const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
       const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
-      const session = accountService.getCurrentSession();
-      const lastView = typeof window !== 'undefined' ? localStorage.getItem('cardapp_last_view') : null;
+      const savedNavView = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_current_view') : null;
 
-      if (session && (session.role === 'store_admin' || session.role === 'super_admin')) {
-        return 'menu';
-      }
-      if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar') {
+      // 1. Rota de login explícita
+      if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar' || hash === '#login') {
         return 'login';
       }
+
+      // 2. Rota de cliente / cardápio / admin explícita
       if (
         view === 'cliente' ||
         view === 'cardapio' ||
         view === 'menu' ||
-        lastView === 'menu' ||
-        lastView === 'cliente' ||
-        lastView === 'ceo'
+        view === 'ceo' ||
+        view === 'admin' ||
+        pathname === '/cardapio' ||
+        hash.includes('cardapio') ||
+        hash.includes('admin')
       ) {
         return 'menu';
+      }
+
+      // 3. Se o usuário já estava navegando nesta aba e atualizou com F5
+      if (savedNavView === 'menu') {
+        return 'menu';
+      }
+      if (savedNavView === 'login') {
+        return 'login';
+      }
+      if (savedNavView === 'landing') {
+        return 'landing';
       }
     } catch {
       // fallback
     }
+    // 4. Ao entrar no site pela primeira vez, sempre entra automaticamente na Landing Page
     return 'landing';
   });
 
@@ -108,7 +122,15 @@ export default function App() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(storageService.getActiveOrderId());
 
   // 4 Steps for Customer (1: Cardápio, 2: Sacola, 3: Identificação & Entrega, 4: Acompanhamento)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const saved = sessionStorage.getItem('cardapp_current_step');
+      if (saved && ['1', '2', '3', '4'].includes(saved)) {
+        return Number(saved) as 1 | 2 | 3 | 4;
+      }
+    } catch {}
+    return 1;
+  });
 
   // Cart State
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -123,13 +145,16 @@ export default function App() {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const view = urlParams.get('view');
+      const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
       const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
-      const session = accountService.getCurrentSession();
-      const lastView = typeof window !== 'undefined' ? localStorage.getItem('cardapp_last_view') : null;
-      if (session && session.role === 'store_admin') {
-        if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || lastView === 'ceo') {
-          return true;
-        }
+      const savedCeo = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_ceo_open') : null;
+      const savedNavView = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_current_view') : null;
+
+      if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || hash.includes('admin')) {
+        return true;
+      }
+      if (savedCeo === 'true' && (savedNavView === 'menu' || view === 'cliente')) {
+        return true;
       }
     } catch {
       // fallback
@@ -137,6 +162,31 @@ export default function App() {
     return false;
   });
   const [isStoreInfoOpen, setIsStoreInfoOpen] = useState(false);
+
+  // Sincronizar sessionStorage em tempo real para que ao atualizar (F5) não saia da aba onde está
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('cardapp_current_view', currentView);
+    } catch {}
+  }, [currentView]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('cardapp_current_step', String(currentStep));
+    } catch {}
+  }, [currentStep]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('cardapp_ceo_open', isCeoModalOpen ? 'true' : 'false');
+    } catch {}
+  }, [isCeoModalOpen]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('cardapp_superadmin_open', isSuperAdminModalOpen ? 'true' : 'false');
+    } catch {}
+  }, [isSuperAdminModalOpen]);
 
   // Check URL query parameters or paths
   useEffect(() => {
@@ -189,24 +239,32 @@ export default function App() {
         const lastView = localStorage.getItem('cardapp_last_view');
         const lastStore = localStorage.getItem('cardapp_last_store_id');
 
-        // REGRA CRÍTICA: Se o CEO está logado (sessão ativa de lojista) NUNCA joga na Landing Page ao atualizar F5
-        if (session && session.role === 'store_admin') {
-          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
-          setCurrentUser(session);
-          setCurrentView('menu');
-          // Se estava na rota /?view=ceo ou salvou que estava com o painel aberto
-          if (isCeoRoute || lastView === 'ceo') {
-            setIsCeoModalOpen(true);
-          }
-          try {
-            window.history.replaceState({}, '', `/?view=cliente&store=${encodeURIComponent(session.storeId)}`);
-          } catch {
-            // ignore
-          }
+        const savedView = sessionStorage.getItem('cardapp_current_view');
+        const savedCeo = sessionStorage.getItem('cardapp_ceo_open');
+        const savedSuperAdmin = sessionStorage.getItem('cardapp_superadmin_open');
+
+        // Regra do Usuário: Assim que o cliente entrar no site (sem histórico nesta aba), automaticamente já vai para a Landing Page
+        if (!view && (!pathname || pathname === '/') && !window.location.hash && !savedView) {
+          setCurrentView('landing');
+          setIsCeoModalOpen(false);
+          setIsSuperAdminModalOpen(false);
+          sessionStorage.setItem('cardapp_current_view', 'landing');
           return;
         }
 
-        if (session && session.role === 'super_admin') {
+        // Se o lojista estava com o painel do CEO aberto ou acessou rota admin/ceo
+        if (isCeoRoute || (savedCeo === 'true' && session?.role === 'store_admin')) {
+          if (session) {
+            storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+            setCurrentUser(session);
+          }
+          setCurrentView('menu');
+          setIsCeoModalOpen(true);
+          return;
+        }
+
+        // Se o SuperAdmin estava com o painel aberto
+        if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === 'true')) {
           storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
           setCurrentUser(session);
           setCurrentView('menu');
@@ -214,43 +272,30 @@ export default function App() {
           return;
         }
 
+        // Rotas de login e cadastro
         if (isRegister) {
           setLoginModalMode('register');
           setCurrentView('login');
           setIsLoginModalOpen(true);
-        } else if (isLogin) {
+          return;
+        } else if (isLogin || savedView === 'login') {
           setLoginModalMode('login');
           setCurrentView('login');
           setIsLoginModalOpen(true);
-        } else if (isCeoRoute) {
-          if (session?.role === 'super_admin') {
-            setCurrentView('menu');
-            setIsSuperAdminModalOpen(true);
-          } else if (session?.role === 'store_admin') {
-            setCurrentView('menu');
-            setIsCeoModalOpen(true);
-          } else {
-            setCurrentView('login');
-            setIsLoginModalOpen(true);
-          }
-        } else if (isClienteRoute) {
-          setCurrentView('menu');
-          localStorage.setItem('cardapp_last_view', 'menu');
-        } else if (lastView === 'menu' || lastView === 'cliente') {
-          // Se o usuário/cliente já estava dentro da loja e atualizou F5
+          return;
+        } else if (isClienteRoute || view === 'cardapio' || view === 'menu' || savedView === 'menu') {
           if (lastStore) {
             storageService.setStoreId(lastStore);
           }
           setCurrentView('menu');
-          try {
-            const sq = lastStore && lastStore !== 'default_store' ? `&store=${encodeURIComponent(lastStore)}` : '';
-            window.history.replaceState({}, '', `/?view=cliente${sq}`);
-          } catch {
-            // ignore
-          }
-        } else {
-          // Apenas visitante novo direto na raiz sem histórico/sessão vê a landing page
+          return;
+        } else if (savedView === 'landing') {
           setCurrentView('landing');
+          return;
+        } else {
+          // Padrão: Landing Page
+          setCurrentView('landing');
+          sessionStorage.setItem('cardapp_current_view', 'landing');
         }
       } catch {
         // ignore
