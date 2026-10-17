@@ -59,7 +59,7 @@ export interface PixPayloadOptions {
  */
 export function generatePixPayload(options: PixPayloadOptions): string {
   const cleanKey = extractCleanPixKey(options.pixKey);
-  const merchantName = sanitizeText(options.merchantName || 'ERIJAN GOIS', 25);
+  const merchantName = sanitizeText(options.merchantName || 'CARDAPP', 25);
   const merchantCity = sanitizeText(options.merchantCity || 'NATAL', 15);
   const rawTxId = sanitizeText(options.transactionId || '***', 25);
   const txId = rawTxId || '***';

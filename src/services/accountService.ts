@@ -264,7 +264,7 @@ class AccountService {
       storeId: `store_${Date.now()}`,
       storeName: data.storeName,
       planStatus: data.planStatus || 'ativo',
-      monthlyFee: 24.99,
+      monthlyFee: 2.00,
       phoneWhatsapp: data.phoneWhatsapp,
       createdAt: now.toISOString(),
       expiresAt: expiry.toISOString(),

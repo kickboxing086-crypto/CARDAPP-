@@ -159,7 +159,7 @@ export interface UserAccount {
   storeId: string;
   storeName: string;
   planStatus: 'ativo' | 'pendente' | 'bloqueado';
-  monthlyFee: number; // 24.99
+  monthlyFee: number; // 2.00
   phoneWhatsapp?: string;
   createdAt: string;
   expiresAt: string;

@@ -143,12 +143,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return unsub;
   }, []);
 
-  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO • PLANO R$ 24,99/MÊS)
+  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO • PLANO A PARTIR DE R$ 2,00/MÊS)
   const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
   const PIX_BENEFICIARY = 'Erijan Gois / SF Tecnologia';
   const PIX_COMPANY_NAME = 'ERIJAN GOIS';
   const PIX_CITY_UF = 'NATAL - RN';
-  const PIX_AMOUNT = 24.99; // Valor oficial confirmado pelo administrador: R$ 24,99/Mês
+  const PIX_AMOUNT = 2.00; // Valor do plano a partir de R$ 2,00/Mês
   const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
 
   const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
@@ -164,18 +164,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Identificador Único de Transação / Protocolo Bancário
   const transactionId = useMemo(() => {
     const rawCode = (currentSession?.storeId || 'CARDAPP').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase();
-    return `PIX-SF-${rawCode}-2026`;
+    return `PIX-APP-${rawCode}-2026`;
   }, [currentSession?.storeId]);
 
   // Chave limpa oficial (EVP / UUID) para o DICT e banco aceitarem sem erro
   const cleanPixKey = useMemo(() => extractCleanPixKey(pixKey), [pixKey]);
 
-  // Payload oficial Pix Copia e Cola padrão EMVCo / BACEN com CRC16 válido e valor R$ 24,99
+  // Payload oficial Pix Copia e Cola padrão EMVCo / BACEN com CRC16 válido e valor a partir de R$ 2,00
   const officialPixPayload = useMemo(() => {
     return generatePixPayload({
       pixKey: cleanPixKey,
       amount: PIX_AMOUNT,
-      merchantName: 'ERIJAN GOIS',
+      merchantName: 'CARDAPP',
       merchantCity: 'NATAL',
       transactionId: transactionId.slice(0, 25),
     });
@@ -2983,7 +2983,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   Status da Conta & Gateway de Pagamento Pix
                 </h3>
                 <p className="text-xs text-slate-500 max-w-lg mx-auto">
-                  Ambiente seguro e certificado para ativação e renovação do seu plano CARDAPP por apenas <strong>R$ 24,99/mês</strong> com liquidação instantânea pelo Banco Central.
+                  Ambiente seguro e certificado para ativação e renovação do seu plano CARDAPP a partir de <strong>R$ 2,00/mês</strong> com liquidação instantânea pelo Banco Central.
                 </p>
               </div>
 
@@ -3073,7 +3073,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Award className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>SF Tecnologia Oficial</span>
+                    <span>Plataforma Segura</span>
                   </div>
                 </div>
 
@@ -3099,7 +3099,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </div>
                       <div>
                         <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
-                          Situação do seu Estabelecimento
+                          Situação da Conta
                         </span>
                         <h4 className="text-sm font-black uppercase">
                           {currentSession?.planStatus === 'bloqueado'
@@ -3122,11 +3122,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Detalhes do Plano Contratado & Valor R$ 24,99 */}
+                  {/* Detalhes do Plano Contratado & Valor a partir de R$ 2,00 */}
                   <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
                     <div className="space-y-1">
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider">
-                        Plano Profissional CARDAPP
+                        Plano CARDAPP
                       </span>
                       <h4 className="text-base font-black">
                         Assinatura Mensal de Gestão & Cardápio Digital
@@ -3137,9 +3137,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
 
                     <div className="text-right sm:text-right w-full sm:w-auto shrink-0 bg-white/10 p-3 rounded-2xl border border-white/15">
-                      <span className="text-[10px] text-white/70 block uppercase font-bold">Valor Oficial</span>
+                      <span className="text-[10px] text-white/70 block uppercase font-bold">Valor do Plano</span>
                       <div className="text-2xl sm:text-3xl font-black text-emerald-400">
-                        {formatCurrency(PIX_AMOUNT)}
+                        A partir de {formatCurrency(PIX_AMOUNT)}
                         <span className="text-xs font-bold text-white/80"> /mês</span>
                       </div>
                       <span className="text-[9px] text-emerald-300 font-bold block mt-0.5">
@@ -3156,11 +3156,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         {pixQrDataUrl ? (
                           <img
                             src={pixQrDataUrl}
-                            alt="QR Code Pix R$ 24,99"
+                            alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
                             className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
                           />
                         ) : (
-                          <div className="w-48 h-48 flex items-center justify-center text-slate-400">
+                          <div className="w-4 h-48 flex items-center justify-center text-slate-400">
                             <QrCode className="w-16 h-16 animate-pulse" />
                           </div>
                         )}
@@ -3178,7 +3178,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           Abra o App &gt; Pix &gt; Pagar com QR Code
                         </p>
                         <p className="text-[10px] text-emerald-700 font-bold">
-                          Valor conferido na tela: R$ 24,99
+                          Valor conferido na tela: {formatCurrency(PIX_AMOUNT)}
                         </p>
                       </div>
                     </div>
@@ -3197,7 +3197,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-emerald-800">
-                          Copie o código abaixo e cole no seu banco na opção <strong>Pix Copia e Cola</strong>. O valor de <strong>R$ 24,99</strong> e o favorecido serão preenchidos automaticamente.
+                          Copie o código abaixo e cole no seu banco na opção <strong>Pix Copia e Cola</strong>. O valor de <strong>{formatCurrency(PIX_AMOUNT)}</strong> e o favorecido serão preenchidos automaticamente.
                         </p>
                         <button
                           type="button"
@@ -3216,7 +3216,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           ) : (
                             <>
                               <Copy className="w-4 h-4" />
-                              <span>Copiar Código Pix Copia e Cola (R$ 24,99)</span>
+                              <span>Copiar Código Pix Copia e Cola ({formatCurrency(PIX_AMOUNT)})</span>
                             </>
                           )}
                         </button>
@@ -3346,12 +3346,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                         <span className="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-[10px] flex items-center justify-center">3</span>
                         <strong className="block text-slate-900 font-bold">Confira os Dados</strong>
-                        <p className="text-[11px] text-slate-500">Confirme o valor de R$ 24,99 e o favorecido SF Tecnologia.</p>
+                        <p className="text-[11px] text-slate-500">Confirme o valor de {formatCurrency(PIX_AMOUNT)} e o favorecido.</p>
                       </div>
                       <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
                         <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[10px] flex items-center justify-center">4</span>
                         <strong className="block text-slate-900 font-bold">Desbloqueio Imediato</strong>
-                        <p className="text-[11px] text-slate-500">Clique em "Confirmar Pagamento Realizado" para ativar o sistema.</p>
+                        <p className="text-[11px] text-slate-500">Envie o comprovante para liberação do sistema.</p>
                       </div>
                     </div>
                   </div>
@@ -3377,7 +3377,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 {/* WhatsApp Support Action */}
                 <div className="pt-1">
                   <a
-                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*COMPROVANTE DE PAGAMENTO - CARDAPP*\n\n• Protocolo: ${transactionId}\n• Valor: R$ 24,99/mês\n\nOlá! Segue o comprovante do pagamento Pix do plano. Gostaria de solicitar a ativação do acesso.`)}`}
+                    href={`https://wa.me/5584986113980?text=${encodeURIComponent(`*COMPROVANTE DE PAGAMENTO - CARDAPP*\n\n• Protocolo: ${transactionId}\n• Valor: ${formatCurrency(PIX_AMOUNT)}/mês\n\nOlá! Segue o comprovante do pagamento Pix do plano. Gostaria de solicitar a ativação do acesso.`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full py-3.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
@@ -3415,17 +3415,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                     <div className="space-y-3 text-xs text-slate-700">
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Prestador do Serviço</span>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Identificação do Serviço & Pagamento</span>
                         <strong className="text-slate-900 block">CARDAPP Plataforma Digital</strong>
                         <p className="text-slate-500 text-[11px]">Liquidação SPI Banco Central • {PIX_CITY_UF}</p>
                         <p className="text-slate-500 text-[11px]">Chave Pix EVP: <strong className="font-mono text-slate-800">{cleanPixKey}</strong></p>
-                      </div>
-
-                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Tomador do Serviço (Cliente)</span>
-                        <strong className="text-slate-900 block">{currentSession?.storeName || settings.storeName}</strong>
-                        <p className="text-slate-500 text-[11px]">Responsável: {currentSession?.name || 'Não informado'}</p>
-                        <p className="text-slate-500 text-[11px]">ID da Loja: {currentSession?.storeId || 'store_official'}</p>
                       </div>
 
                       <div className="border border-slate-200 rounded-xl overflow-hidden">

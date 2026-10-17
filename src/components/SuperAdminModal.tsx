@@ -166,7 +166,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       phoneWhatsapp: newPhone,
       daysValid,
       planStatus: 'ativo',
-      monthlyFee: 24.99,
+      monthlyFee: 2.00,
     });
 
     if (result.success && result.account) {
@@ -204,7 +204,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       `🔑 *Senha de Acesso:* ${account.passwordHash}\n\n` +
       `🌐 *Link de Login do Painel:*\n${LOGIN_URL}\n\n` +
       `📱 *Link do seu Cardápio Digital (para enviar aos seus clientes):*\n${clientUrl}\n\n` +
-      `💰 *Plano Mensal:* R$ 24,99/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
+      `💰 *Plano Mensal:* R$ 2,00/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
       `Basta acessar o link de login acima com seu usuário e senha para cadastrar pratos, gerenciar pedidos em tempo real e personalizar seu cardápio!\n\n` +
       `Powered by: *SF TECNOLOGIA*\n` +
       `Acesse: ${currentOrigin}`
@@ -268,7 +268,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   const activeStoresCount = accounts.filter((a) => a.role === 'store_admin' && a.planStatus === 'ativo').length;
-  const totalMonthlyRevenue = activeStoresCount * 24.99;
+  const totalMonthlyRevenue = activeStoresCount * 2.00;
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
@@ -342,7 +342,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             </div>
             <div>
               <span className="text-[10px] font-bold text-slate-600 uppercase block">Plano Padronizado</span>
-              <span className="text-base sm:text-lg font-black text-slate-950">R$ 24,99 / mês</span>
+              <span className="text-base sm:text-lg font-black text-slate-950">R$ 2,00 / mês</span>
             </div>
           </div>
         </div>
@@ -570,7 +570,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       <input
                         type="text"
                         readOnly
-                        value="R$ 24,99 / mês"
+                        value="R$ 2,00 / mês"
                         className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none"
                       />
                     </div>
@@ -649,7 +649,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     <div className="flex items-center justify-between">
                       <p className="text-amber-400 font-bold">🏪 Loja: {lastCreatedAccount.storeName}</p>
                       <span className="text-[10px] text-emerald-400 font-sans font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700">
-                        R$ 24,99/mês
+                        R$ 2,00/mês
                       </span>
                     </div>
                     <p className="text-slate-300">👤 Usuário: <strong className="text-white font-bold">{lastCreatedAccount.username}</strong></p>
@@ -773,7 +773,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                   : 'bg-red-100 text-red-800'
                               }`}
                             >
-                              {acc.planStatus} (R$ 24,99/mês)
+                              {acc.planStatus} (R$ 2,00/mês)
                             </span>
                           )}
                         </div>
@@ -1077,7 +1077,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
                     <span className="text-slate-400 font-bold">Valor do Plano:</span>
-                    <strong className="text-emerald-700 font-black">R$ 24,99 / mês</strong>
+                    <strong className="text-emerald-700 font-black">R$ 2,00 / mês</strong>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
                     <span className="text-slate-400 font-bold">Tempo Limite:</span>

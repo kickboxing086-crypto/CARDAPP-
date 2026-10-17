@@ -38,7 +38,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [monthlySales, setMonthlySales] = useState<number>(10000);
   const appFeePercentage = 0.27; // 27% average fees on delivery apps
   const appLoss = monthlySales * appFeePercentage;
-  const cardappCost = 24.99;
+  const cardappCost = 2.00;
   const savedAmount = appLoss - cardappCost;
 
   // FAQ state
@@ -58,7 +58,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const faqs = [
     {
       q: 'Preciso pagar comissão por cada pedido vendido?',
-      a: 'NÃO! Zero porcento de taxa. Todo o dinheiro dos pedidos vai 100% direto para você via Pix, dinheiro ou sua própria maquininha. Você paga apenas R$ 24,99 fixos por mês.',
+      a: 'NÃO! Zero porcento de taxa. Todo o dinheiro dos pedidos vai 100% direto para você via Pix, dinheiro ou sua própria maquininha. Você paga apenas R$ 2,00 fixos por mês.',
     },
     {
       q: 'Preciso de computador ou posso usar no celular?',
@@ -81,7 +81,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   // Official direct WhatsApp integration without displaying the raw phone number to visitors
   const handleOpenWhatsapp = (customTopic?: string) => {
     const defaultText =
-      'Olá! Tenho interesse no cardápio digital CARDAPP (R$ 24,99/mês) da SF TECNOLOGIA. Gostaria de mais informações e de ativar a minha loja agora mesmo.';
+      'Olá! Tenho interesse no cardápio digital CARDAPP (R$ 2,00/mês) da SF TECNOLOGIA. Gostaria de mais informações e de ativar a minha loja agora mesmo.';
     const textToSend = customTopic || defaultText;
     const url = `https://wa.me/5584986113980?text=${encodeURIComponent(textToSend)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -93,7 +93,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-slate-950 text-amber-300 py-2.5 px-3 text-xs font-bold text-center flex items-center justify-center gap-2">
         <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
         <span className="truncate max-w-full">
-          Plano Especial: Cardápio Digital Completo por apenas <strong>R$ 24,99/mês</strong>. Sem comissão por pedido!
+          Plano Especial: Cardápio Digital Completo por apenas <strong>R$ 2,00/mês</strong>. Sem comissão por pedido!
         </span>
       </div>
 
