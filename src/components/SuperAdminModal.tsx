@@ -4,7 +4,6 @@ import {
   ShieldCheck,
   UserPlus,
   Users,
-  DollarSign,
   Database,
   Trash2,
   CheckCircle2,
@@ -18,17 +17,11 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
-  Share2,
-  QrCode,
-  RefreshCw,
-  KeyRound,
-  Sparkles,
 } from 'lucide-react';
 import { UserAccount, UserAccessRequest } from '../types';
 import { accountService } from '../services/accountService';
-import { validateSecurityPolicy, generateSecurePassword } from '../utils/security';
+import { validateSecurityPolicy, generateSecurePassword, validatePasswordSecurity } from '../utils/security';
 import { formatCurrency } from '../utils/formatters';
-import { extractCleanPixKey, generatePixPayload } from '../utils/pixPayload';
 
 interface SuperAdminModalProps {
   isOpen: boolean;
@@ -47,7 +40,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests' | 'payments'>('generator');
+  const [activeTab, setActiveTab] = useState<'generator' | 'stores' | 'database' | 'requests'>('generator');
 
   // Generator Form State
   const [newStoreName, setNewStoreName] = useState('');
@@ -65,6 +58,15 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [copiedClientMenuLink, setCopiedClientMenuLink] = useState(false);
   const [copiedStoreMessageId, setCopiedStoreMessageId] = useState<string | null>(null);
 
+  // Edit Store State
+  const [editingAccount, setEditingAccount] = useState<UserAccount | null>(null);
+  const [editStoreName, setEditStoreName] = useState('');
+  const [editOwnerName, setEditOwnerName] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editExpiresAt, setEditExpiresAt] = useState('');
+  const [editFeedback, setEditFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+
   // Database tools
   const [importJsonText, setImportJsonText] = useState('');
   const [showImportArea, setShowImportArea] = useState(false);
@@ -73,11 +75,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // State to track which account has visible password
   const [visiblePasswordAccountIds, setVisiblePasswordAccountIds] = useState<Record<string, boolean>>({});
 
-  // Gateway Pix Management State (BCB PIX)
-  const [adminPixKeyInput, setAdminPixKeyInput] = useState(() => accountService.getPixKey());
-  const [pixKeyFeedback, setPixKeyFeedback] = useState<string | null>(null);
-  const [copiedPixKeyAdmin, setCopiedPixKeyAdmin] = useState(false);
-
   const togglePasswordVisibility = (accId: string) => {
     setVisiblePasswordAccountIds((prev) => ({
       ...prev,
@@ -85,38 +82,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }));
   };
 
-  const handleSavePixKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = adminPixKeyInput.trim();
-    if (!trimmed) return;
-    accountService.setPixKey(trimmed);
-    setPixKeyFeedback('Chave Pix atualizada com sucesso! Sincronizada em tempo real com todos os CEOs.');
-    setTimeout(() => setPixKeyFeedback(null), 4000);
-  };
-
-  const handlePrependBcbPix = () => {
-    let val = adminPixKeyInput.trim();
-    if (!val.startsWith('bcb.pix')) {
-      val = `bcb.pix.${val}`;
-    }
-    setAdminPixKeyInput(val);
-  };
-
-  const handleResetDefaultPix = () => {
-    accountService.resetDefaultPixKey();
-    setAdminPixKeyInput(accountService.getPixKey());
-    setPixKeyFeedback('Chave Pix restaurada para o padrão oficial com prefixo bcb.pix.');
-    setTimeout(() => setPixKeyFeedback(null), 4000);
-  };
-
   useEffect(() => {
     setAccounts(accountService.getAccounts());
     setAccessRequests(accountService.getAccessRequests());
-    setAdminPixKeyInput(accountService.getPixKey());
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
-      setAdminPixKeyInput(accountService.getPixKey());
     });
     return () => unsub();
   }, []);
@@ -124,7 +95,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   if (!isOpen) return null;
 
   const usernameSecurity = validateSecurityPolicy(newUsername);
-  const passwordSecurity = validateSecurityPolicy(newPassword);
+  const passwordSecurity = validatePasswordSecurity(newPassword);
 
   const handleGenerateRandomCredentials = () => {
     const cleanPrefix = newStoreName
@@ -164,7 +135,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       username: newUsername,
       password: newPassword,
       phoneWhatsapp: newPhone,
-      daysValid,
+      daysValid: 7, // 7 dias grátis por padrão
       planStatus: 'ativo',
       monthlyFee: 24.99,
     });
@@ -173,7 +144,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       setLastCreatedAccount(result.account);
       setFormFeedback({
         type: 'success',
-        message: `Conta de loja criada com sucesso para ${result.account.storeName}!`,
+        message: `Conta de loja criada com sucesso para ${result.account.storeName}! (7 dias grátis)`,
       });
       setNewStoreName('');
       setNewOwnerName('');
@@ -188,6 +159,47 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }
   };
 
+  const handleOpenEdit = (acc: UserAccount) => {
+    setEditingAccount(acc);
+    setEditStoreName(acc.storeName);
+    setEditOwnerName(acc.name);
+    setEditPassword(acc.passwordHash);
+    setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
+    setEditFeedback(null);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount) return;
+
+    const passCheck = validatePasswordSecurity(editPassword);
+    if (!passCheck.isValid) {
+      setEditFeedback({
+        type: 'error',
+        message: 'A senha deve conter maiúscula, minúscula, número e caractere especial (mínimo 6 caracteres).',
+      });
+      return;
+    }
+
+    const expiryISO = editExpiresAt ? new Date(editExpiresAt + 'T23:59:59.000Z').toISOString() : editingAccount.expiresAt;
+
+    const res = accountService.updateAccountDetails(editingAccount.id, {
+      storeName: editStoreName,
+      name: editOwnerName,
+      passwordHash: editPassword,
+      expiresAt: expiryISO,
+    });
+
+    if (res.success) {
+      setEditFeedback({ type: 'success', message: 'Conta atualizada com sucesso!' });
+      setTimeout(() => {
+        setEditingAccount(null);
+      }, 1000);
+    } else {
+      setEditFeedback({ type: 'error', message: res.message });
+    }
+  };
+
   const OFFICIAL_VERCEL_URL = 'https://cardapp-us.vercel.app';
   const currentOrigin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : OFFICIAL_VERCEL_URL;
   const LOGIN_URL = `${currentOrigin}/?view=login`;
@@ -198,13 +210,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     return (
       `Olá, ${account.name || 'Lojista'}! 🎉\n` +
       `Seja muito bem-vindo ao *CARDAPP* da *SF TECNOLOGIA*!\n\n` +
-      `Sua loja e seu acesso foram ativados com sucesso:\n` +
+      `Sua loja e seu acesso foram ativados com sucesso (7 dias grátis):\n` +
       `🏪 *Loja:* ${account.storeName}\n` +
       `👤 *Usuário de Acesso:* ${account.username}\n` +
       `🔑 *Senha de Acesso:* ${account.passwordHash}\n\n` +
       `🌐 *Link de Login do Painel:*\n${LOGIN_URL}\n\n` +
       `📱 *Link do seu Cardápio Digital (para enviar aos seus clientes):*\n${clientUrl}\n\n` +
-      `💰 *Plano Mensal:* R$ 2,00/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
+      `💰 *Plano Mensal:* R$ 24,99/mês (100% dos lucros são seus, zero comissão por pedido!)\n\n` +
       `Basta acessar o link de login acima com seu usuário e senha para cadastrar pratos, gerenciar pedidos em tempo real e personalizar seu cardápio!\n\n` +
       `Powered by: *SF TECNOLOGIA*\n` +
       `Acesse: ${currentOrigin}`
@@ -282,7 +294,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black tracking-tight text-white font-display">
-                  Painel Administrativo
+                  Painel Administrativo Geral
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[9px] sm:text-[10px] font-black uppercase">
                   SF TECNOLOGIA
@@ -328,10 +340,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
           <div className="bg-white p-3 rounded-2xl border border-amber-300 shadow-2xs flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-black shrink-0">
-              <DollarSign className="w-4 h-4" />
+              <span className="font-bold text-xs">R$</span>
             </div>
             <div>
-              <span className="text-[10px] font-bold text-slate-600 uppercase block">Receita Mensal</span>
+              <span className="text-[10px] font-bold text-slate-600 uppercase block">Receita Mensal Potencial</span>
               <span className="text-base sm:text-lg font-black text-emerald-700">{formatCurrency(totalMonthlyRevenue)}/mês</span>
             </div>
           </div>
@@ -341,8 +353,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
               <Database className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[10px] font-bold text-slate-600 uppercase block">Plano Padronizado</span>
-              <span className="text-base sm:text-lg font-black text-slate-950">R$ 2,00 / mês</span>
+              <span className="text-[10px] font-bold text-slate-600 uppercase block">Plano Mensal</span>
+              <span className="text-base sm:text-lg font-black text-slate-950">R$ 24,99 / mês</span>
             </div>
           </div>
         </div>
@@ -387,18 +399,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <Database className="w-4 h-4" />
             <span>Banco de Dados & Backup</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('payments')}
-            className={`py-3 px-4 font-black text-xs border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
-              activeTab === 'payments'
-                ? 'border-amber-500 text-amber-900 bg-amber-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <DollarSign className="w-4 h-4" />
-            <span>Pagamentos</span>
-          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('requests')}
@@ -417,11 +418,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50 space-y-4">
           {/* Quick Links for Admin & Login / Client URLs */}
           <div className="max-w-xl mx-auto bg-white p-3.5 rounded-2xl border border-amber-300 shadow-2xs space-y-2.5 text-xs">
-            {/* Link de Login no Vercel (Principal para os lojistas) */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2 rounded-xl bg-amber-50/80 border border-amber-200">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-                <span className="font-black text-slate-950">Link de Login Oficial (Vercel):</span>
+                <span className="font-black text-slate-950">Link de Login Oficial:</span>
                 <span className="text-[11px] text-slate-600 font-mono truncate max-w-[190px] hidden sm:inline">
                   {LOGIN_URL}
                 </span>
@@ -431,7 +431,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   type="button"
                   onClick={handleCopyLoginLinkOnly}
                   className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                  title="Copiar Link de Login para enviar aos lojistas"
                 >
                   {copiedLoginLink ? <Check className="w-3.5 h-3.5 text-emerald-800" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedLoginLink ? 'Copiado!' : 'Copiar Login'}</span>
@@ -441,14 +440,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-1.5 rounded-lg border border-amber-200 text-slate-700 hover:bg-amber-100 transition-colors"
-                  title="Abrir tela de login em nova aba"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
             </div>
 
-            {/* Links Rápidos: Cardápio do Cliente e Landing Page */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 px-1 text-[11px] text-slate-600 font-bold">
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-400">Cardápio Clientes:</span>
@@ -494,7 +491,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       Cadastrar Nova Loja
                     </h3>
                     <p className="text-xs text-slate-600">
-                      Crie o acesso para o lojista com segurança reforçada
+                      7 dias grátis de teste para conhecer o sistema
                     </p>
                   </div>
                   <button
@@ -565,12 +562,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-slate-800">
-                        Plano Padronizado
+                        Plano Mensal / Período
                       </label>
                       <input
                         type="text"
                         readOnly
-                        value="R$ 2,00 / mês"
+                        value="R$ 24,99 / mês (7 dias grátis)"
                         className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none"
                       />
                     </div>
@@ -610,12 +607,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     type="submit"
                     className="w-full py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide transition-all shadow-md cursor-pointer"
                   >
-                    Gerar e Ativar Conta da Loja
+                    Gerar e Ativar Conta (7 Dias Grátis)
                   </button>
                 </form>
               </div>
 
-              {/* Informações geradas com Mensagem para WhatsApp e Link de Acesso Vercel */}
+              {/* Informações geradas com Mensagem para WhatsApp */}
               {lastCreatedAccount && (
                 <div className="p-4 sm:p-5 bg-gradient-to-b from-emerald-50 to-emerald-100/50 rounded-3xl border-2 border-emerald-400 shadow-md space-y-4 animate-in fade-in duration-300">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200">
@@ -625,7 +622,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </div>
                       <div>
                         <h4 className="text-sm font-black text-emerald-950 uppercase">
-                          Conta de Loja Ativada com Sucesso!
+                          Conta de Loja Criada com Sucesso!
                         </h4>
                         <p className="text-[11px] text-emerald-800">
                           {lastCreatedAccount.storeName} ({lastCreatedAccount.name})
@@ -633,7 +630,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Botão de Enviar no WhatsApp direto */}
                     <button
                       type="button"
                       onClick={() => handleSendWhatsappAccess(lastCreatedAccount)}
@@ -644,12 +640,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Resumo de Credenciais */}
                   <div className="p-3.5 bg-slate-900 rounded-2xl text-white font-mono text-xs space-y-1.5 shadow-inner">
                     <div className="flex items-center justify-between">
                       <p className="text-amber-400 font-bold">🏪 Loja: {lastCreatedAccount.storeName}</p>
                       <span className="text-[10px] text-emerald-400 font-sans font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700">
-                        R$ 2,00/mês
+                        R$ 24,99/mês (7d grátis)
                       </span>
                     </div>
                     <p className="text-slate-300">👤 Usuário: <strong className="text-white font-bold">{lastCreatedAccount.username}</strong></p>
@@ -662,74 +657,36 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                         type="button"
                         onClick={() => setShowLastPassword(!showLastPassword)}
                         className="text-slate-400 hover:text-white cursor-pointer ml-1"
-                        title={showLastPassword ? 'Ocultar Senha' : 'Ver Senha'}
                       >
                         {showLastPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </p>
-                    <p className="text-amber-300 text-[11px] pt-1 border-t border-slate-800">
-                      🌐 Link de Login (Vercel): <span className="text-white font-bold underline">{LOGIN_URL}</span>
-                    </p>
                   </div>
 
-                  {/* Mensagem Formatada Pronta para o WhatsApp */}
-                  <div className="bg-white rounded-2xl border border-emerald-300 p-3.5 space-y-2 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
-                        <MessageCircle className="w-4 h-4 text-emerald-600" />
-                        Mensagem Gerada para Enviar ao Lojista:
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyAccessMessage(lastCreatedAccount)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-[11px] transition-colors cursor-pointer"
-                          title="Copiar mensagem completa formatada"
-                        >
-                          {copiedAccessInfo ? <Check className="w-3 h-3 text-emerald-800" /> : <Copy className="w-3 h-3" />}
-                          <span>{copiedAccessInfo ? 'Mensagem Copiada!' : 'Copiar Mensagem'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCopyLoginLinkOnly}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition-colors cursor-pointer"
-                          title="Copiar apenas o link de login do Vercel"
-                        >
-                          {copiedLoginLink ? <Check className="w-3 h-3 text-emerald-800" /> : <Copy className="w-3 h-3" />}
-                          <span>{copiedLoginLink ? 'Link Copiado!' : 'Copiar Link'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <pre className="p-3 bg-emerald-50/60 rounded-xl text-[11px] text-slate-800 font-sans whitespace-pre-wrap leading-relaxed border border-emerald-200/80 max-h-48 overflow-y-auto">
-                      {getStoreAccessMessage(lastCreatedAccount)}
-                    </pre>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => handleSendWhatsappAccess(lastCreatedAccount)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        <span>Abrir WhatsApp com esta Mensagem</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSwitchToStore(lastCreatedAccount)}
-                        className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                      >
-                        <Store className="w-3.5 h-3.5" />
-                        <span>Abrir Painel da Loja</span>
-                      </button>
-                    </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyAccessMessage(lastCreatedAccount)}
+                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span>Copiar Mensagem para Enviar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSwitchToStore(lastCreatedAccount)}
+                      className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Store className="w-3.5 h-3.5" />
+                      <span>Abrir Painel da Loja</span>
+                    </button>
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* TAB 2: LISTA DE LOJAS */}
+          {/* TAB 2: LISTA DE LOJAS COM EDIÇÃO */}
           {activeTab === 'stores' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-1">
@@ -738,7 +695,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     Lojas Cadastradas
                   </h3>
                   <p className="text-xs text-slate-600">
-                    Gerencie o acesso de cada estabelecimento no CARDAPP
+                    Gerencie o acesso, edite nomes, senhas e datas de validade dos planos
                   </p>
                 </div>
               </div>
@@ -773,24 +730,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                   : 'bg-red-100 text-red-800'
                               }`}
                             >
-                              {acc.planStatus} (R$ 2,00/mês)
+                              {acc.planStatus} • Vencimento: {acc.expiresAt ? new Date(acc.expiresAt).toLocaleDateString('pt-BR') : 'N/A'}
                             </span>
                           )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
                           <span>Responsável: <strong>{acc.name}</strong></span>
-                          {acc.email && (
-                            <span className="flex items-center gap-1">
-                              E-mail: <strong className="text-slate-900">{acc.email}</strong>
-                              {acc.emailVerified && (
-                                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
-                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                  <span>Verificado (6 dígitos)</span>
-                                </span>
-                              )}
-                            </span>
-                          )}
                           <span>
                             Usuário: <code className="bg-slate-100 px-1 py-0.5 rounded font-bold text-slate-900">{acc.username}</code>
                           </span>
@@ -804,7 +750,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                 type="button"
                                 onClick={() => togglePasswordVisibility(acc.id)}
                                 className="p-0.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                                title="Mostrar/Ocultar Senha"
                               >
                                 {isPasswordVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                               </button>
@@ -818,25 +763,21 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => handleSendWhatsappAccess(acc)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                              title="Enviar mensagem com dados de login no WhatsApp do lojista"
+                              onClick={() => handleOpenEdit(acc)}
+                              className="px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs cursor-pointer transition-colors shadow-2xs flex items-center gap-1"
+                              title="Editar Nome, Senha e Datas do Plano"
                             >
-                              <MessageCircle className="w-3.5 h-3.5 fill-white" />
-                              <span className="hidden sm:inline">WhatsApp</span>
+                              <span>Editar</span>
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => handleCopyAccessMessage(acc)}
-                              className="p-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
-                              title="Copiar mensagem com login para enviar ao lojista"
+                              onClick={() => handleSendWhatsappAccess(acc)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                              title="Enviar WhatsApp"
                             >
-                              {copiedStoreMessageId === acc.id ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-slate-700" />
-                              )}
+                              <MessageCircle className="w-3.5 h-3.5 fill-white" />
+                              <span className="hidden sm:inline">WhatsApp</span>
                             </button>
 
                             <button
@@ -894,7 +835,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   </div>
                   <div>
                     <h3 className="font-black text-base text-slate-950">
-                      Banco de Dados & Nuvem
+                      Banco de Dados & Backup
                     </h3>
                     <p className="text-xs text-slate-600">
                       Integração ativa com Firebase Firestore e exportação JSON
@@ -974,185 +915,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                ))}
             </div>
           )}
-
-          {activeTab === 'payments' && (
-            <div className="max-w-2xl mx-auto p-4 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-black text-base text-slate-950 flex items-center gap-2">
-                    <QrCode className="w-5 h-5 text-emerald-600" />
-                    <span>Gateway de Pagamento Pix • SF Tecnologia</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Configure a chave Pix que inicia com <strong>bcb.pix...</strong> exibida na Gateway de 5 minutos do painel do CEO.
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">
-                  Sincronizado em Tempo Real
-                </span>
-              </div>
-
-              {/* Mensagem de Feedback de Atualização */}
-              {pixKeyFeedback && (
-                <div className="p-3.5 rounded-2xl bg-emerald-500 text-white shadow-md flex items-center gap-2.5 text-xs font-bold animate-in fade-in duration-200">
-                  <CheckCircle2 className="w-5 h-5 shrink-0" />
-                  <span>{pixKeyFeedback}</span>
-                </div>
-              )}
-
-              {/* Card da Chave Pix Ativa no Sistema */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                      Chave Pix Ativa na Gateway dos Clientes:
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                    Homologada BACEN
-                  </span>
-                </div>
-
-                {/* Chave com Prefixo Registrada */}
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Identificador no Sistema:</span>
-                  <div className="p-3 rounded-2xl bg-slate-900 text-emerald-400 font-mono text-xs sm:text-sm font-bold flex items-center justify-between gap-3 border border-slate-800">
-                    <span className="break-all select-all">{accountService.pixKey}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(accountService.pixKey);
-                        setCopiedPixKeyAdmin(true);
-                        setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
-                      }}
-                      className={`p-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
-                        copiedPixKeyAdmin
-                          ? 'bg-emerald-500 text-slate-950'
-                          : 'bg-white/10 hover:bg-white/20 text-white'
-                      }`}
-                      title="Copiar Identificador"
-                    >
-                      {copiedPixKeyAdmin ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chave EVP Limpa para Leitura Bancária */}
-                <div className="space-y-1 bg-blue-50/60 p-3 rounded-2xl border border-blue-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-blue-900 flex items-center gap-1">
-                      <KeyRound className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Chave Aleatória (EVP) Sanitizada p/ Leitura Bancária:</span>
-                    </span>
-                    <span className="text-[9px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                      36 Dígitos Válidos
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-white border border-blue-200 font-mono text-xs font-bold text-slate-900 flex items-center justify-between gap-2">
-                    <span className="break-all select-all">{extractCleanPixKey(accountService.pixKey)}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(extractCleanPixKey(accountService.pixKey));
-                        setCopiedPixKeyAdmin(true);
-                        setTimeout(() => setCopiedPixKeyAdmin(false), 2500);
-                      }}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold shrink-0 cursor-pointer transition-all flex items-center gap-1"
-                      title="Copiar Chave EVP Limpa"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>Copiar EVP</span>
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-blue-800 leading-tight">
-                    🛡️ <strong>Como os bancos funcionam:</strong> Ao digitar no app do banco (Nubank, Itaú, BB, etc.), o banco busca no DICT apenas os 36 dígitos da Chave Aleatória. Nosso sistema envia a chave limpa e o QR Code padrão Banco Central BR.GOV.BCB.PIX para que nunca dê erro!
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-600 pt-1">
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
-                    <span className="text-slate-400 font-bold">Favorecido:</span>
-                    <strong className="text-slate-900">SF TECNOLOGIA / Samuel</strong>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
-                    <span className="text-slate-400 font-bold">Valor do Plano:</span>
-                    <strong className="text-emerald-700 font-black">R$ 2,00 / mês</strong>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
-                    <span className="text-slate-400 font-bold">Tempo Limite:</span>
-                    <strong className="text-slate-900">5 Minutos p/ Bloqueio</strong>
-                  </div>
-                </div>
-              </div>
-
-              {/* Formulário de Edição da Chave Pix */}
-              <form onSubmit={handleSavePixKey} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <KeyRound className="w-4 h-4 text-slate-700" />
-                  <h4 className="font-black text-xs uppercase tracking-wider text-slate-800">
-                    Definir / Atualizar Chave Pix (Inicia com: bcb.pix...)
-                  </h4>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    Digite ou cole a sua Chave Pix (iniciando com bcb.pix...):
-                  </label>
-                  <input
-                    type="text"
-                    value={adminPixKeyInput}
-                    onChange={(e) => setAdminPixKeyInput(e.target.value)}
-                    placeholder="bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55"
-                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 font-mono text-xs sm:text-sm text-slate-900 outline-hidden transition-all"
-                    required
-                  />
-                  <p className="text-[10px] text-slate-500 flex items-center justify-between">
-                    <span>A chave será transmitida instantaneamente para todos os painéis de estabelecimentos (CEOs).</span>
-                    {!adminPixKeyInput.startsWith('bcb.pix') && (
-                      <button
-                        type="button"
-                        onClick={handlePrependBcbPix}
-                        className="text-emerald-600 font-bold hover:underline cursor-pointer ml-2 shrink-0"
-                      >
-                        + Adicionar prefixo "bcb.pix."
-                      </button>
-                    )}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleResetDefaultPix}
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Restaurar Padrão</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-md transition-all"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Salvar e Ativar Chave Pix</span>
-                  </button>
-                </div>
-              </form>
-
-              {/* Regras e Diretrizes do Sistema */}
-              <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-xs text-slate-700 space-y-1.5">
-                <p className="font-bold text-slate-900">Diretrizes da Gateway Automática:</p>
-                <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
-                  <li>Todos os novos clientes recebem 7 dias grátis de degustação na criação automática de acesso.</li>
-                  <li>No painel do CEO (opção 7: Status da Conta), a Gateway Pix oficial opera com prazo de 5 minutos por sessão.</li>
-                  <li>Se o CEO não realizar o pagamento em 5 minutos, o acesso é bloqueado automaticamente até a quitação.</li>
-                  <li>O Administrador Geral não precisa repassar a chave Pix por mensagem: o sistema exibe e liquida automaticamente.</li>
-                </ul>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer info */}
@@ -1160,6 +922,120 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           Desenvolvido por SF TECNOLOGIA • Todos os direitos reservados
         </div>
       </div>
+
+      {/* Edit Account Modal Popup */}
+      {editingAccount && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-amber-400 space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-black text-base text-slate-950">
+                Editar Conta • {editingAccount.storeName}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingAccount(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-bold ${
+                  editFeedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                    : 'bg-red-50 text-red-800 border border-red-300'
+                }`}
+              >
+                {editFeedback.message}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Nome da Loja *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editStoreName}
+                  onChange={(e) => setEditStoreName(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Nome do Responsável *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editOwnerName}
+                  onChange={(e) => setEditOwnerName(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Senha de Acesso (com validação) *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    required
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500 pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Mínimo 6 caracteres, com letra maiúscula, minúscula, número e caractere especial (sem acentos).
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Data de Vencimento do Plano (Plano/Datas) *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={editExpiresAt}
+                  onChange={(e) => setEditExpiresAt(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingAccount(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase cursor-pointer shadow-sm"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

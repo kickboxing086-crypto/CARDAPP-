@@ -318,6 +318,46 @@ class AccountService {
     this.saveToStorage();
   }
 
+  public updateAccountDetails(
+    accountId: string,
+    data: {
+      storeName?: string;
+      name?: string;
+      passwordHash?: string;
+      expiresAt?: string;
+    }
+  ): { success: boolean; message: string } {
+    const target = this.accounts.find((a) => a.id === accountId);
+    if (!target) return { success: false, message: 'Conta não encontrada.' };
+
+    this.accounts = this.accounts.map((acc) => {
+      if (acc.id === accountId) {
+        const updated = {
+          ...acc,
+          storeName: data.storeName !== undefined ? data.storeName : acc.storeName,
+          name: data.name !== undefined ? data.name : acc.name,
+          passwordHash: data.passwordHash !== undefined ? data.passwordHash : acc.passwordHash,
+          expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,
+        };
+        try {
+          setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {});
+        } catch {}
+        return updated;
+      }
+      return acc;
+    });
+
+    if (this.currentSession?.id === accountId) {
+      this.currentSession = this.accounts.find((a) => a.id === accountId) || this.currentSession;
+      try {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession));
+      } catch {}
+    }
+
+    this.saveToStorage();
+    return { success: true, message: 'Conta atualizada com sucesso!' };
+  }
+
   public renewAccountPlan(accountId: string, daysToAdd: number = 30, customProtocol?: string): PaymentInvoice {
     const now = new Date();
     const expiry = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
