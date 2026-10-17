@@ -9,7 +9,7 @@ export const db = initializeFirestore(
   {
     experimentalAutoDetectLongPolling: true,
   },
-  firebaseConfig.firestoreDatabaseId
+  (firebaseConfig as Record<string, any>).firestoreDatabaseId
 );
 export const auth = getAuth(app);
 

@@ -96,13 +96,13 @@ export function formatOrderWhatsAppComanda(order: Order, settings: StoreSettings
  * Cria a URL direta do WhatsApp com o pedido formatado
  */
 export function getOrderWhatsAppUrl(order: Order, settings: StoreSettings): string {
-  let cleanPhone = (settings.phoneWhatsapp || '5584986113980').replace(/\D/g, '');
-  if (!cleanPhone.startsWith('55') && (cleanPhone.length === 10 || cleanPhone.length === 11)) {
+  let cleanPhone = (settings.phoneWhatsapp || '').replace(/\D/g, '');
+  if (cleanPhone && !cleanPhone.startsWith('55') && (cleanPhone.length === 10 || cleanPhone.length === 11)) {
     cleanPhone = '55' + cleanPhone;
   }
-  if (!cleanPhone) {
-    cleanPhone = '5584986113980';
-  }
   const comandaText = formatOrderWhatsAppComanda(order, settings);
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(comandaText)}`;
+  if (cleanPhone) {
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(comandaText)}`;
+  }
+  return '';
 }

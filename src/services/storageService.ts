@@ -89,7 +89,7 @@ export const storageService = {
         const freshSettings: StoreSettings = {
           ...INITIAL_SETTINGS,
           storeName: initialStoreName || 'Minha Loja',
-          phoneWhatsapp: initialPhone || '5584986113980',
+          phoneWhatsapp: initialPhone || '',
           logoBase64: '',
           tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
           instagramHandle: '',
@@ -118,7 +118,7 @@ export const storageService = {
     const freshSettings: StoreSettings = {
       ...INITIAL_SETTINGS,
       storeName: storeName || 'Minha Loja',
-      phoneWhatsapp: phoneWhatsapp || '5584986113980',
+      phoneWhatsapp: phoneWhatsapp || '',
       logoBase64: '',
       tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
       instagramHandle: '',
@@ -691,7 +691,19 @@ export const storageService = {
   getSettings(): StoreSettings {
     try {
       const stored = localStorage.getItem(this.getSettingsKey());
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Garante que o cardápio de demonstração NUNCA contenha WhatsApp pessoal
+        if (
+          this.currentStoreId === 'default_store' ||
+          (parsed.phoneWhatsapp &&
+            (parsed.phoneWhatsapp.includes('98611') || parsed.phoneWhatsapp.includes('84986113980')))
+        ) {
+          parsed.phoneWhatsapp = '';
+          localStorage.setItem(this.getSettingsKey(), JSON.stringify(parsed));
+        }
+        return parsed;
+      }
     } catch {
       // fallback
     }
@@ -699,7 +711,7 @@ export const storageService = {
       const freshSettings: StoreSettings = {
         ...INITIAL_SETTINGS,
         storeName: 'Minha Loja',
-        phoneWhatsapp: '5584986113980',
+        phoneWhatsapp: '',
         logoBase64: '',
         tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
         instagramHandle: '',
@@ -716,6 +728,10 @@ export const storageService = {
   },
 
   saveSettings(settings: StoreSettings) {
+    // Nunca permitir salvar WhatsApp pessoal no cardápio de demonstração
+    if (this.currentStoreId === 'default_store') {
+      settings.phoneWhatsapp = '';
+    }
     localStorage.setItem(this.getSettingsKey(), JSON.stringify(settings));
     this.notifyChange();
 
@@ -739,6 +755,46 @@ export const storageService = {
     }
   },
 };
+
+// Rotina de limpeza automática de WhatsApp pessoal do cardápio de demonstração no localStorage
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('cardapp_')) {
+        const val = localStorage.getItem(key);
+        if (val && (val.includes('98611') || val.includes('84986113980'))) {
+          try {
+            const parsed = JSON.parse(val);
+            if (parsed && typeof parsed === 'object') {
+              if ('phoneWhatsapp' in parsed) {
+                parsed.phoneWhatsapp = '';
+                localStorage.setItem(key, JSON.stringify(parsed));
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+    const demoKey = 'cardapp_settings_default_store';
+    const demoData = localStorage.getItem(demoKey);
+    if (demoData) {
+      try {
+        const parsed = JSON.parse(demoData);
+        if (parsed.phoneWhatsapp) {
+          parsed.phoneWhatsapp = '';
+          localStorage.setItem(demoKey, JSON.stringify(parsed));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+} catch {
+  // ignore
+}
 
 // Start sync immediately
 storageService.initFirestoreSync();

@@ -329,6 +329,120 @@ app.post('/api/send-verification-email', async (req, res) => {
   }
 });
 
+// API: Enviar código oficial de recuperação de conta por e-mail
+app.post('/api/send-recovery-email', async (req, res) => {
+  try {
+    const { to, clientName, storeName, code } = req.body;
+
+    if (!to || typeof to !== 'string' || !to.includes('@')) {
+      return res.status(400).json({ success: false, message: 'E-mail de destino inválido.' });
+    }
+
+    if (!code || typeof code !== 'string' || code.trim().length !== 6) {
+      return res.status(400).json({ success: false, message: 'Código de recuperação inválido.' });
+    }
+
+    const recipientEmail = to.trim().toLowerCase();
+    const name = (clientName || 'Lojista').trim();
+    const store = (storeName || 'Sua Loja').trim();
+    const cleanCode = code.trim();
+
+    const subject = `[CARDAPP] Recuperação de Conta: Código ${cleanCode}`;
+    const textContent = [
+      `Olá, ${name}!`,
+      '',
+      `Recebemos uma solicitação de recuperação de conta no CARDAPP para o estabelecimento "${store}".`,
+      '',
+      `Seu código de segurança para redefinir sua senha é:`,
+      `>>> ${cleanCode} <<<`,
+      '',
+      `• Este código é válido por 15 minutos.`,
+      `• Não compartilhe este código com terceiros.`,
+      `• Se você não solicitou esta recuperação, ignore esta mensagem e sua senha permanecerá inalterada.`,
+      '',
+      `Atenciosamente,`,
+      `Equipe de Segurança CARDAPP • SF TECNOLOGIA`,
+      `no-reply@cardapp.com.br`,
+    ].join('\n');
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+        <div style="background: #fbbf24; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">
+            CARDAPP DIGITAL
+          </h1>
+          <p style="margin: 4px 0 0; color: #1e293b; font-size: 13px; font-weight: bold;">
+            Recuperação de Acesso e Redefinição de Senha
+          </p>
+        </div>
+
+        <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
+          <p>Olá, <strong>${name}</strong>!</p>
+          <p>
+            Recebemos uma solicitação de recuperação de acesso para a conta associada ao estabelecimento <strong>"${store}"</strong>.
+          </p>
+          <p>Digite o código de 6 dígitos abaixo na tela de login para redefinir sua senha com segurança:</p>
+
+          <div style="text-align: center; margin: 24px 0;">
+            <div style="display: inline-block; background: #fef3c7; border: 2px dashed #f59e0b; padding: 14px 32px; border-radius: 12px;">
+              <span style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #0f172a; font-family: monospace;">
+                ${cleanCode}
+              </span>
+            </div>
+            <p style="font-size: 11px; color: #64748b; margin-top: 6px;">
+              Válido por 15 minutos • Não compartilhe este código
+            </p>
+          </div>
+
+          <div style="background: #f8fafc; border-left: 4px solid #f59e0b; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #475569;">
+            <strong>Aviso de Segurança:</strong> Se você não solicitou a recuperação da sua conta, ignore esta mensagem com segurança.
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
+            CARDAPP Digital • SF TECNOLOGIA • E-mail automático oficial
+          </p>
+        </div>
+      </div>
+    `;
+
+    // Tentar via SMTP / Resend / Brevo
+    if (process.env.SMTP_HOST || process.env.SMTP_USER) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: parseInt(process.env.SMTP_PORT || '587', 10),
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        });
+
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || `"CARDAPP Segurança" <${process.env.SMTP_USER}>`,
+          to: recipientEmail,
+          subject,
+          text: textContent,
+          html: htmlContent,
+        });
+        console.log(`[Email Service] Sent recovery code to ${recipientEmail} via SMTP.`);
+      } catch (err) {
+        console.warn('[Email Service] SMTP recovery error:', err);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Código de recuperação enviado para seu e-mail.',
+      code: isProd ? undefined : cleanCode,
+    });
+  } catch (error) {
+    console.error('[Email Service] Error sending recovery email:', error);
+    return res.status(500).json({ success: false, message: 'Erro ao enviar e-mail de recuperação.' });
+  }
+});
+
 // API: Verificar se o e-mail foi validado (por link de confirmação do Firebase)
 app.get('/api/check-email-verification', async (req, res) => {
   try {

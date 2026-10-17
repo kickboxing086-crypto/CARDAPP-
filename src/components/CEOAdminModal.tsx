@@ -2739,60 +2739,155 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                 </div>
 
-                {/* GERENCIAMENTO DE MESAS */}
-                <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
-                  <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-3">
-                    Gerenciamento de Mesas:
-                  </span>
-                  
-                  {/* Grid de Mesas */}
-                  <div className="grid grid-cols-5 sm:grid-cols-8 gap-2 mb-4">
-                    {(localSettings.tables || []).map((table, index) => (
-                      <div key={index} className="relative p-2 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 text-center shadow-xs">
-                        {table}
-                        <button
-                          type="button"
-                          onClick={() => handleStartDeleteTable(table)}
-                          className="absolute -top-1 -right-1 p-0.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                {/* GERENCIAMENTO DE MESAS COM GUIA DIDÁTICO PARA O CEO */}
+                <div className="p-5 rounded-3xl bg-gradient-to-b from-amber-50/70 to-amber-100/30 border-2 border-amber-300 space-y-4">
+                  {/* Header e Badge de Quantidade */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-amber-200">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-bold shrink-0">
+                        <Store className="w-4 h-4" />
                       </div>
-                    ))}
+                      <div>
+                        <h4 className="text-sm font-black text-slate-950 uppercase tracking-wide">
+                          Gerenciamento de Mesas do Salão
+                        </h4>
+                        <p className="text-[11px] text-slate-600">
+                          Controle de mesas físicas para atendimento e consumo no local
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="px-3 py-1 rounded-xl bg-amber-400 text-slate-950 text-xs font-black shrink-0 shadow-2xs">
+                      {(localSettings.tables || []).length} Mesas Cadastradas
+                    </div>
                   </div>
 
-                  {/* Gerar Mesas em Massa e Apagar Tudo */}
-                  <div className="flex gap-2 mb-4">
-                    <button type="button" onClick={() => setDeleteAllTablesStep(1)} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-xs">Apagar Tudo</button>
+                  {/* BOX DIDÁTICO: PARA QUE SERVE O GERENCIAMENTO DE MESAS */}
+                  <div className="p-4 rounded-2xl bg-white border border-amber-200 shadow-2xs space-y-3">
+                    <div className="flex items-center gap-2 text-slate-900 font-black text-xs uppercase tracking-wide">
+                      <HelpCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Para que serve e como funciona o controle de mesas?</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-700">
+                      {/* Card 1 */}
+                      <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-100 space-y-1">
+                        <div className="flex items-center gap-1.5 font-extrabold text-amber-950">
+                          <span className="w-5 h-5 rounded-full bg-amber-300 text-slate-950 flex items-center justify-center text-[11px] font-black">1</span>
+                          <span>Autoatendimento no Salão</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          O cliente senta na mesa física, abre o cardápio no próprio celular (via link ou QR Code na mesa), monta o pedido e seleciona a opção <strong>"Consumir no local"</strong> informando a mesa dele.
+                        </p>
+                      </div>
+
+                      {/* Card 2 */}
+                      <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-100 space-y-1">
+                        <div className="flex items-center gap-1.5 font-extrabold text-amber-950">
+                          <span className="w-5 h-5 rounded-full bg-amber-300 text-slate-950 flex items-center justify-center text-[11px] font-black">2</span>
+                          <span>Cozinha & Entrega na Mesa</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          O pedido chega no seu Painel e na impressão térmica com o destaque exato: <strong>Mesa 03 • Salão</strong>. O garçom ou a cozinha sabe exatamente em qual mesa entregar o prato sem trocar pedidos.
+                        </p>
+                      </div>
+
+                      {/* Card 3 */}
+                      <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-100 space-y-1">
+                        <div className="flex items-center gap-1.5 font-extrabold text-amber-950">
+                          <span className="w-5 h-5 rounded-full bg-amber-300 text-slate-950 flex items-center justify-center text-[11px] font-black">3</span>
+                          <span>É Totalmente Opcional</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          Se o seu negócio for exclusivo de <strong>Delivery ou Retirada</strong>, basta desmarcar a caixinha <em>"Consumir no local (Mesa)"</em> acima. As mesas não serão solicitadas aos clientes.
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      placeholder="Qtd de mesas"
-                      className="w-24 text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
-                      id="num-tables-input"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const input = document.getElementById('num-tables-input') as HTMLInputElement;
-                        const qty = parseInt(input.value);
-                        if (!isNaN(qty) && qty > 0) {
-                          const currentTables = localSettings.tables || [];
-                          const newTables = [...currentTables];
-                          for (let i = 1; i <= qty; i++) {
-                            const nextNumber = (currentTables.length + i).toString().padStart(2, '0');
-                            newTables.push(`Mesa ${nextNumber}`);
+
+                  {/* Grid de Mesas Cadastradas */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-800 uppercase tracking-wide text-[11px]">
+                        Mesas Ativas Atualmente:
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Clique no <strong className="text-red-600">✕</strong> vermelho para remover uma mesa
+                      </span>
+                    </div>
+
+                    {(localSettings.tables || []).length === 0 ? (
+                      <div className="p-6 rounded-2xl bg-white border border-dashed border-amber-300 text-center text-slate-500 text-xs">
+                        Nenhuma mesa cadastrada no momento. Use o campo abaixo para gerar suas mesas rapidamente!
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                        {(localSettings.tables || []).map((table, index) => (
+                          <div
+                            key={index}
+                            className="relative p-2.5 rounded-xl bg-white border border-slate-200 text-xs font-black text-slate-800 text-center shadow-2xs hover:border-amber-400 transition-colors"
+                          >
+                            <span>{table}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleStartDeleteTable(table)}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+                              title={`Excluir ${table}`}
+                            >
+                              <X className="w-3 h-3 stroke-[3]" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Painel de Ações: Gerar em Massa & Apagar Tudo */}
+                  <div className="p-3.5 rounded-2xl bg-white border border-amber-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="num-tables-input" className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                        Adicionar Mesas:
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        placeholder="Ex: 10"
+                        className="w-24 text-xs font-bold p-2.5 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-slate-50"
+                        id="num-tables-input"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById('num-tables-input') as HTMLInputElement;
+                          const qty = parseInt(input.value);
+                          if (!isNaN(qty) && qty > 0) {
+                            const currentTables = localSettings.tables || [];
+                            const newTables = [...currentTables];
+                            for (let i = 1; i <= qty; i++) {
+                              const nextNumber = (currentTables.length + i).toString().padStart(2, '0');
+                              newTables.push(`Mesa ${nextNumber}`);
+                            }
+                            setLocalSettings({ ...localSettings, tables: newTables });
+                            onSaveSettings({ ...localSettings, tables: newTables });
+                            input.value = '';
                           }
-                          setLocalSettings({ ...localSettings, tables: newTables });
-                          onSaveSettings({ ...localSettings, tables: newTables });
-                          input.value = '';
-                        }
-                      }}
-                      className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs"
-                    >
-                      Gerar Mesas
-                    </button>
+                        }}
+                        className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>+ Gerar Mesas</span>
+                      </button>
+                    </div>
+
+                    {(localSettings.tables || []).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteAllTablesStep(1)}
+                        className="px-3.5 py-2.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <span>Apagar Todas as Mesas</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2961,6 +3056,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         <Printer className="w-3.5 h-3.5" />
                         <span>Imprimir QR Code</span>
                       </button>
+                    </div>
+
+                    {/* Dica de QR Code para Mesas do Salão */}
+                    <div className="pt-2">
+                      <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-start gap-2">
+                        <Store className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-amber-400 font-bold block mb-0.5">Como usar nas Mesas do Salão:</strong>
+                          <span>Imprima este QR Code e coloque em suportes ou adesivos nas mesas do seu salão. O cliente senta, escaneia pelo próprio celular, escolhe os pratos e seleciona o número da mesa em que está sentado. O pedido chega direto na sua cozinha e painel!</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3576,8 +3682,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <p className="font-bold">
                   Entrega prevista: {getEstimatedTimeWindow(printOrder.createdAt, settings.estimatedDeliveryTime)}
                 </p>
-                <p className="font-black text-sm uppercase mt-1">{settings.storeName}</p>
-                <p className="text-[10px] text-slate-700">WhatsApp: {settings.phoneWhatsapp}</p>
+                {settings.phoneWhatsapp && (
+                  <p className="text-[10px] text-slate-700">WhatsApp: {settings.phoneWhatsapp}</p>
+                )}
                 {settings.address && (
                   <p className="text-[10px] text-slate-600">{settings.address}</p>
                 )}

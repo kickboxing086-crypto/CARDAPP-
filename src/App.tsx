@@ -578,12 +578,17 @@ export default function App() {
       customer: customerData,
     });
 
-    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja
-    try {
-      const whatsappUrl = getOrderWhatsAppUrl(newOrder, settings);
-      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
-    } catch {
-      // fallback
+    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja (somente em lojas reais cadastradas)
+    const isDemoStore = storageService.currentStoreId === 'default_store';
+    if (!isDemoStore && settings.phoneWhatsapp) {
+      try {
+        const whatsappUrl = getOrderWhatsAppUrl(newOrder, settings);
+        if (whatsappUrl) {
+          window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+        }
+      } catch {
+        // fallback
+      }
     }
 
     // Solicita permissão para notificações push no navegador para avisar quando o CEO atualizar
@@ -641,12 +646,16 @@ export default function App() {
   // Navigation handlers
   const handleOpenDemoMenu = () => {
     storageService.setStoreId('default_store');
+    const demoSettings: StoreSettings = {
+      ...INITIAL_SETTINGS,
+      phoneWhatsapp: '',
+    };
     localStorage.setItem(storageService.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
     localStorage.setItem(storageService.getCategoriesKey(), JSON.stringify(INITIAL_CATEGORIES));
-    localStorage.setItem(storageService.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
+    localStorage.setItem(storageService.getSettingsKey(), JSON.stringify(demoSettings));
     setProducts(INITIAL_PRODUCTS);
     setCategories(INITIAL_CATEGORIES);
-    setSettings(INITIAL_SETTINGS);
+    setSettings(demoSettings);
     setCurrentUser(null);
     setCurrentView('menu');
     setShowSplash(true);

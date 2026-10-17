@@ -216,3 +216,27 @@ export interface SecurityRequirements {
   hasMinLength: boolean;
   isValid: boolean;
 }
+
+export interface UsernameSecurityRequirements {
+  hasMinLength: boolean;     // Pelo menos 4 caracteres
+  hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
+  hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
+  hasNumber: boolean;        // Pelo menos 1 número (0-9)
+  hasSpecialChar: boolean;   // Pelo menos 1 caractere especial (@, #, $, %, etc.)
+  hasNoAccents: boolean;     // Proibido acentos, cedilhas ou til
+  hasNoSpaces: boolean;      // Proibido espaços
+  isValid: boolean;
+}
+
+export interface PasswordSecurityRequirements {
+  hasMinLength: boolean;     // Mínimo de 6 caracteres
+  hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
+  hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
+  hasNumber: boolean;        // Pelo menos 1 número (0-9)
+  hasSpecialChar: boolean;   // Pelo menos 1 caractere especial (@, #, $, %, etc.)
+  hasNoAccents: boolean;     // Proibido acentos, cedilhas e caracteres com til/crase
+  hasNoSpaces: boolean;      // Proibido espaços
+  isValid: boolean;
+  score: number;             // Pontuação de 0 a 100
+  strengthLabel: 'Muito Fraca' | 'Fraca' | 'Média' | 'Forte' | 'Excelente';
+}

@@ -241,6 +241,7 @@ class AccountService {
     password: string;
     name: string;
     storeName: string;
+    email?: string;
     phoneWhatsapp?: string;
     planStatus?: 'ativo' | 'pendente' | 'bloqueado';
     monthlyFee?: number;
@@ -261,6 +262,8 @@ class AccountService {
       passwordHash: data.password,
       role: 'store_admin',
       name: data.name,
+      email: data.email?.trim().toLowerCase() || '',
+      emailVerified: true,
       storeId: `store_${Date.now()}`,
       storeName: data.storeName,
       planStatus: data.planStatus || 'ativo',
@@ -287,8 +290,15 @@ class AccountService {
     message: string;
     account?: UserAccount;
   } {
-    // ... (rest of implementation)
-    return { success: true, message: 'Conta criada!', account: {} as UserAccount };
+    return this.createAccount({
+      username: data.username,
+      password: data.password,
+      name: data.name,
+      storeName: data.storeName,
+      email: data.email,
+      phoneWhatsapp: data.phoneWhatsapp,
+      planStatus: 'ativo',
+    });
   }
 
   public updateAccountStatus(accountId: string, newStatus: 'ativo' | 'pendente' | 'bloqueado') {
@@ -430,6 +440,116 @@ class AccountService {
 
   public resetDefaultPixKey(): void {
     this.setPixKey(DEFAULT_PIX_KEY);
+  }
+
+  /**
+   * Localiza uma conta cadastrada pelo endereço de e-mail oficial
+   */
+  public findAccountByEmail(email: string): UserAccount | undefined {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) return undefined;
+    return this.accounts.find(
+      (a) => a.email && a.email.toLowerCase().trim() === cleanEmail
+    );
+  }
+
+  /**
+   * Gera código de recuperação de senha oficial de 6 dígitos com validade de 15 minutos
+   */
+  public createPasswordResetCode(email: string): {
+    code: string;
+    expiresAt: string;
+    storeName: string;
+    name: string;
+  } | null {
+    const account = this.findAccountByEmail(email);
+    if (!account) return null;
+
+    const num = Math.floor(100000 + Math.random() * 900000);
+    const code = num.toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    const recoveryData = {
+      code,
+      email: account.email!.toLowerCase().trim(),
+      expiresAt,
+      accountId: account.id,
+    };
+
+    try {
+      localStorage.setItem(`cardapp_recovery_${account.email!.toLowerCase().trim()}`, JSON.stringify(recoveryData));
+      setDoc(doc(db, 'passwordResets', account.email!.toLowerCase().trim()), recoveryData).catch(() => {});
+    } catch {}
+
+    return {
+      code,
+      expiresAt,
+      storeName: account.storeName,
+      name: account.name,
+    };
+  }
+
+  /**
+   * Verifica se o código de 6 dígitos informado pelo usuário é válido e não expirou
+   */
+  public verifyPasswordResetCode(email: string, code: string): boolean {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanCode = (code || '').trim();
+    if (!cleanEmail || !cleanCode) return false;
+
+    try {
+      const stored = localStorage.getItem(`cardapp_recovery_${cleanEmail}`);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.code === cleanCode && new Date(data.expiresAt).getTime() > Date.now()) {
+          return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  /**
+   * Redefine a senha da conta com o código validado
+   */
+  public resetPasswordWithCode(
+    email: string,
+    code: string,
+    newPassword: string
+  ): { success: boolean; message: string; user?: UserAccount } {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!this.verifyPasswordResetCode(cleanEmail, code)) {
+      return { success: false, message: 'Código de recuperação inválido ou expirado.' };
+    }
+
+    const account = this.findAccountByEmail(cleanEmail);
+    if (!account) {
+      return { success: false, message: 'Conta não encontrada para este e-mail.' };
+    }
+
+    // Atualiza a senha no array de contas
+    this.accounts = this.accounts.map((a) => {
+      if (a.id === account.id) {
+        const updated = { ...a, passwordHash: newPassword };
+        try {
+          setDoc(doc(db, 'accounts', a.id), updated, { merge: true }).catch(() => {});
+        } catch {}
+        return updated;
+      }
+      return a;
+    });
+
+    this.saveToStorage();
+    try {
+      localStorage.removeItem(`cardapp_recovery_${cleanEmail}`);
+    } catch {}
+
+    const updatedAccount = this.accounts.find((a) => a.id === account.id);
+    return {
+      success: true,
+      message: 'Senha redefinida com sucesso! Você já pode acessar sua conta.',
+      user: updatedAccount,
+    };
   }
 }
 

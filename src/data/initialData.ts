@@ -5,7 +5,7 @@ export const INITIAL_SETTINGS: StoreSettings = {
   tagline: 'Cardápio Digital exclusivo com sabores selecionados e atendimento rápido',
   logoBase64: '', // CEO can upload custom logo in settings
   instagramHandle: '@cardappgourmet',
-  phoneWhatsapp: '5584986113980',
+  phoneWhatsapp: '',
   address: 'Av. Principal, 100 - Centro',
   isOpen: true,
   deliveryFee: 6.50,
