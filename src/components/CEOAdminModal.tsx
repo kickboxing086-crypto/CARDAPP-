@@ -183,6 +183,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
+  const [pixTransactionId, setPixTransactionId] = useState('');
 
   // Sincronizar faturas do cliente
   useEffect(() => {
@@ -327,8 +328,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
       if (currentSession?.id) {
+        if (!pixTransactionId.trim()) {
+          setBlockedAlertNotice('Por favor, insira o número do comprovante Pix (TXID) para confirmar o pagamento.');
+          setIsVerifyingPayment(false);
+          return;
+        }
         // Automaticamente gera a fatura de confirmação para registrar o pagamento
-        const generatedInvoice = accountService.renewAccountPlan(currentSession.id, 30);
+        const generatedInvoice = accountService.renewAccountPlan(currentSession.id, 30, pixTransactionId);
         accountService.updateAccountStatus(currentSession.id, 'ativo');
         const updated = accountService.getCurrentSession();
         setAccountSession(updated);
@@ -3245,26 +3251,34 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     )}
 
                     {/* 1. O QR CODE */}
-                    <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-md relative flex flex-col items-center">
-                      {pixQrDataUrl ? (
-                        <img
-                          src={pixQrDataUrl}
-                          alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
-                          className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
-                        />
-                      ) : (
-                        <div className="w-52 h-52 flex items-center justify-center text-slate-400">
-                          <QrCode className="w-16 h-16 animate-pulse" />
+                    {daysUntilExpiry <= 5 ? (
+                      <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-md relative flex flex-col items-center">
+                        {pixQrDataUrl ? (
+                          <img
+                            src={pixQrDataUrl}
+                            alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
+                            className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
+                          />
+                        ) : (
+                          <div className="w-52 h-52 flex items-center justify-center text-slate-400">
+                            <QrCode className="w-16 h-16 animate-pulse" />
+                          </div>
+                        )}
+                        <div className="mt-2.5 text-center">
+                          <span className="text-[11px] font-bold text-slate-500 block">Valor da Renovação</span>
+                          <span className="text-2xl font-black text-emerald-600">
+                            {formatCurrency(PIX_AMOUNT)}
+                            <span className="text-xs text-slate-500 font-normal"> /mês</span>
+                          </span>
                         </div>
-                      )}
-                      <div className="mt-2.5 text-center">
-                        <span className="text-[11px] font-bold text-slate-500 block">Valor da Renovação</span>
-                        <span className="text-2xl font-black text-emerald-600">
-                          {formatCurrency(PIX_AMOUNT)}
-                          <span className="text-xs text-slate-500 font-normal"> /mês</span>
-                        </span>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="p-8 text-center bg-slate-100 rounded-2xl border border-slate-200">
+                        <p className="text-xs font-bold text-slate-600">
+                          O QR Code de pagamento será liberado quando restarem 5 dias para o vencimento do seu plano (atualmente restam {daysUntilExpiry} dias).
+                        </p>
+                      </div>
+                    )}
 
                     {/* 2. A CHAVE PIX PARA COPIAR */}
                     <div className="w-full space-y-2.5">
@@ -3326,7 +3340,19 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
 
                     {/* 3. BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO (ATUALIZAR E VERIFICAR) */}
-                    <div className="w-full pt-1">
+                    <div className="w-full pt-1 space-y-4">
+                      <div className="w-full space-y-2">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">
+                          Código da Transação Pix (TXID)
+                        </label>
+                        <input
+                          type="text"
+                          value={pixTransactionId}
+                          onChange={(e) => setPixTransactionId(e.target.value)}
+                          placeholder="Digite o código da transação"
+                          className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 transition-all text-slate-900"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={handleVerifyAndConfirmPayment}

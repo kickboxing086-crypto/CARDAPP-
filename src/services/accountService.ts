@@ -64,7 +64,8 @@ class AccountService {
       if (storedSession) {
         this.currentSession = JSON.parse(storedSession);
       }
-    } catch {
+    } catch (e) {
+      console.error('Error loading accounts from storage:', e);
       this.accounts = [MASTER_ADMIN];
     }
     const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
@@ -213,9 +214,12 @@ class AccountService {
     }
   }
 
-  public login(username: string, password: string): { success: boolean; message: string; user?: UserAccount } {
-    const user = this.accounts.find((a) => a.username.toLowerCase() === username.trim().toLowerCase());
-    if (!user) return { success: false, message: 'Usuário não encontrado.' };
+  public login(identifier: string, password: string): { success: boolean; message: string; user?: UserAccount } {
+    const identifierLower = identifier.trim().toLowerCase();
+    const user = this.accounts.find(
+      (a) => a.username.toLowerCase() === identifierLower || (a.email && a.email.toLowerCase() === identifierLower)
+    );
+    if (!user) return { success: false, message: 'Usuário ou e-mail não encontrado.' };
     if (user.passwordHash !== password) return { success: false, message: 'Senha incorreta.' };
     if (user.planStatus === 'bloqueado') return { success: false, message: 'Conta bloqueada.' };
     this.currentSession = user;
@@ -489,9 +493,26 @@ class AccountService {
   public findAccountByEmail(email: string): UserAccount | undefined {
     const cleanEmail = (email || '').trim().toLowerCase();
     if (!cleanEmail) return undefined;
-    return this.accounts.find(
+
+    // Check this.accounts first
+    let account = this.accounts.find(
       (a) => a.email && a.email.toLowerCase().trim() === cleanEmail
     );
+    
+    if (account) return account;
+    
+    // Fallback: Check localStorage if this.accounts is not reliable (e.g. race condition)
+    try {
+        const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+        if (stored) {
+            const allAccounts = JSON.parse(stored);
+            account = allAccounts.find(
+                (a: UserAccount) => a.email && a.email.toLowerCase().trim() === cleanEmail
+            );
+        }
+    } catch {}
+    
+    return account;
   }
 
   /**
