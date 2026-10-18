@@ -68,7 +68,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const handleOpenWhatsapp = (customTopic?: string) => {
     const defaultText =
-      'Olá! Gostaria de informações sobre o CARDAPP Digital (Plano a partir de R$ 2,00/mês) da SF TECNOLOGIA e como ativar para o meu estabelecimento.';
+      'Olá! Gostaria de informações sobre o CARDAPP Digital (Plano R$ 24,99/mês) da SF TECNOLOGIA e como ativar para o meu estabelecimento.';
     const textToSend = customTopic || defaultText;
     const url = `https://wa.me/5584986113980?text=${encodeURIComponent(textToSend)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -77,7 +77,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const faqs = [
     {
       q: 'O CARDAPP desconta alguma porcentagem ou comissão sobre os pedidos?',
-      a: 'NÃO. O sistema não cobra comissão por pedido vendido. O valor total pago pelo cliente vai 100% direto para o seu caixa (seja por Pix na sua chave bancária, cartão na sua maquininha ou dinheiro na entrega). O único custo do sistema é a assinatura da plataforma, a partir de R$ 2,00 por mês.',
+      a: 'NÃO. O sistema não cobra comissão por pedido vendido. O valor total pago pelo cliente vai 100% direto para o seu caixa (seja por Pix na sua chave bancária, cartão na sua maquininha ou dinheiro na entrega). O único custo do sistema é a assinatura da plataforma de R$ 24,99 por mês.',
     },
     {
       q: 'Como o cliente faz o pedido? Ele precisa baixar algum aplicativo?',
@@ -107,7 +107,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-slate-950 text-amber-300 py-2.5 px-4 text-xs font-bold text-center flex items-center justify-center gap-2 border-b border-amber-500/20">
         <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
         <span className="truncate max-w-full">
-          Plataforma de Cardápio Digital • Plano a partir de <strong>R$ 2,00/mês</strong> • 0% de comissão por venda
+          Plataforma de Cardápio Digital • Plano único <strong>R$ 24,99/mês</strong> • 0% de comissão por venda
         </span>
       </div>
 
