@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User account for store admins.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["super_admin", "store_admin"] },
+        "name": { "type": "string" },
+        "storeId": { "type": "string" },
+        "storeName": { "type": "string" },
+        "planStatus": { "type": "string", "enum": ["ativo", "pendente", "bloqueado"] },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "username", "role", "name", "storeId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store product.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "isAvailable": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "total": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "total", "status"]
+    }
+  },
+  "firestore": {
+    "accounts/{accountId}": {
+      "schema": "UserAccount",
+      "description": "User accounts."
+    },
+    "stores/{storeId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Store products."
+    },
+    "stores/{storeId}/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Store orders."
+    }
+  }
+}

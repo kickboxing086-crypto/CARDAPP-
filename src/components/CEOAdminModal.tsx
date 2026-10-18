@@ -117,17 +117,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
+  const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'settings' | 'status'>(() => {
     try {
       const saved = sessionStorage.getItem('cardapp_ceo_active_tab') || localStorage.getItem('cardapp_ceo_active_tab');
-      if (saved && ['orders', 'finance', 'products', 'delivery', 'settings', 'share', 'status'].includes(saved)) {
-        return saved as 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status';
+      if (saved && ['orders', 'finance', 'products', 'settings', 'status'].includes(saved)) {
+        return saved as 'orders' | 'finance' | 'products' | 'settings' | 'status';
       }
     } catch {}
     return 'orders';
   });
 
-  const setActiveTab = (tab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
+  const setActiveTab = (tab: 'orders' | 'finance' | 'products' | 'settings' | 'status') => {
     setActiveTabState(tab);
     try {
       sessionStorage.setItem('cardapp_ceo_active_tab', tab);
@@ -399,7 +399,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   };
 
   // Interceptar troca de aba caso o acesso esteja bloqueado
-  const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
+  const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'settings' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
     if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin') {
       setBlockedAlertNotice('Acesso bloqueado por falta de pagamento Pix. Conclua o pagamento na Gateway de 5 minutos para desbloquear.');
@@ -955,7 +955,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <LayoutDashboard className="w-4 h-4 stroke-[2.4]" />
-                <span>1. Pedidos em Tempo Real</span>
+                <span>Pedidos</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <Lock className="w-3.5 h-3.5 text-red-500" />
@@ -983,7 +983,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <DollarSign className="w-4 h-4 stroke-[2.4]" />
-                <span>2. Financeiro & Entradas</span>
+                <span>Financeiro</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <Lock className="w-3.5 h-3.5 text-red-500" />
@@ -1007,7 +1007,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Utensils className="w-4 h-4 stroke-[2.4]" />
-                <span>3. Cardápio & Produtos</span>
+                <span>Cardápio</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <Lock className="w-3.5 h-3.5 text-red-500" />
@@ -1018,34 +1018,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   }`}
                 >
                   {products.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNavigateTab('delivery')}
-              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
-                activeTab === 'delivery'
-                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
-                  : currentSession?.planStatus === 'bloqueado'
-                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
-                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Bike className="w-4 h-4 stroke-[2.4]" />
-                <span>4. Taxas de Entrega</span>
-              </div>
-              {currentSession?.planStatus === 'bloqueado' ? (
-                <Lock className="w-3.5 h-3.5 text-red-500" />
-              ) : (
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-                    activeTab === 'delivery' ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {(localSettings.deliveryNeighborhoods || []).length}
                 </span>
               )}
             </button>
@@ -1063,36 +1035,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Settings className="w-4 h-4 stroke-[2.4]" />
-                <span>5. Configurações da Loja</span>
+                <span>Configurações</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <Lock className="w-3.5 h-3.5 text-red-500" />
               ) : (
                 <span className={`w-2.5 h-2.5 rounded-full ${settings.isOpen ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNavigateTab('share')}
-              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
-                activeTab === 'share'
-                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
-                  : currentSession?.planStatus === 'bloqueado'
-                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
-                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Share2 className="w-4 h-4 stroke-[2.4]" />
-                <span>6. Compartilhar Links</span>
-              </div>
-              {currentSession?.planStatus === 'bloqueado' ? (
-                <Lock className="w-3.5 h-3.5 text-red-500" />
-              ) : (
-                <span className="text-[10px] uppercase font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                  Oficial
-                </span>
               )}
             </button>
 
@@ -1109,7 +1057,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Clock className="w-4 h-4 stroke-[2.4]" />
-                <span>7. Status da Conta</span>
+                <span>Status da Conta</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-1.5 py-0.5 rounded flex items-center gap-1">

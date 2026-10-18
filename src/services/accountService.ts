@@ -494,14 +494,20 @@ class AccountService {
     const cleanEmail = (email || '').trim().toLowerCase();
     if (!cleanEmail) return undefined;
 
-    // Check this.accounts first
+    console.log('Searching account for email:', cleanEmail);
+    console.log('Total accounts in memory:', this.accounts.length);
+
+    // Prioritize in-memory accounts which should be synced
     let account = this.accounts.find(
       (a) => a.email && a.email.toLowerCase().trim() === cleanEmail
     );
     
-    if (account) return account;
+    if (account) {
+        console.log('Found account in memory:', account.id);
+        return account;
+    }
     
-    // Fallback: Check localStorage if this.accounts is not reliable (e.g. race condition)
+    // Fallback to localStorage as it might contain data not yet loaded in memory
     try {
         const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
         if (stored) {
@@ -509,8 +515,21 @@ class AccountService {
             account = allAccounts.find(
                 (a: UserAccount) => a.email && a.email.toLowerCase().trim() === cleanEmail
             );
+            if (account) {
+                console.log('Found account in localStorage:', account.id);
+                // Sync to memory if found in localStorage
+                if (!this.accounts.find(a => a.id === account!.id)) {
+                    this.accounts.push(account);
+                }
+            }
         }
-    } catch {}
+    } catch (e) {
+        console.error('Error searching in localStorage:', e);
+    }
+    
+    if (!account) {
+        console.log('Account not found for email:', cleanEmail);
+    }
     
     return account;
   }

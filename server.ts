@@ -5,6 +5,9 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import { MercadoPagoConfig, Payment } from 'mercadopago';
 
 dotenv.config();
 
@@ -26,6 +29,17 @@ try {
 } catch (e) {
   console.warn('[Server] Could not load firebase-applet-config.json:', e);
 }
+
+// Inicializa Firebase Admin
+admin.initializeApp({
+  credential: admin.applicationDefault(),
+  projectId: firebaseConfig.projectId
+});
+const db = getFirestore();
+
+// Inicializa Mercado Pago
+const mpConfig = new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '' });
+const paymentClient = new Payment(mpConfig);
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -515,5 +529,32 @@ async function startServer() {
     console.log(`CARDAPP server running on http://0.0.0.0:${port}`);
   });
 }
+
+app.post('/api/mercadopago-webhook', async (req, res) => {
+  const { data, type, action } = req.body;
+  console.log('[Mercado Pago Webhook] Received:', type, action, data);
+
+  if (type === 'payment') {
+    const paymentId = data.id;
+    try {
+      const payment = await paymentClient.get({ id: paymentId });
+      if (payment.status === 'approved') {
+        const orderId = payment.external_reference;
+        // Update database
+        if (orderId) {
+            await db.collection('orders').doc(orderId).update({
+              status: 'paid',
+              updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`[Mercado Pago Webhook] Order ${orderId} updated to paid.`);
+        }
+      }
+    } catch (error) {
+      console.error('[Mercado Pago Webhook] Error processing:', error);
+    }
+  }
+
+  res.status(200).send('OK');
+});
 
 startServer();
