@@ -49,7 +49,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [monthlySales, setMonthlySales] = useState<number>(10000);
   const appFeePercentage = 0.27; // 27% média praticada por marketplaces terceiros de delivery
   const appLoss = monthlySales * appFeePercentage;
-  const cardappCost = 2.00; // Valor da assinatura a partir de R$ 2,00/mês
+  const cardappCost = 24.99; // Valor da assinatura R$ 24,99/mês
   const savedAmount = appLoss - cardappCost;
 
   // FAQ State
@@ -222,7 +222,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-white font-black text-sm sm:text-base transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Criar Minha Loja (A partir de R$ 2,00/mês)</span>
+                <span>Criar Minha Loja (Plano R$ 24,99/mês)</span>
                 <ArrowRight className="w-4 h-4 text-amber-400" />
               </button>
             ) : (
@@ -259,7 +259,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
               <span className="text-[10px] font-black uppercase text-emerald-700 block">4. Valor Fixo</span>
-              <p className="text-xs font-bold text-slate-900">A partir de R$ 2,00/mês</p>
+              <p className="text-xs font-bold text-slate-900">Plano R$ 24,99/mês</p>
               <p className="text-[11px] text-slate-500">Sem fidelidade, renovação mensal via Pix com fatura oficial.</p>
             </div>
           </div>
@@ -685,7 +685,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <ul className="space-y-2 text-xs text-slate-700">
               <li className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-emerald-600 stroke-[3] shrink-0" />
-                <span>Zero comissão por pedido. Você paga apenas a assinatura a partir de R$ 2,00/mês.</span>
+                <span>Zero comissão por pedido. Você paga apenas a assinatura de R$ 24,99/mês.</span>
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-emerald-600 stroke-[3] shrink-0" />
@@ -738,7 +738,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-[10px] uppercase font-bold text-slate-600 block">Assinatura CARDAPP</span>
-              <span className="text-lg font-black text-slate-900 block mt-0.5">A partir de R$ 2,00</span>
+              <span className="text-lg font-black text-slate-900 block mt-0.5">R$ 24,99</span>
               <span className="text-[10px] text-slate-500">mensalidade fixa do sistema</span>
             </div>
 
@@ -862,7 +862,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span className="text-xs font-bold text-slate-500 block">Mensalidade</span>
               <div className="flex items-baseline gap-1">
                 <span className="text-xs font-bold text-slate-600">A partir de</span>
-                <span className="text-3xl sm:text-4xl font-black text-slate-950 font-display">R$ 2,00</span>
+                <span className="text-3xl sm:text-4xl font-black text-slate-950 font-display">R$ 24,99</span>
                 <span className="text-xs font-bold text-slate-600">/mês</span>
               </div>
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md inline-block mt-1">
