@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import * as admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
 
 dotenv.config();
@@ -30,12 +30,17 @@ try {
   console.warn('[Server] Could not load firebase-applet-config.json:', e);
 }
 
-// Inicializa Firebase Admin
-admin.initializeApp({
-  credential: admin.applicationDefault(),
-  projectId: firebaseConfig.projectId
-});
-const db = getFirestore();
+// Inicializa Firebase Admin de forma segura
+let db: Firestore | null = null;
+try {
+  admin.initializeApp({
+    credential: admin.applicationDefault(),
+    projectId: firebaseConfig.projectId
+  });
+  db = getFirestore();
+} catch (e) {
+  console.warn('[Server] Firebase Admin init notice:', e);
+}
 
 // Inicializa Mercado Pago
 const mpConfig = new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '' });
@@ -541,10 +546,10 @@ app.post('/api/mercadopago-webhook', async (req, res) => {
       if (payment.status === 'approved') {
         const orderId = payment.external_reference;
         // Update database
-        if (orderId) {
+        if (orderId && db) {
             await db.collection('orders').doc(orderId).update({
               status: 'paid',
-              updatedAt: admin.firestore.FieldValue.serverTimestamp()
+              updatedAt: FieldValue.serverTimestamp()
             });
             console.log(`[Mercado Pago Webhook] Order ${orderId} updated to paid.`);
         }

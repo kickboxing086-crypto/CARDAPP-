@@ -117,17 +117,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'settings' | 'status'>(() => {
+  const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
     try {
       const saved = sessionStorage.getItem('cardapp_ceo_active_tab') || localStorage.getItem('cardapp_ceo_active_tab');
-      if (saved && ['orders', 'finance', 'products', 'settings', 'status'].includes(saved)) {
-        return saved as 'orders' | 'finance' | 'products' | 'settings' | 'status';
+      if (saved && ['orders', 'finance', 'products', 'delivery', 'settings', 'share', 'status'].includes(saved)) {
+        return saved as 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status';
       }
     } catch {}
     return 'orders';
   });
 
-  const setActiveTab = (tab: 'orders' | 'finance' | 'products' | 'settings' | 'status') => {
+  const setActiveTab = (tab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
     setActiveTabState(tab);
     try {
       sessionStorage.setItem('cardapp_ceo_active_tab', tab);

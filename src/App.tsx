@@ -772,6 +772,23 @@ export default function App() {
         />
       )}
 
+      {/* Fallback caso currentView esteja em algum valor não reconhecido */}
+      {currentView !== 'landing' && currentView !== 'login' && currentView !== 'menu' && (
+        <LandingPage
+          onOpenLogin={() => {
+            setLoginModalMode('login');
+            setCurrentView('login');
+            setIsLoginModalOpen(true);
+          }}
+          onOpenRegister={() => {
+            setLoginModalMode('register');
+            setCurrentView('login');
+            setIsLoginModalOpen(true);
+          }}
+          onOpenDemoMenu={handleOpenDemoMenu}
+        />
+      )}
+
       {/* 2. DEDICATED LOGIN SCREEN (STANDALONE, SEM LANDING PAGE ATRÁS, SEM SETAS OU "X") */}
       {currentView === 'login' && (
         <LoginModal
