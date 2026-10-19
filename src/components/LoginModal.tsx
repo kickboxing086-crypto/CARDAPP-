@@ -172,7 +172,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google login error:', err);
-      setLoginError('Erro ao entrar com o Google: ' + (err.message || 'Tente novamente.'));
+      if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
+        const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'cardapp-us.vercel.app';
+        setLoginError(`O domínio "${currentDomain}" precisa ser adicionado aos Domínios Autorizados no Firebase Console (Authentication > Configurações > Domínios autorizados).`);
+      } else if (err?.code === 'auth/popup-blocked') {
+        setLoginError('O pop-up de login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site.');
+      } else if (err?.code === 'auth/popup-closed-by-user') {
+        setLoginError('A janela de autenticação com o Google foi fechada antes de concluir.');
+      } else {
+        setLoginError('Erro ao entrar com o Google: ' + (err.message || 'Tente novamente.'));
+      }
     } finally {
       setIsLoginLoading(false);
     }
