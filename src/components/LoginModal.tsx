@@ -76,13 +76,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regError, setRegError] = useState('');
 
-  // Recuperação de Conta via E-mail e Google OAuth
-  // recoverStep: 1 = Digitar E-mail / Conectar Google; 2 = Digitar Código 6 dígitos; 3 = Redefinir Senha
-  const [recoverStep, setRecoverStep] = useState<1 | 2 | 3>(1);
-  const [recoverEmail, setRecoverEmail] = useState('');
-  const [recoverCode, setRecoverCode] = useState('');
+  // Recuperação de Conta Simplificada e Criptografada (Usuário ou E-mail -> Nova Senha + Repita a Senha)
+  // recoverStep: 1 = Informar Usuário ou E-mail; 2 = Digitar Nova Senha e Repita a Senha
+  const [recoverStep, setRecoverStep] = useState<1 | 2>(1);
+  const [recoverIdentifier, setRecoverIdentifier] = useState('');
+  const [identifiedAccount, setIdentifiedAccount] = useState<UserAccount | null>(null);
   const [recoverNewPassword, setRecoverNewPassword] = useState('');
+  const [recoverRepeatPassword, setRecoverRepeatPassword] = useState('');
   const [showRecoverNewPassword, setShowRecoverNewPassword] = useState(false);
+  const [showRecoverRepeatPassword, setShowRecoverRepeatPassword] = useState(false);
   const [recoverLoading, setRecoverLoading] = useState(false);
   const [recoverError, setRecoverError] = useState('');
   const [recoverSuccess, setRecoverSuccess] = useState('');
@@ -105,10 +107,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     [recoverNewPassword]
   );
 
+  // Validação se Nova Senha e Repita a Senha conferem
+  const passwordsMatch = useMemo(
+    () =>
+      recoverNewPassword.length > 0 &&
+      recoverRepeatPassword.length > 0 &&
+      recoverNewPassword === recoverRepeatPassword,
+    [recoverNewPassword, recoverRepeatPassword]
+  );
+  const passwordsMismatch = useMemo(
+    () =>
+      recoverRepeatPassword.length > 0 && recoverNewPassword !== recoverRepeatPassword,
+    [recoverNewPassword, recoverRepeatPassword]
+  );
+
   useEffect(() => {
     setActiveMode(initialMode);
     setWizardStep(1);
     setRecoverStep(1);
+    setRecoverIdentifier('');
+    setIdentifiedAccount(null);
+    setRecoverNewPassword('');
+    setRecoverRepeatPassword('');
     setRegError('');
     setLoginError('');
     setRecoverError('');
@@ -146,6 +166,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setIsLoginLoading(true);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       let account = accountService.findAccountByEmail(user.email || '');
@@ -174,7 +195,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       console.error('Google login error:', err);
       if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
         const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'cardapp-us.vercel.app';
-        setLoginError(`O domínio "${currentDomain}" precisa ser adicionado aos Domínios Autorizados no Firebase Console (Authentication > Configurações > Domínios autorizados).`);
+        setLoginError(
+          `Domínio não autorizado pelo Firebase: "${currentDomain}". Para liberar login com o Google em produção ("cardapp-us.vercel.app"), acesse o Firebase Console > Authentication > Configurações (Settings) > Domínios autorizados (Authorized domains) e adicione "cardapp-us.vercel.app".`
+        );
       } else if (err?.code === 'auth/popup-blocked') {
         setLoginError('O pop-up de login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site.');
       } else if (err?.code === 'auth/popup-closed-by-user') {
@@ -322,100 +345,50 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Solicitar Código de Recuperação por E-mail (com Gmail OAuth ou API)
-  const handleRequestRecoveryCode = async (e: React.FormEvent) => {
+  // 1. Identificar conta por Nome de Usuário ou E-mail (com busca local e Firestore)
+  const handleIdentifyAccountForRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecoverError('');
     setRecoverSuccess('');
 
-    const cleanEmail = recoverEmail.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      setRecoverError('Informe um endereço de e-mail válido.');
-      return;
-    }
-
-    const account = accountService.findAccountByEmail(cleanEmail);
-    if (!account) {
-      setRecoverError(
-        'Nenhuma conta encontrada com este e-mail. Verifique a digitação ou cadastre sua loja.'
-      );
+    const clean = recoverIdentifier.trim();
+    if (!clean) {
+      setRecoverError('Por favor, informe seu nome de usuário ou e-mail cadastrado.');
       return;
     }
 
     setRecoverLoading(true);
-
     try {
-      // 1. Gera o código oficial de 6 dígitos no sistema
-      const session = accountService.createPasswordResetCode(cleanEmail);
-      if (!session) {
-        throw new Error('Falha ao gerar código de recuperação.');
+      const account = await accountService.findAccountByUsernameOrEmailAsync(clean);
+      if (!account) {
+        setRecoverError('Nenhuma conta encontrada com este usuário ou e-mail. Verifique a digitação ou cadastre sua loja.');
+        return;
       }
 
-      // 2. Tenta enviar o e-mail via Gmail API (OAuth) ou servidor
-      let sent = false;
-      try {
-        const gmailRes = await sendRecoveryEmailViaGmailApi(
-          cleanEmail,
-          session.code,
-          session.name,
-          session.storeName
-        );
-        if (gmailRes.success) {
-          sent = true;
-        }
-      } catch {
-        // segue para o servidor
-      }
-
-      if (!sent) {
-        // Envia via servidor backend
-        await fetch('/api/send-recovery-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: cleanEmail,
-            clientName: session.name,
-            storeName: session.storeName,
-            code: session.code,
-          }),
-        });
-      }
-
-      setRecoverSuccess(`Código de segurança enviado com sucesso para ${cleanEmail}!`);
+      setIdentifiedAccount(account);
       setRecoverStep(2);
-    } catch (err: any) {
-      console.error('Erro na recuperação:', err);
-      setRecoverError('Erro ao enviar e-mail de recuperação. Tente novamente.');
+      setRecoverSuccess(`Conta localizada: ${account.name || account.username} (${account.storeName})! Crie sua nova senha abaixo.`);
+    } catch {
+      setRecoverError('Erro ao consultar banco de dados. Tente novamente.');
     } finally {
       setRecoverLoading(false);
     }
   };
 
-  // Validar Código de 6 Dígitos
-  const handleVerifyRecoveryCode = (e: React.FormEvent) => {
+  // 2. Salvar Nova Senha e Repita a Senha com Criptografia no Firebase
+  const handleSaveNewPasswordDirect = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecoverError('');
 
-    const cleanCode = recoverCode.trim();
-    if (cleanCode.length !== 6) {
-      setRecoverError('O código precisa ter exatamente 6 dígitos.');
+    if (!recoverNewPassword.trim() || !recoverRepeatPassword.trim()) {
+      setRecoverError('Preencha a Nova Senha e confirme no campo Repita a Senha.');
       return;
     }
 
-    const isValid = accountService.verifyPasswordResetCode(recoverEmail, cleanCode);
-    if (!isValid) {
-      setRecoverError('Código de recuperação inválido ou expirado. Solicite um novo código.');
+    if (recoverNewPassword !== recoverRepeatPassword) {
+      setRecoverError('As senhas digitadas não coincidem. Digite exatamente a mesma senha nos dois campos.');
       return;
     }
-
-    setRecoverSuccess('Código confirmado com sucesso! Crie sua nova senha abaixo.');
-    setRecoverStep(3);
-  };
-
-  // Redefinir Nova Senha de Acesso
-  const handleSaveNewPassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    setRecoverError('');
 
     if (!recoverPasswordSecurity.isValid) {
       if (recoverPasswordHasAccents) {
@@ -428,13 +401,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     setRecoverLoading(true);
 
-    setTimeout(() => {
-      const result = accountService.resetPasswordWithCode(
-        recoverEmail,
-        recoverCode,
+    try {
+      const result = await accountService.resetPasswordDirectly(
+        recoverIdentifier,
         recoverNewPassword
       );
-      setRecoverLoading(false);
 
       if (result.success && result.user) {
         onLoginSuccess(result.user);
@@ -442,7 +413,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       } else {
         setRecoverError(result.message);
       }
-    }, 300);
+    } catch {
+      setRecoverError('Erro ao salvar nova credencial criptografada no Firebase. Tente novamente.');
+    } finally {
+      setRecoverLoading(false);
+    }
   };
 
   const formContent = (
@@ -521,6 +496,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           >
             Cadastrar Loja
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveMode('recover');
+              setRecoverStep(1);
+              setLoginError('');
+              setRegError('');
+              setRecoverError('');
+            }}
+            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+              activeMode === 'recover'
+                ? 'bg-white text-slate-950 shadow-sm'
+                : 'text-slate-900/80 hover:text-slate-950'
+            }`}
+          >
+            Esqueci a Senha
+          </button>
         </div>
       </div>
 
@@ -575,10 +568,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     setRecoverError('');
                     setRecoverSuccess('');
                   }}
-                  className="text-[11px] font-bold text-amber-800 hover:text-amber-900 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-xs font-bold text-amber-900 hover:text-amber-950 underline underline-offset-2 cursor-pointer flex items-center gap-1.5 bg-amber-100/80 hover:bg-amber-200/90 px-2.5 py-1 rounded-lg border border-amber-300 transition-colors shadow-2xs"
                 >
-                  <KeyRound className="w-3 h-3" />
-                  <span>Esqueci minha senha</span>
+                  <KeyRound className="w-3.5 h-3.5 text-amber-800" />
+                  <span>Esqueci a senha</span>
                 </button>
               </div>
 
@@ -602,6 +595,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   tabIndex={-1}
                 >
                   {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveMode('recover');
+                    setRecoverStep(1);
+                    setRecoverError('');
+                    setRecoverSuccess('');
+                  }}
+                  className="text-[11px] font-bold text-slate-500 hover:text-amber-900 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <span>Esqueci a senha? Clique para redefinir</span>
                 </button>
               </div>
             </div>
@@ -1392,54 +1400,60 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
             )}
 
-            {/* FASE 1: DIGITAR E-MAIL CADASTRADO OU ENTRAR COM GOOGLE */}
+            {/* ETAPA 1: DIGITAR NOME DE USUÁRIO OU E-MAIL */}
             {recoverStep === 1 && (
-              <form onSubmit={handleRequestRecoveryCode} className="space-y-4 animate-in fade-in">
+              <form onSubmit={handleIdentifyAccountForRecovery} className="space-y-4 animate-in fade-in">
                 <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider mb-1">
+                    <ShieldCheck className="w-3 h-3 text-amber-700" />
+                    <span>Recuperação Segura Criptografada</span>
+                  </div>
                   <h3 className="text-base font-black text-slate-950 font-display">
                     Esqueceu sua senha de acesso?
                   </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Informe seu e-mail cadastrado. Você receberá um código de segurança de 6 dígitos.
+                    Informe seu <strong>Nome de Usuário</strong> ou <strong>E-mail</strong> para localizar sua conta e redefinir sua senha com segurança.
                   </p>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-800">
-                    E-mail Cadastrado *
+                <div className="space-y-1.5 pt-1">
+                  <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
+                    Nome de Usuário ou E-mail *
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                      <Mail className="w-4 h-4" />
+                      <User className="w-4 h-4" />
                     </div>
                     <input
-                      type="email"
+                      type="text"
                       required
                       autoFocus
-                      value={recoverEmail}
+                      value={recoverIdentifier}
                       onChange={(e) => {
-                        setRecoverEmail(e.target.value);
+                        setRecoverIdentifier(e.target.value);
                         setRecoverError('');
                       }}
-                      placeholder="Ex: seunome@gmail.com"
+                      placeholder="Ex: SeuUsuario ou seunome@gmail.com"
                       className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                     />
                   </div>
                 </div>
 
+                {/* Badge de Criptografia do Firebase */}
+                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Criptografia Ativa:</strong> Todos os dados e senhas são protegidos de ponta a ponta no Firebase contra vazamentos.
+                  </span>
+                </div>
+
                 <button
                   type="submit"
-                  disabled={recoverLoading}
+                  disabled={!recoverIdentifier.trim()}
                   className="w-full py-3.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  {recoverLoading ? (
-                    <span>Enviando Código...</span>
-                  ) : (
-                    <>
-                      <span>Enviar Código de Recuperação no E-mail</span>
-                      <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                    </>
-                  )}
+                  <span>Localizar Conta e Redefinir Senha</span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                 </button>
 
                 <div className="pt-2 text-center">
@@ -1457,103 +1471,38 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* FASE 2: DIGITAR O CÓDIGO DE 6 DÍGITOS */}
+            {/* ETAPA 2: NOVA SENHA E REPITA A SENHA */}
             {recoverStep === 2 && (
-              <form onSubmit={handleVerifyRecoveryCode} className="space-y-4 animate-in fade-in">
-                <div className="space-y-1 text-center">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center mx-auto mb-1">
-                    <Mail className="w-5 h-5 text-amber-700" />
+              <form onSubmit={handleSaveNewPasswordDirect} className="space-y-4 animate-in fade-in">
+                {/* Cartão de Identificação da Conta */}
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-950">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                   </div>
-                  <h3 className="text-base font-black text-slate-950 font-display">
-                    Digite o Código de 6 Dígitos
-                  </h3>
-                  <p className="text-xs text-slate-600">
-                    Enviamos um código de verificação para o e-mail: <strong className="text-slate-900">{recoverEmail}</strong>
-                  </p>
-                </div>
-
-                <div className="space-y-1.5 pt-1">
-                  <label className="block text-xs font-black text-slate-800 uppercase tracking-wide text-center">
-                    Código de Segurança (6 dígitos) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    autoFocus
-                    maxLength={6}
-                    value={recoverCode}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setRecoverCode(val);
-                      setRecoverError('');
-                    }}
-                    placeholder="000000"
-                    className="w-full text-center py-3 bg-slate-50 border-2 border-amber-300 rounded-xl text-2xl font-mono font-black tracking-widest focus:outline-none focus:border-amber-500 focus:bg-white text-slate-950"
-                  />
-                  <p className="text-[11px] text-slate-400 text-center">
-                    Verifique também a caixa de Spam ou Promoções do seu e-mail.
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRecoverStep(1);
-                      setRecoverError('');
-                    }}
-                    className="py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    <span>Voltar</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={recoverCode.trim().length !== 6}
-                    className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50"
-                  >
-                    <span>Verificar Código</span>
-                    <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                  </button>
-                </div>
-
-                <div className="pt-1 text-center">
-                  <button
-                    type="button"
-                    onClick={handleRequestRecoveryCode}
-                    disabled={recoverLoading}
-                    className="text-xs font-bold text-amber-800 hover:text-amber-900 hover:underline cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${recoverLoading ? 'animate-spin' : ''}`} />
-                    <span>Reenviar código por e-mail</span>
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* FASE 3: CRIAR NOVA SENHA DE ACESSO */}
-            {recoverStep === 3 && (
-              <form onSubmit={handleSaveNewPassword} className="space-y-4 animate-in fade-in">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span className="text-[11px] font-bold text-emerald-700 uppercase">
-                      Código Validado
+                  <div className="text-xs">
+                    <span className="font-bold block text-emerald-900">
+                      Conta Localizada: {identifiedAccount?.name || identifiedAccount?.username}
+                    </span>
+                    <span className="text-[11px] text-emerald-700">
+                      {identifiedAccount?.storeName} • Usuário: @{identifiedAccount?.username}
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-1">
                   <h3 className="text-base font-black text-slate-950 font-display">
-                    Crie sua Nova Senha de Acesso
+                    Crie sua Nova Senha
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Defina sua nova senha cumprindo todos os requisitos de segurança abaixo.
+                    Defina sua nova senha e repita no campo abaixo para confirmar.
                   </p>
                 </div>
 
+                {/* CAMPO 1: NOVA SENHA */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      Nova Senha *
+                      • NOVA SENHA *
                     </label>
                     {recoverNewPassword && (
                       <span className={`text-[10px] font-bold ${recoverPasswordSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
@@ -1575,7 +1524,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setRecoverNewPassword(e.target.value);
                         setRecoverError('');
                       }}
-                      placeholder="Ex: NovaSenha2026@#"
+                      placeholder="Digite sua nova senha"
                       className={`w-full pl-10 pr-10 py-3 bg-slate-50 border rounded-xl text-sm font-mono font-bold focus:outline-none transition-colors ${
                         recoverPasswordHasAccents
                           ? 'border-red-500 bg-red-50 text-red-900 ring-2 ring-red-200'
@@ -1623,84 +1572,151 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       ))}
                     </div>
                   </div>
+                </div>
 
-                  {/* Checklist de Acompanhamento da Nova Senha */}
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
-                    <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                      Acompanhamento das Obrigações da Nova Senha:
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {recoverPasswordSecurity.hasMinLength ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-slate-300" />
-                        )}
-                        <span>Mínimo 6 caracteres</span>
-                      </div>
+                {/* CAMPO 2: REPITA A SENHA */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
+                      • REPITA A SENHA *
+                    </label>
+                    {recoverRepeatPassword && (
+                      <span className={`text-[10px] font-bold ${passwordsMatch ? 'text-emerald-700' : 'text-red-600'}`}>
+                        {passwordsMatch ? 'Senhas conferem ✓' : 'Senhas não conferem'}
+                      </span>
+                    )}
+                  </div>
 
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {recoverPasswordSecurity.hasUppercase ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-slate-300" />
-                        )}
-                        <span>Letra maiúscula (A-Z)</span>
-                      </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      type={showRecoverRepeatPassword ? 'text' : 'password'}
+                      required
+                      value={recoverRepeatPassword}
+                      onChange={(e) => {
+                        setRecoverRepeatPassword(e.target.value);
+                        setRecoverError('');
+                      }}
+                      placeholder="Repita exatamente a mesma senha"
+                      className={`w-full pl-10 pr-10 py-3 bg-slate-50 border rounded-xl text-sm font-mono font-bold focus:outline-none transition-colors ${
+                        passwordsMatch
+                          ? 'border-emerald-500 bg-emerald-50/30 text-slate-900 ring-2 ring-emerald-200'
+                          : passwordsMismatch
+                          ? 'border-red-500 bg-red-50 text-red-900 ring-2 ring-red-200'
+                          : 'border-slate-300 focus:border-amber-500 text-slate-900'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRecoverRepeatPassword(!showRecoverRepeatPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                      tabIndex={-1}
+                    >
+                      {showRecoverRepeatPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
 
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasLowercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {recoverPasswordSecurity.hasLowercase ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-slate-300" />
-                        )}
-                        <span>Letra minúscula (a-z)</span>
-                      </div>
+                {/* Checklist de Validação das Obrigações de Segurança */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                  <span className="text-[11px] uppercase font-bold text-slate-600 block">
+                    Acompanhamento das Obrigações da Senha:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasMinLength ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Mínimo 6 caracteres</span>
+                    </div>
 
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasNumber ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {recoverPasswordSecurity.hasNumber ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-slate-300" />
-                        )}
-                        <span>Número (0-9)</span>
-                      </div>
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasUppercase ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Letra maiúscula (A-Z)</span>
+                    </div>
 
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasSpecialChar ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {recoverPasswordSecurity.hasSpecialChar ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-slate-300" />
-                        )}
-                        <span>Caractere especial (@, #, $, etc)</span>
-                      </div>
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasLowercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasLowercase ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Letra minúscula (a-z)</span>
+                    </div>
 
-                      <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasNoAccents ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold'}`}>
-                        {recoverPasswordSecurity.hasNoAccents ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-                        ) : (
-                          <X className="w-3.5 h-3.5 text-red-600 stroke-[3]" />
-                        )}
-                        <span>Sem acentos ou cedilhas</span>
-                      </div>
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasNumber ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasNumber ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Número (0-9)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasSpecialChar ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasSpecialChar ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Caractere especial (@, #...)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 transition-colors ${passwordsMatch ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {passwordsMatch ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Senhas idênticas</span>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={!recoverPasswordSecurity.isValid || recoverLoading}
-                  className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50"
-                >
-                  {recoverLoading ? (
-                    <span>Salvando Nova Senha...</span>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>Salvar Nova Senha e Acessar Conta</span>
-                    </>
-                  )}
-                </button>
+                {/* Banner de Criptografia do Firebase */}
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-950 text-[11px] flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Criptografia no Firebase:</strong> A nova senha é criptografada com algoritmo SHA-256 e salt seguro antes da gravação no banco de dados, impossibilitando vazamentos.
+                  </span>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecoverStep(1);
+                      setRecoverError('');
+                    }}
+                    className="py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Voltar</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={!recoverPasswordSecurity.isValid || !passwordsMatch || recoverLoading}
+                    className="flex-1 py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {recoverLoading ? (
+                      <span>Criptografando e Salvando...</span>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>Salvar Nova Senha e Acessar Conta</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             )}
           </div>

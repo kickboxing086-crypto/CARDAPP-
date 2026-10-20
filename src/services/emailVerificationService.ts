@@ -2,6 +2,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ClientRegistrationFormData, EmailVerificationSession } from '../types';
 import { accountService } from './accountService';
+import { encryptDataForFirestore, decryptDataFromFirestore } from '../utils/crypto';
 
 const EMAIL_VERIFICATION_STORAGE_KEY = 'cardapp_pending_email_verification';
 
@@ -130,13 +131,13 @@ class EmailVerificationService {
       // ignore
     }
 
-    // Salva o registro de verificação no Firestore para validação de segurança
+    // Salva o registro de verificação no Firestore criptografado para validação de segurança
     try {
       const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
       const verifRef = doc(db, 'email_verifications', sanitizedEmail);
       await setDoc(
         verifRef,
-        {
+        encryptDataForFirestore({
           email: trimmedEmail,
           code,
           createdAt: now.toISOString(),
@@ -145,7 +146,7 @@ class EmailVerificationService {
           verified: false,
           storeName: data.storeName.trim(),
           clientName: data.name.trim(),
-        },
+        }),
         { merge: true }
       );
     } catch (e) {
@@ -228,7 +229,7 @@ class EmailVerificationService {
         const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
         const snap = await getDoc(doc(db, 'email_verifications', sanitizedEmail));
         if (snap.exists()) {
-          const data = snap.data();
+          const data = decryptDataFromFirestore<any>(snap.data());
           if (data && data.code) {
             session = {
               email: trimmedEmail,
@@ -350,15 +351,18 @@ class EmailVerificationService {
     try {
       const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
       const snap = await getDoc(doc(db, 'email_verifications', sanitizedEmail));
-      if (snap.exists() && snap.data()?.verified) {
-        session.verified = true;
-        this.activeSession = session;
-        return {
-          success: true,
-          verified: true,
-          message: 'E-mail confirmado com sucesso!',
-          registrationData: session.registrationData,
-        };
+      if (snap.exists()) {
+        const data = decryptDataFromFirestore<any>(snap.data());
+        if (data?.verified) {
+          session.verified = true;
+          this.activeSession = session;
+          return {
+            success: true,
+            verified: true,
+            message: 'E-mail confirmado com sucesso!',
+            registrationData: session.registrationData,
+          };
+        }
       }
     } catch {
       // ignore

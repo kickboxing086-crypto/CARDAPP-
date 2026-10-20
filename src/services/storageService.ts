@@ -15,6 +15,7 @@ import {
   INITIAL_SETTINGS,
   INITIAL_CATEGORIES,
 } from '../data/initialData';
+import { encryptDataForFirestore, decryptDataFromFirestore } from '../utils/crypto';
 
 let broadcastChannel: BroadcastChannel | null = null;
 try {
@@ -135,7 +136,7 @@ export const storageService = {
 
     try {
       const setRef = doc(db, 'stores', cleanId, 'settings', 'current');
-      setDoc(setRef, freshSettings).catch(() => {});
+      setDoc(setRef, encryptDataForFirestore(freshSettings)).catch(() => {});
     } catch {
       // ignore
     }
@@ -174,13 +175,13 @@ export const storageService = {
     const targetStore = this.currentStoreId;
 
     try {
-      // Live sync for Settings
+      // Live sync for Settings (Criptografado)
       const settingsRef = doc(db, 'stores', targetStore, 'settings', 'current');
       const unsubSettings = onSnapshot(
         settingsRef,
         (snap) => {
           if (snap.exists()) {
-            const data = snap.data() as StoreSettings;
+            const data = decryptDataFromFirestore<StoreSettings>(snap.data());
             localStorage.setItem(this.getSettingsKey(), JSON.stringify(data));
             this.notifyChange();
           }
@@ -191,14 +192,14 @@ export const storageService = {
       );
       this.unsubscribers.push(unsubSettings);
 
-      // Live sync for Orders
+      // Live sync for Orders (Criptografado)
       const ordersRef = collection(db, 'stores', targetStore, 'orders');
       const unsubOrders = onSnapshot(
         ordersRef,
         (snap) => {
           const remoteOrders: Order[] = [];
           snap.forEach((d) => {
-            remoteOrders.push(d.data() as Order);
+            remoteOrders.push(decryptDataFromFirestore<Order>(d.data()));
           });
 
           const deletedIds = this.getDeletedOrderIds();
@@ -218,7 +219,7 @@ export const storageService = {
               ordersMap.set(o.id, o);
               try {
                 const pendingRef = doc(db, 'stores', targetStore, 'orders', o.id);
-                setDoc(pendingRef, sanitizeForFirestore(o)).catch(() => {});
+                setDoc(pendingRef, encryptDataForFirestore(o)).catch(() => {});
               } catch {
                 // ignore
               }
@@ -238,7 +239,7 @@ export const storageService = {
       );
       this.unsubscribers.push(unsubOrders);
 
-      // Live sync for Products
+      // Live sync for Products (Criptografado)
       const productsRef = collection(db, 'stores', targetStore, 'products');
       const unsubProducts = onSnapshot(
         productsRef,
@@ -246,7 +247,7 @@ export const storageService = {
           if (!snap.empty) {
             const products: Product[] = [];
             snap.forEach((d) => {
-              products.push(d.data() as Product);
+              products.push(decryptDataFromFirestore<Product>(d.data()));
             });
             localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
             this.notifyChange();
@@ -258,7 +259,7 @@ export const storageService = {
       );
       this.unsubscribers.push(unsubProducts);
 
-      // Live sync for Categories
+      // Live sync for Categories (Criptografado)
       const categoriesRef = collection(db, 'stores', targetStore, 'categories');
       const unsubCats = onSnapshot(
         categoriesRef,
@@ -266,7 +267,7 @@ export const storageService = {
           if (!snap.empty) {
             const categories: Category[] = [];
             snap.forEach((d) => {
-              categories.push(d.data() as Category);
+              categories.push(decryptDataFromFirestore<Category>(d.data()));
             });
             localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
             this.notifyChange();
@@ -303,11 +304,11 @@ export const storageService = {
     localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
     this.notifyChange();
 
-    // Sync to Firestore
+    // Sync to Firestore (Criptografado)
     try {
       categories.forEach(async (cat) => {
         const catRef = doc(db, 'stores', this.currentStoreId, 'categories', cat.id);
-        await setDoc(catRef, cat).catch(() => {});
+        await setDoc(catRef, encryptDataForFirestore(cat)).catch(() => {});
       });
     } catch {
       // ignore
@@ -330,10 +331,10 @@ export const storageService = {
     const updated = [...categories, newCat];
     this.saveCategories(updated);
 
-    // Save to Firestore directly
+    // Save to Firestore directly (Criptografado)
     try {
       const catRef = doc(db, 'stores', this.currentStoreId, 'categories', id);
-      setDoc(catRef, newCat).catch((err) => {
+      setDoc(catRef, encryptDataForFirestore(newCat)).catch((err) => {
         console.warn('Sync addCategory fallback:', err);
       });
     } catch {
@@ -378,11 +379,11 @@ export const storageService = {
     localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
     this.notifyChange();
 
-    // Sync to Firestore
+    // Sync to Firestore (Criptografado)
     try {
       products.forEach(async (prod) => {
         const prodRef = doc(db, 'stores', this.currentStoreId, 'products', prod.id);
-        await setDoc(prodRef, prod).catch(() => {});
+        await setDoc(prodRef, encryptDataForFirestore(prod)).catch(() => {});
       });
     } catch {
       // ignore
@@ -398,10 +399,10 @@ export const storageService = {
     const updated = [newProduct, ...products];
     this.saveProducts(updated);
 
-    // Sync to Firestore
+    // Sync to Firestore (Criptografado)
     try {
       const prodRef = doc(db, 'stores', this.currentStoreId, 'products', newProduct.id);
-      setDoc(prodRef, sanitizeForFirestore(newProduct)).catch((err) => {
+      setDoc(prodRef, encryptDataForFirestore(newProduct)).catch((err) => {
         console.warn('Sync addProduct fallback:', err);
       });
     } catch {
@@ -418,10 +419,10 @@ export const storageService = {
       products[index] = product;
       this.saveProducts(products);
 
-      // Sync to Firestore
+      // Sync to Firestore (Criptografado)
       try {
         const prodRef = doc(db, 'stores', this.currentStoreId, 'products', product.id);
-        setDoc(prodRef, sanitizeForFirestore(product)).catch((err) => {
+        setDoc(prodRef, encryptDataForFirestore(product)).catch((err) => {
           console.warn('Sync updateProduct fallback:', err);
         });
       } catch {
@@ -524,10 +525,10 @@ export const storageService = {
       // ignore
     }
 
-    // Sync to Firestore
+    // Sync to Firestore (Criptografado)
     try {
       const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', newOrder.id);
-      setDoc(orderRef, sanitizeForFirestore(newOrder)).catch((err) => {
+      setDoc(orderRef, encryptDataForFirestore(newOrder)).catch((err) => {
         console.warn('Sync createOrder fallback:', err);
       });
     } catch {
@@ -571,10 +572,10 @@ export const storageService = {
         // ignore
       }
 
-      // Sync to Firestore
+      // Sync to Firestore (Criptografado)
       try {
         const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', orderId);
-        setDoc(orderRef, sanitizeForFirestore(updatedOrder)).catch((err) => {
+        setDoc(orderRef, encryptDataForFirestore(updatedOrder)).catch((err) => {
           console.warn('Sync updateOrderStatus fallback:', err);
         });
       } catch {
@@ -744,10 +745,10 @@ export const storageService = {
       // ignore
     }
 
-    // Sync to Firestore
+    // Sync to Firestore (Criptografado)
     try {
       const settingsRef = doc(db, 'stores', this.currentStoreId, 'settings', 'current');
-      setDoc(settingsRef, sanitizeForFirestore(settings)).catch((err) => {
+      setDoc(settingsRef, encryptDataForFirestore(settings)).catch((err) => {
         console.warn('Sync saveSettings fallback:', err);
       });
     } catch {

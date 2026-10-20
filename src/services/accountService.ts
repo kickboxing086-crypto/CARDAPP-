@@ -1,8 +1,16 @@
-import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserAccount, ClientRegistrationFormData, UserAccessRequest, PaymentInvoice } from '../types';
 import { storageService } from './storageService';
 import { extractCleanPixKey } from '../utils/pixPayload';
+import {
+  hashPassword,
+  verifyPassword,
+  encryptAccountForFirestore,
+  decryptAccountFromFirestore,
+  encryptDataForFirestore,
+  decryptDataFromFirestore,
+} from '../utils/crypto';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
@@ -13,7 +21,7 @@ const DEFAULT_PIX_KEY = 'bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55';
 const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
   username: 'Samuel_adm1',
-  passwordHash: '072131Sa@',
+  passwordHash: hashPassword('072131Sa@'),
   role: 'super_admin',
   name: 'Samuel',
   storeId: 'master_admin',
@@ -40,37 +48,40 @@ class AccountService {
 
   private loadFromStorage() {
     try {
-      const storedPix = localStorage.getItem(PIX_KEY_STORAGE_KEY);
-      if (storedPix && storedPix.trim()) {
-        this.pixKey = storedPix.trim();
-      } else {
-        this.pixKey = DEFAULT_PIX_KEY;
-      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const storedPix = localStorage.getItem(PIX_KEY_STORAGE_KEY);
+        if (storedPix && storedPix.trim()) {
+          this.pixKey = storedPix.trim();
+        } else {
+          this.pixKey = DEFAULT_PIX_KEY;
+        }
 
-      const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-      if (stored) {
-        this.accounts = JSON.parse(stored);
-        const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
-        if (!hasMaster) {
-          this.accounts.unshift(MASTER_ADMIN);
+        const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+        if (stored) {
+          this.accounts = JSON.parse(stored);
+          const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
+          if (!hasMaster) {
+            this.accounts.unshift(MASTER_ADMIN);
+            this.saveToStorage();
+          }
+        } else {
+          this.accounts = [MASTER_ADMIN];
           this.saveToStorage();
         }
-      } else {
-        this.accounts = [MASTER_ADMIN];
-        this.saveToStorage();
-      }
 
-      const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (storedSession) {
-        this.currentSession = JSON.parse(storedSession);
+        const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (storedSession) {
+          this.currentSession = JSON.parse(storedSession);
+        }
+
+        const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
+        if (storedRequests) {
+          this.accessRequests = JSON.parse(storedRequests);
+        }
       }
     } catch (e) {
-      console.error('Error loading accounts from storage:', e);
+      console.warn('Error loading accounts from storage:', e);
       this.accounts = [MASTER_ADMIN];
-    }
-    const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
-    if (storedRequests) {
-      this.accessRequests = JSON.parse(storedRequests);
     }
   }
 
@@ -100,13 +111,13 @@ class AccountService {
   private initFirestoreSync() {
     try {
       const masterDoc = doc(db, 'accounts', MASTER_ADMIN.id);
-      setDoc(masterDoc, MASTER_ADMIN, { merge: true }).catch(() => {});
+      setDoc(masterDoc, encryptAccountForFirestore(MASTER_ADMIN), { merge: true }).catch(() => {});
       const col = collection(db, 'accounts');
       onSnapshot(
         col,
         (snapshot) => {
           const list: UserAccount[] = [];
-          snapshot.forEach((d) => list.push(d.data() as UserAccount));
+          snapshot.forEach((d) => list.push(decryptAccountFromFirestore(d.data()) as UserAccount));
           if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
           this.accounts = list;
           this.saveToStorage();
@@ -146,7 +157,7 @@ class AccountService {
         col,
         (snapshot) => {
           const list: UserAccessRequest[] = [];
-          snapshot.forEach((d) => list.push(d.data() as UserAccessRequest));
+          snapshot.forEach((d) => list.push(decryptDataFromFirestore<UserAccessRequest>(d.data())));
           this.accessRequests = list;
           this.saveRequestsToStorage();
         },
@@ -187,7 +198,7 @@ class AccountService {
     this.saveRequestsToStorage();
     try {
       const reqRef = doc(db, 'accessRequests', newRequest.id);
-      setDoc(reqRef, newRequest);
+      setDoc(reqRef, encryptDataForFirestore(newRequest));
     } catch {}
   }
 
@@ -198,7 +209,7 @@ class AccountService {
     this.accessRequests = this.accessRequests.map(r => r.id === id ? { ...r, status } : r);
     this.saveRequestsToStorage();
     try {
-        setDoc(doc(db, 'accessRequests', id), { status }, { merge: true });
+        setDoc(doc(db, 'accessRequests', id), encryptDataForFirestore({ ...request, status }), { merge: true });
     } catch {}
 
     if (status === 'aprovado' && request) {
@@ -220,7 +231,7 @@ class AccountService {
       (a) => a.username.toLowerCase() === identifierLower || (a.email && a.email.toLowerCase() === identifierLower)
     );
     if (!user) return { success: false, message: 'Usuário ou e-mail não encontrado.' };
-    if (user.passwordHash !== password) return { success: false, message: 'Senha incorreta.' };
+    if (!verifyPassword(password, user.passwordHash)) return { success: false, message: 'Senha incorreta.' };
     if (user.planStatus === 'bloqueado') return { success: false, message: 'Conta bloqueada.' };
     this.currentSession = user;
     try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
@@ -263,7 +274,7 @@ class AccountService {
     const newAccount: UserAccount = {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       username: data.username.trim(),
-      passwordHash: data.password,
+      passwordHash: hashPassword(data.password),
       role: 'store_admin',
       name: data.name,
       email: data.email?.trim().toLowerCase() || '',
@@ -281,7 +292,7 @@ class AccountService {
     this.saveToStorage();
     storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp);
     try {
-      setDoc(doc(db, 'accounts', newAccount.id), newAccount).catch((err) =>
+      setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch((err) =>
         handleFirestoreError(err, OperationType.WRITE, `accounts/${newAccount.id}`)
       );
     } catch {}
@@ -310,7 +321,7 @@ class AccountService {
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
         const updated = { ...acc, planStatus: newStatus };
-        try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {}); } catch {}
+        try { setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {}); } catch {}
         return updated;
       }
       return acc;
@@ -340,11 +351,11 @@ class AccountService {
           ...acc,
           storeName: data.storeName !== undefined ? data.storeName : acc.storeName,
           name: data.name !== undefined ? data.name : acc.name,
-          passwordHash: data.passwordHash !== undefined ? data.passwordHash : acc.passwordHash,
+          passwordHash: data.passwordHash !== undefined ? hashPassword(data.passwordHash) : acc.passwordHash,
           expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,
         };
         try {
-          setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {});
+          setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
         } catch {}
         return updated;
       }
@@ -390,7 +401,7 @@ class AccountService {
           expiresAt: expiry.toISOString(),
           invoices: updatedInvoices,
         };
-        try { setDoc(doc(db, 'accounts', accountId), updated, { merge: true }).catch(() => {}); } catch {}
+        try { setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {}); } catch {}
         return updated;
       }
       return acc;
@@ -488,6 +499,120 @@ class AccountService {
   }
 
   /**
+   * Localiza uma conta cadastrada pelo nome de usuário ou pelo endereço de e-mail (síncrono)
+   */
+  public findAccountByUsernameOrEmail(identifier: string): UserAccount | undefined {
+    const clean = (identifier || '').trim().toLowerCase();
+    if (!clean) return undefined;
+
+    // Busca na memória
+    let account = this.accounts.find(
+      (a) =>
+        (a.username && a.username.toLowerCase().trim() === clean) ||
+        (a.email && a.email.toLowerCase().trim() === clean)
+    );
+
+    if (account) return account;
+
+    // Fallback para localStorage
+    try {
+      const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+      if (stored) {
+        const allAccounts = JSON.parse(stored);
+        account = allAccounts.find(
+          (a: UserAccount) =>
+            (a.username && a.username.toLowerCase().trim() === clean) ||
+            (a.email && a.email.toLowerCase().trim() === clean)
+        );
+        if (account && !this.accounts.find((a) => a.id === account!.id)) {
+          this.accounts.push(account);
+        }
+      }
+    } catch {}
+
+    return account;
+  }
+
+  /**
+   * Localiza uma conta no Firestore mesmo que o app tenha sido recém-aberto em outro dispositivo/aba
+   */
+  public async findAccountByUsernameOrEmailAsync(identifier: string): Promise<UserAccount | undefined> {
+    const local = this.findAccountByUsernameOrEmail(identifier);
+    if (local) return local;
+
+    const clean = (identifier || '').trim().toLowerCase();
+    if (!clean) return undefined;
+
+    try {
+      const snap = await getDocs(collection(db, 'accounts'));
+      for (const d of snap.docs) {
+        const decrypted = decryptAccountFromFirestore(d.data()) as UserAccount;
+        if (
+          (decrypted.username && decrypted.username.toLowerCase().trim() === clean) ||
+          (decrypted.email && decrypted.email.toLowerCase().trim() === clean)
+        ) {
+          if (!this.accounts.find((a) => a.id === decrypted.id)) {
+            this.accounts.push(decrypted);
+            this.saveToStorage();
+          }
+          return decrypted;
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao consultar Firestore diretamente para recuperação:', e);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Redefine a senha de acesso diretamente para o usuário ou e-mail identificado,
+   * criptografando a nova credencial no Firebase com SHA-256 e payload criptografado
+   */
+  public async resetPasswordDirectly(
+    identifier: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string; user?: UserAccount }> {
+    let account = this.findAccountByUsernameOrEmail(identifier);
+    if (!account) {
+      account = await this.findAccountByUsernameOrEmailAsync(identifier);
+    }
+    if (!account) {
+      return { success: false, message: 'Conta não localizada para este usuário ou e-mail.' };
+    }
+
+    const newHashedPassword = hashPassword(newPassword);
+
+    this.accounts = this.accounts.map((a) => {
+      if (a.id === account!.id) {
+        const updated = { ...a, passwordHash: newHashedPassword };
+        try {
+          setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+        } catch {}
+        return updated;
+      }
+      return a;
+    });
+
+    this.saveToStorage();
+
+    const updatedAccount = this.accounts.find((a) => a.id === account!.id);
+    if (updatedAccount) {
+      this.currentSession = updatedAccount;
+      try {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedAccount));
+      } catch {}
+      this.notify();
+    }
+
+    return {
+      success: true,
+      message: 'Senha redefinida com sucesso! Acesso concedido.',
+      user: updatedAccount,
+    };
+  }
+
+  /**
    * Localiza uma conta cadastrada pelo endereço de e-mail oficial
    */
   public findAccountByEmail(email: string): UserAccount | undefined {
@@ -559,7 +684,7 @@ class AccountService {
 
     try {
       localStorage.setItem(`cardapp_recovery_${account.email!.toLowerCase().trim()}`, JSON.stringify(recoveryData));
-      setDoc(doc(db, 'passwordResets', account.email!.toLowerCase().trim()), recoveryData).catch(() => {});
+      setDoc(doc(db, 'passwordResets', account.email!.toLowerCase().trim()), encryptDataForFirestore(recoveryData)).catch(() => {});
     } catch {}
 
     return {
@@ -591,7 +716,7 @@ class AccountService {
   }
 
   /**
-   * Redefine a senha da conta com o código validado
+   * Redefine a senha da conta com o código validado (criptografado com SHA-256 no Firebase)
    */
   public resetPasswordWithCode(
     email: string,
@@ -608,12 +733,13 @@ class AccountService {
       return { success: false, message: 'Conta não encontrada para este e-mail.' };
     }
 
-    // Atualiza a senha no array de contas
+    // Atualiza a senha no array de contas com hash e criptografia
+    const safeHash = hashPassword(newPassword);
     this.accounts = this.accounts.map((a) => {
       if (a.id === account.id) {
-        const updated = { ...a, passwordHash: newPassword };
+        const updated = { ...a, passwordHash: safeHash };
         try {
-          setDoc(doc(db, 'accounts', a.id), updated, { merge: true }).catch(() => {});
+          setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
         } catch {}
         return updated;
       }

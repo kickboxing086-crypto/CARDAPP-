@@ -29,6 +29,16 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /passwordResets/{email} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /systemConfig/{configId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Configurações, Cardápio e Pedidos por Loja
     match /stores/{storeId} {
       allow read: if true;
