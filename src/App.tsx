@@ -1097,20 +1097,6 @@ export default function App() {
           onClose={() => setIsSuperAdminModalOpen(false)}
           currentUser={currentUser}
           onLogout={handleLogout}
-          onSwitchToStore={(targetAccount: UserAccount) => {
-            accountService.switchSession(targetAccount);
-            storageService.setStoreId(targetAccount.storeId, targetAccount.storeName, targetAccount.phoneWhatsapp);
-            setCurrentUser(targetAccount);
-            setCartItems([]);
-            setActiveOrderId(null);
-            setProducts(storageService.getProducts());
-            setOrders(storageService.getOrders());
-            setCategories(storageService.getCategories());
-            setSettings(storageService.getSettings());
-            setIsSuperAdminModalOpen(false);
-            setIsCeoModalOpen(true);
-            setCurrentView('menu');
-          }}
         />
       )}
 

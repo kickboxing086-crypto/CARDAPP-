@@ -262,6 +262,9 @@ class AccountService {
     monthlyFee?: number;
     daysValid?: number;
   }): { success: boolean; message: string; account?: UserAccount } {
+    if (!data.phoneWhatsapp || !data.phoneWhatsapp.trim()) {
+      return { success: false, message: 'O telefone (WhatsApp) é obrigatório para cadastrar a conta.' };
+    }
     if (this.accounts.some((a) => a.username.toLowerCase() === data.username.toLowerCase().trim())) {
       return { success: false, message: 'Usuário já cadastrado.' };
     }
@@ -283,7 +286,7 @@ class AccountService {
       storeName: data.storeName,
       planStatus: data.planStatus || 'ativo',
       monthlyFee: 24.99,
-      phoneWhatsapp: data.phoneWhatsapp,
+      phoneWhatsapp: data.phoneWhatsapp.trim(),
       createdAt: now.toISOString(),
       expiresAt: expiry.toISOString(),
     };
@@ -336,9 +339,10 @@ class AccountService {
   public updateAccountDetails(
     accountId: string,
     data: {
-      storeName?: string;
-      name?: string;
+      username?: string;
       passwordHash?: string;
+      email?: string;
+      phoneWhatsapp?: string;
       expiresAt?: string;
     }
   ): { success: boolean; message: string } {
@@ -349,9 +353,10 @@ class AccountService {
       if (acc.id === accountId) {
         const updated = {
           ...acc,
-          storeName: data.storeName !== undefined ? data.storeName : acc.storeName,
-          name: data.name !== undefined ? data.name : acc.name,
+          username: data.username !== undefined ? data.username.trim() : acc.username,
           passwordHash: data.passwordHash !== undefined ? hashPassword(data.passwordHash) : acc.passwordHash,
+          email: data.email !== undefined ? data.email.trim().toLowerCase() : acc.email,
+          phoneWhatsapp: data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp,
           expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,
         };
         try {

@@ -26,12 +26,7 @@ import {
   validatePasswordSecurity,
   hasAccentsOrDiacritics,
 } from '../utils/security';
-import {
-  sendRecoveryEmailViaGmailApi,
-} from '../services/googleAuthService';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../firebase';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -159,55 +154,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setLoginError(result.message);
       }
     }, 300);
-  };
-
-  const handleGoogleLogin = async () => {
-    setLoginError('');
-    setIsLoginLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      let account = accountService.findAccountByEmail(user.email || '');
-      if (!account) {
-        const regRes = accountService.createAccount({
-          username: (user.email?.split('@')[0] || 'user') + '_' + Math.random().toString(36).substring(2, 5),
-          password: 'GoogleAuthUser@123!',
-          name: user.displayName || 'Usuário Google',
-          storeName: (user.displayName || 'Minha Loja') + ' - Loja',
-          email: user.email || '',
-          planStatus: 'ativo',
-          daysValid: 7,
-        });
-        if (regRes.success && regRes.account) {
-          account = regRes.account;
-        }
-      }
-      if (account) {
-        accountService.switchSession(account);
-        onLoginSuccess(account);
-        if (onClose) onClose();
-      } else {
-        setLoginError('Falha ao autenticar com o Google.');
-      }
-    } catch (err: any) {
-      console.error('Google login error:', err);
-      if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
-        const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'cardapp-us.vercel.app';
-        setLoginError(
-          `Domínio não autorizado pelo Firebase: "${currentDomain}". Para liberar login com o Google em produção ("cardapp-us.vercel.app"), acesse o Firebase Console > Authentication > Configurações (Settings) > Domínios autorizados (Authorized domains) e adicione "cardapp-us.vercel.app".`
-        );
-      } else if (err?.code === 'auth/popup-blocked') {
-        setLoginError('O pop-up de login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site.');
-      } else if (err?.code === 'auth/popup-closed-by-user') {
-        setLoginError('A janela de autenticação com o Google foi fechada antes de concluir.');
-      } else {
-        setLoginError('Erro ao entrar com o Google: ' + (err.message || 'Tente novamente.'));
-      }
-    } finally {
-      setIsLoginLoading(false);
-    }
   };
 
 
@@ -456,11 +402,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           {activeMode === 'login'
             ? 'Área de acesso para o lojista e administrador'
             : activeMode === 'recover'
-            ? 'Recupere sua senha via E-mail obrigatório ou Google OAuth'
+            ? 'Recupere sua senha via E-mail ou Nome de Usuário'
             : 'Preenchimento passo a passo para criar e ativar seu cardápio'}
         </p>
 
-        {/* Tab Switcher: Login vs Cadastro vs Recuperação */}
+        {/* Tab Switcher: Login vs Cadastro */}
         <div className="mt-4 flex p-1 bg-slate-950/15 rounded-2xl gap-1">
           <button
             type="button"
@@ -495,24 +441,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             }`}
           >
             Cadastrar Loja
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMode('recover');
-              setRecoverStep(1);
-              setLoginError('');
-              setRegError('');
-              setRecoverError('');
-            }}
-            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeMode === 'recover'
-                ? 'bg-white text-slate-950 shadow-sm'
-                : 'text-slate-900/80 hover:text-slate-950'
-            }`}
-          >
-            Esqueci a Senha
           </button>
         </div>
       </div>
@@ -568,10 +496,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     setRecoverError('');
                     setRecoverSuccess('');
                   }}
-                  className="text-xs font-bold text-amber-900 hover:text-amber-950 underline underline-offset-2 cursor-pointer flex items-center gap-1.5 bg-amber-100/80 hover:bg-amber-200/90 px-2.5 py-1 rounded-lg border border-amber-300 transition-colors shadow-2xs"
+                  className="text-[11px] font-medium text-amber-800 hover:text-amber-950 hover:underline cursor-pointer"
                 >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-800" />
-                  <span>Esqueci a senha</span>
+                  Esqueci a senha
                 </button>
               </div>
 
@@ -597,21 +524,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-
-              <div className="flex justify-end pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveMode('recover');
-                    setRecoverStep(1);
-                    setRecoverError('');
-                    setRecoverSuccess('');
-                  }}
-                  className="text-[11px] font-bold text-slate-500 hover:text-amber-900 hover:underline cursor-pointer flex items-center gap-1"
-                >
-                  <span>Esqueci a senha? Clique para redefinir</span>
-                </button>
-              </div>
             </div>
 
             <button
@@ -627,39 +539,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                 </>
               )}
-            </button>
-
-            <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-slate-200"></div>
-              <span className="flex-shrink mx-4 text-slate-400 text-xs font-bold uppercase">ou</span>
-              <div className="flex-grow border-t border-slate-200"></div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={isLoginLoading}
-              className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-50 border-2 border-slate-200 active:scale-98 text-slate-800 font-black text-sm flex items-center justify-center gap-3 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>Entrar com o Google</span>
             </button>
 
             <div className="pt-2 text-center">

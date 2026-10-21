@@ -28,7 +28,6 @@ interface SuperAdminModalProps {
   onClose: () => void;
   currentUser: UserAccount;
   onLogout: () => void;
-  onSwitchToStore: (account: UserAccount) => void;
 }
 
 export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
@@ -36,7 +35,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   onClose,
   currentUser,
   onLogout,
-  onSwitchToStore,
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
@@ -60,9 +58,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   // Edit Store State
   const [editingAccount, setEditingAccount] = useState<UserAccount | null>(null);
-  const [editStoreName, setEditStoreName] = useState('');
-  const [editOwnerName, setEditOwnerName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
   const [editPassword, setEditPassword] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [editExpiresAt, setEditExpiresAt] = useState('');
   const [editFeedback, setEditFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showEditPassword, setShowEditPassword] = useState(false);
@@ -129,6 +128,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       return;
     }
 
+    if (!newPhone || !newPhone.trim()) {
+      setFormFeedback({
+        type: 'error',
+        message: 'O telefone (WhatsApp) é obrigatório para cadastrar a conta.',
+      });
+      return;
+    }
+
     const result = accountService.createAccount({
       storeName: newStoreName,
       name: newOwnerName,
@@ -161,9 +168,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   const handleOpenEdit = (acc: UserAccount) => {
     setEditingAccount(acc);
-    setEditStoreName(acc.storeName);
-    setEditOwnerName(acc.name);
+    setEditUsername(acc.username);
     setEditPassword(acc.passwordHash);
+    setEditEmail(acc.email || '');
+    setEditPhone(acc.phoneWhatsapp || '');
     setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
     setEditFeedback(null);
   };
@@ -172,21 +180,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     e.preventDefault();
     if (!editingAccount) return;
 
-    const passCheck = validatePasswordSecurity(editPassword);
-    if (!passCheck.isValid) {
-      setEditFeedback({
-        type: 'error',
-        message: 'A senha deve conter maiúscula, minúscula, número e caractere especial (mínimo 6 caracteres).',
-      });
-      return;
-    }
-
     const expiryISO = editExpiresAt ? new Date(editExpiresAt + 'T23:59:59.000Z').toISOString() : editingAccount.expiresAt;
 
     const res = accountService.updateAccountDetails(editingAccount.id, {
-      storeName: editStoreName,
-      name: editOwnerName,
+      username: editUsername,
       passwordHash: editPassword,
+      email: editEmail,
+      phoneWhatsapp: editPhone,
       expiresAt: expiryISO,
     });
 
@@ -198,6 +198,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     } else {
       setEditFeedback({ type: 'error', message: res.message });
     }
+  };
+
+  const handleRenewAccount = () => {
+    if (!editingAccount) return;
+    accountService.renewAccountPlan(editingAccount.id, 30);
+    const updated = accountService.getAccounts().find(a => a.id === editingAccount.id);
+    if (updated) {
+      setEditingAccount(updated);
+      setEditExpiresAt(updated.expiresAt ? updated.expiresAt.slice(0, 10) : '');
+    }
+    setEditFeedback({ type: 'success', message: 'Plano renovado por +30 dias com sucesso!' });
   };
 
   const OFFICIAL_VERCEL_URL = 'https://cardapp-us.vercel.app';
@@ -549,10 +560,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-slate-800">
-                        WhatsApp do Lojista
+                        WhatsApp do Lojista *
                       </label>
                       <input
                         type="text"
+                        required
                         value={newPhone}
                         onChange={(e) => setNewPhone(e.target.value)}
                         placeholder="Ex: (84) 99999-9999"
@@ -663,22 +675,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                  <div className="pt-1 text-xs">
                     <button
                       type="button"
                       onClick={() => handleCopyAccessMessage(lastCreatedAccount)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-colors"
                     >
                       <Copy className="w-4 h-4" />
-                      <span>Copiar Mensagem para Enviar</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSwitchToStore(lastCreatedAccount)}
-                      className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                    >
-                      <Store className="w-3.5 h-3.5" />
-                      <span>Abrir Painel da Loja</span>
+                      <span>Copiar Dados de Acesso para o Cliente</span>
                     </button>
                   </div>
                 </div>
@@ -793,14 +797,6 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                               }`}
                             >
                               {acc.planStatus === 'ativo' ? 'Suspender' : 'Reativar'}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => onSwitchToStore(acc)}
-                              className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer shadow-2xs"
-                            >
-                              Acessar Painel
                             </button>
 
                             <button
@@ -955,33 +951,20 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <form onSubmit={handleSaveEdit} className="space-y-3.5">
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-800">
-                  Nome da Loja *
+                  Nome de Usuário *
                 </label>
                 <input
                   type="text"
                   required
-                  value={editStoreName}
-                  onChange={(e) => setEditStoreName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-semibold focus:outline-none focus:border-amber-500"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-800">
-                  Nome do Responsável *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editOwnerName}
-                  onChange={(e) => setEditOwnerName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-800">
-                  Senha de Acesso (com validação) *
+                  Senha *
                 </label>
                 <div className="relative">
                   <input
@@ -999,22 +982,55 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500">
-                  Mínimo 6 caracteres, com letra maiúscula, minúscula, número e caractere especial (sem acentos).
-                </p>
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-800">
-                  Data de Vencimento do Plano (Plano/Datas) *
+                  E-mail *
                 </label>
                 <input
-                  type="date"
+                  type="email"
                   required
-                  value={editExpiresAt}
-                  onChange={(e) => setEditExpiresAt(e.target.value)}
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Telefone *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Data do Plano (Vencimento) *
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    required
+                    value={editExpiresAt}
+                    onChange={(e) => setEditExpiresAt(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRenewAccount}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase cursor-pointer shadow-sm flex items-center gap-1 shrink-0"
+                    title="Renova 30 dias imediatamente"
+                  >
+                    Renovar (+30d)
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
