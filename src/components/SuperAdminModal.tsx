@@ -495,6 +495,44 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           {/* TAB 1: GERADOR DE CONTAS */}
           {activeTab === 'generator' && (
             <div className="max-w-xl mx-auto space-y-4">
+              {/* CONTA DO ADMINISTRADOR GERAL (DESTAQUE GRANDE) */}
+              <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 p-5 sm:p-6 rounded-3xl border-2 border-amber-400 shadow-xl text-white space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-lg shrink-0">
+                      <ShieldCheck className="w-7 h-7 stroke-[2.5]" />
+                    </div>
+                    <div>
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                        Administrador Geral (Super Admin)
+                      </span>
+                      <h3 className="text-lg sm:text-xl font-black text-white font-display mt-0.5">
+                        {currentUser.name}
+                      </h3>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1.5 rounded-full border border-emerald-500/40 text-emerald-400 text-xs font-bold shrink-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Tempo Real Ativo</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-amber-500/30 text-xs">
+                  <div className="bg-white/5 p-3 rounded-2xl border border-white/10 space-y-1">
+                    <span className="text-slate-400 uppercase text-[10px] font-bold block">Nome de Usuário</span>
+                    <span className="font-mono font-black text-amber-300 text-sm">{currentUser.username}</span>
+                  </div>
+                  <div className="bg-white/5 p-3 rounded-2xl border border-white/10 space-y-1">
+                    <span className="text-slate-400 uppercase text-[10px] font-bold block">Lojas Cadastradas</span>
+                    <span className="font-bold text-emerald-400 text-sm">{accounts.length} contas em tempo real</span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-amber-200/80 italic text-center pt-1">
+                  ✨ Qualquer nova conta criada por clientes aparece instantaneamente na sua lista de lojas.
+                </p>
+              </div>
+
               <div className="bg-white p-5 sm:p-6 rounded-3xl border border-amber-300 shadow-sm space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div>
