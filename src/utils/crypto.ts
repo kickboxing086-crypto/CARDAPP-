@@ -212,9 +212,8 @@ export function encryptAccountForFirestore(account: any): any {
   const cleanAccount = {
     ...account,
     passwordHash: safePasswordHash,
-    // Criptografa campos de contato e dados pessoais
-    phoneWhatsapp: account.phoneWhatsapp ? encryptString(account.phoneWhatsapp) : '',
-    email: account.email ? encryptString(account.email.toLowerCase().trim()) : '',
+    phoneWhatsapp: account.phoneWhatsapp ? account.phoneWhatsapp.trim() : '',
+    email: account.email ? account.email.toLowerCase().trim() : '',
   };
 
   const encryptedPayload = encryptString(JSON.stringify(cleanAccount));
@@ -244,7 +243,14 @@ export function decryptAccountFromFirestore(data: any): any {
   if (data.payload) {
     try {
       const decrypted = decryptString(data.payload);
-      return JSON.parse(decrypted);
+      const parsed = JSON.parse(decrypted);
+      if (parsed.phoneWhatsapp && typeof parsed.phoneWhatsapp === 'string' && parsed.phoneWhatsapp.startsWith('enc$')) {
+        parsed.phoneWhatsapp = decryptString(parsed.phoneWhatsapp);
+      }
+      if (parsed.email && typeof parsed.email === 'string' && parsed.email.startsWith('enc$')) {
+        parsed.email = decryptString(parsed.email);
+      }
+      return parsed;
     } catch (e) {
       console.warn('Erro ao descriptografar conta:', e);
     }
@@ -253,7 +259,7 @@ export function decryptAccountFromFirestore(data: any): any {
   // Fallback para criptografia de campos
   return {
     ...data,
-    phoneWhatsapp: decryptString(data.phoneWhatsapp || ''),
-    email: decryptString(data.email || ''),
+    phoneWhatsapp: data.phoneWhatsapp && typeof data.phoneWhatsapp === 'string' && data.phoneWhatsapp.startsWith('enc$') ? decryptString(data.phoneWhatsapp) : (data.phoneWhatsapp || ''),
+    email: data.email && typeof data.email === 'string' && data.email.startsWith('enc$') ? decryptString(data.email) : (data.email || ''),
   };
 }

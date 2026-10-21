@@ -777,8 +777,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 pt-0.5">
                           <span>Responsável: <strong>{acc.name}</strong></span>
+                          {acc.email && <span>E-mail: <strong>{acc.email}</strong></span>}
+                          {acc.phoneWhatsapp && <span>Tel/Zap: <strong>{acc.phoneWhatsapp}</strong></span>}
                           <span>
                             Usuário: <code className="bg-slate-100 px-1 py-0.5 rounded font-bold text-slate-900">{acc.username}</code>
                           </span>
