@@ -3,6 +3,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserAccount, ClientRegistrationFormData, UserAccessRequest, PaymentInvoice } from '../types';
 import { storageService } from './storageService';
 import { extractCleanPixKey } from '../utils/pixPayload';
+import { hasAccentsOrDiacritics } from '../utils/security';
 import {
   hashPassword,
   verifyPassword,
@@ -265,6 +266,12 @@ class AccountService {
     if (!data.phoneWhatsapp || !data.phoneWhatsapp.trim()) {
       return { success: false, message: 'O telefone (WhatsApp) é obrigatório para cadastrar a conta.' };
     }
+    if (hasAccentsOrDiacritics(data.username)) {
+      return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
+    }
+    if (hasAccentsOrDiacritics(data.password)) {
+      return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
+    }
     if (this.accounts.some((a) => a.username.toLowerCase() === data.username.toLowerCase().trim())) {
       return { success: false, message: 'Usuário já cadastrado.' };
     }
@@ -346,6 +353,13 @@ class AccountService {
       expiresAt?: string;
     }
   ): { success: boolean; message: string } {
+    if (data.username !== undefined && hasAccentsOrDiacritics(data.username)) {
+      return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
+    }
+    if (data.passwordHash !== undefined && hasAccentsOrDiacritics(data.passwordHash)) {
+      return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
+    }
+
     const target = this.accounts.find((a) => a.id === accountId);
     if (!target) return { success: false, message: 'Conta não encontrada.' };
 
