@@ -18,6 +18,7 @@ import {
   MessageCircle,
   KeyRound,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
 import { UserAccount } from '../types';
@@ -303,6 +304,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (!clean) {
       setRecoverError('Por favor, informe seu nome de usuário ou e-mail cadastrado.');
       return;
+    }
+
+    // Se digitou algo parecendo e-mail (contém @), faz validação básica de formato
+    if (clean.includes('@')) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(clean)) {
+        setRecoverError('O e-mail informado não é válido. Verifique se digitou corretamente.');
+        return;
+      }
     }
 
     setRecoverLoading(true);
@@ -1357,11 +1367,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                 <button
                   type="submit"
-                  disabled={!recoverIdentifier.trim()}
+                  disabled={!recoverIdentifier.trim() || recoverLoading}
                   className="w-full py-3.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  <span>Localizar Conta e Redefinir Senha</span>
-                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                  {recoverLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Localizando Conta...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Localizar Conta e Redefinir Senha</span>
+                      <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                    </>
+                  )}
                 </button>
 
                 <div className="pt-2 text-center">
