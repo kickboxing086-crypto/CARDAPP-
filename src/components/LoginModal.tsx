@@ -1347,11 +1347,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </div>
 
-                {/* Badge de Criptografia do Firebase */}
+                {/* Badge de Criptografia Segura */}
                 <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-center gap-2.5">
                   <Lock className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>
-                    <strong>Criptografia Ativa:</strong> Todos os dados e senhas são protegidos de ponta a ponta no Firebase contra vazamentos.
+                    <strong>Criptografia Ativa:</strong> Todos os dados e senhas são protegidos de ponta a ponta contra vazamentos.
                   </span>
                 </div>
 
@@ -1680,11 +1680,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </div>
 
-                {/* Banner de Criptografia do Firebase */}
+                {/* Banner de Criptografia Segura */}
                 <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-950 text-[11px] flex items-center gap-2.5">
                   <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>
-                    <strong>Criptografia no Firebase:</strong> A nova senha é criptografada com algoritmo SHA-256 e salt seguro antes da gravação no banco de dados, impossibilitando vazamentos.
+                    <strong>Criptografia Avançada:</strong> A nova senha é protegida com algoritmo SHA-256 e hash seguro antes do armazenamento, impossibilitando vazamentos.
                   </span>
                 </div>
 
