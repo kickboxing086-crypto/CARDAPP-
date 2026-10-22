@@ -73,9 +73,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   // Recuperação de Conta Simplificada e Criptografada (Usuário ou E-mail -> Nova Senha + Repita a Senha)
   // recoverStep: 1 = Informar Usuário ou E-mail; 2 = Digitar Nova Senha e Repita a Senha
-  const [recoverStep, setRecoverStep] = useState<1 | 2>(1);
+  const [recoverStep, setRecoverStep] = useState<1 | 2 | 3>(1);
   const [recoverIdentifier, setRecoverIdentifier] = useState('');
   const [identifiedAccount, setIdentifiedAccount] = useState<UserAccount | null>(null);
+  const [recoverStoreNameInput, setRecoverStoreNameInput] = useState('');
+  const [recoverPhoneLast4Input, setRecoverPhoneLast4Input] = useState('');
   const [recoverNewPassword, setRecoverNewPassword] = useState('');
   const [recoverRepeatPassword, setRecoverRepeatPassword] = useState('');
   const [showRecoverNewPassword, setShowRecoverNewPassword] = useState(false);
@@ -313,12 +315,39 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
       setIdentifiedAccount(account);
       setRecoverStep(2);
-      setRecoverSuccess(`Conta localizada: ${account.name || account.username} (${account.storeName})! Crie sua nova senha abaixo.`);
+      setRecoverSuccess('Conta localizada. Confirme o nome do estabelecimento e os 4 últimos dígitos do celular.');
     } catch {
       setRecoverError('Erro ao consultar banco de dados. Tente novamente.');
     } finally {
       setRecoverLoading(false);
     }
+  };
+
+  const handleVerifyRecoveryConfirmation = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoverError('');
+
+    if (!identifiedAccount) return;
+
+    const cleanStoreInput = recoverStoreNameInput.trim().toLowerCase();
+    const actualStoreName = (identifiedAccount.storeName || '').trim().toLowerCase();
+
+    const cleanPhoneInput = recoverPhoneLast4Input.trim().replace(/\D/g, '');
+    const actualPhone = (identifiedAccount.phoneWhatsapp || '').replace(/\D/g, '');
+    const actualPhoneLast4 = actualPhone.slice(-4);
+
+    if (cleanStoreInput !== actualStoreName) {
+      setRecoverError('O nome do estabelecimento não confere com o cadastrado nesta conta.');
+      return;
+    }
+
+    if (cleanPhoneInput.length !== 4 || cleanPhoneInput !== actualPhoneLast4) {
+      setRecoverError('Os 4 últimos dígitos do celular não conferem com o cadastrado nesta conta.');
+      return;
+    }
+
+    setRecoverStep(3);
+    setRecoverSuccess('Confirmação bem-sucedida! Crie sua nova senha abaixo.');
   };
 
   // 2. Salvar Nova Senha e Repita a Senha com Criptografia no Firebase
@@ -1350,8 +1379,99 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 2: NOVA SENHA E REPITA A SENHA */}
+            {/* ETAPA 2: CONFIRMAÇÃO DE SEGURANÇA (NOME DO ESTABELECIMENTO + 4 ÚLTIMOS DÍGITOS DO CELULAR) */}
             {recoverStep === 2 && (
+              <form onSubmit={handleVerifyRecoveryConfirmation} className="space-y-4 animate-in fade-in">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider mb-1">
+                    <ShieldCheck className="w-3 h-3 text-amber-700" />
+                    <span>Confirmação de Segurança</span>
+                  </div>
+                  <h3 className="text-base font-black text-slate-950 font-display">
+                    Confirme os dados da sua loja
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Para prosseguir com a redefinição de senha para a conta <strong>@{identifiedAccount?.username}</strong>, confirme as duas informações abaixo:
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  {/* Nome do Estabelecimento */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
+                      1. Nome do Estabelecimento / Loja *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Store className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        autoFocus
+                        value={recoverStoreNameInput}
+                        onChange={(e) => {
+                          setRecoverStoreNameInput(e.target.value);
+                          setRecoverError('');
+                        }}
+                        placeholder="Ex: Pizzaria Bella Vista"
+                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4 Últimos Dígitos do Celular */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
+                      2. 4 Últimos Dígitos do Celular / WhatsApp *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Phone className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={4}
+                        value={recoverPhoneLast4Input}
+                        onChange={(e) => {
+                          setRecoverPhoneLast4Input(e.target.value.replace(/\D/g, '').slice(0, 4));
+                          setRecoverError('');
+                        }}
+                        placeholder="Ex: 4321"
+                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecoverStep(1);
+                      setRecoverError('');
+                    }}
+                    className="py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Voltar</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={!recoverStoreNameInput.trim() || recoverPhoneLast4Input.length < 4}
+                    className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    <span>Confirmar e Criar Nova Senha</span>
+                    <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* ETAPA 3: NOVA SENHA E REPITA A SENHA */}
+            {recoverStep === 3 && (
               <form onSubmit={handleSaveNewPasswordDirect} className="space-y-4 animate-in fade-in">
                 {/* Cartão de Identificação da Conta */}
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-950">
