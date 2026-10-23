@@ -721,6 +721,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </div>
 
+                {/* Visualizador do Link da Loja em Tempo Real */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 uppercase">
+                    <span>Prévia do Link da sua Loja:</span>
+                    <span className="text-amber-700 font-mono">cardapp-us/[url]</span>
+                  </div>
+                  <div className="bg-white px-3 py-2 rounded-xl border border-amber-300 text-xs font-mono font-bold text-slate-900 flex items-center gap-1 truncate shadow-2xs">
+                    <span className="text-amber-600 font-bold shrink-0">cardapp-us/</span>
+                    <span className="truncate text-slate-900">
+                      {regStoreName.trim()
+                        ? regStoreName
+                            .toLowerCase()
+                            .trim()
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .replace(/[^a-z0-9]+/g, '-')
+                            .replace(/^-+|-+$/g, '')
+                        : 'nome-da-sua-loja'}
+                    </span>
+                  </div>
+                </div>
+
                 <div className="flex gap-2">
                   <button
                     type="button"

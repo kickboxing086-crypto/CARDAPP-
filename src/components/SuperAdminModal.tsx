@@ -75,6 +75,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [editExpiresAt, setEditExpiresAt] = useState('');
   const [editFeedback, setEditFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showEditPassword, setShowEditPassword] = useState(false);
+  const [copiedStoreId, setCopiedStoreId] = useState<string | null>(null);
+
+  const handleCopyStoreLink = (acc: UserAccount) => {
+    const storeSlug = acc.storeName
+      ? acc.storeName.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      : acc.id;
+    const url = `${window.location.origin}/?store=${storeSlug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedStoreId(acc.id);
+    setTimeout(() => setCopiedStoreId(null), 2500);
+  };
 
   // Database tools
   const [importJsonText, setImportJsonText] = useState('');
@@ -667,22 +678,60 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 <div className="space-y-3">
                   {accounts.map((acc) => {
                     const isMaster = acc.role === 'super_admin';
+                    const storeSlug = acc.storeName
+                      ? acc.storeName.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+                      : acc.id;
+                    const isCopied = copiedStoreId === acc.id;
+
                     return (
-                      <div key={acc.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                        <div>
-                          <h4 className="font-black text-sm text-slate-950">{acc.storeName}</h4>
-                          <p className="text-xs text-slate-600">Responsável: {acc.name} | WhatsApp: {acc.phoneWhatsapp || 'N/A'}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!isMaster && (
+                      <div key={acc.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 className="font-black text-sm text-slate-950">{acc.storeName}</h4>
+                            <p className="text-xs text-slate-600">Responsável: {acc.name} | WhatsApp: {acc.phoneWhatsapp || 'N/A'}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
-                              onClick={() => handleOpenEdit(acc)}
-                              className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer"
+                              onClick={() => handleCopyStoreLink(acc)}
+                              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors ${
+                                isCopied
+                                  ? 'bg-emerald-500 text-white'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                              }`}
+                              title="Copiar Link de Compartilhamento da Loja"
                             >
-                              Editar Loja
+                              {isCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{isCopied ? 'Link Copiado!' : 'Copiar Link'}</span>
                             </button>
-                          )}
+
+                            <a
+                              href={`/?store=${storeSlug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                              title="Abrir Loja em Nova Aba"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Ver Loja</span>
+                            </a>
+
+                            {!isMaster && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(acc)}
+                                className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Link visível */}
+                        <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono font-medium text-slate-600 flex items-center gap-2 truncate">
+                          <span className="text-amber-600 font-bold">Link de Acesso:</span>
+                          <span className="truncate text-slate-800">cardapp-us/{storeSlug}</span>
                         </div>
                       </div>
                     );
