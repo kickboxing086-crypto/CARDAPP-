@@ -863,6 +863,35 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             {/* TAB: DATABASE & SETTINGS */}
             {activeTab === 'database' && (
               <div className="max-w-xl mx-auto space-y-4 animate-in fade-in">
+                {/* Integração Mercado Pago */}
+                <div className="bg-white p-6 rounded-3xl border border-blue-200 shadow-sm space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-500 text-white flex items-center justify-center font-black text-xs">
+                      MP
+                    </div>
+                    <div>
+                      <h3 className="font-black text-base text-slate-955">Mercado Pago (API de Pagamentos)</h3>
+                      <p className="text-xs text-slate-500">Obtenha suas credenciais de acesso para processar pagamentos PIX.</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 text-xs text-blue-950 space-y-3">
+                    <p className="font-bold">Acesse o painel oficial para pegar suas chaves de API:</p>
+                    <p className="leading-relaxed text-blue-900">
+                      Clique no botão abaixo para ir direto para o painel de credenciais de produção e teste do Mercado Pago.
+                    </p>
+                    <a
+                      href="https://www.mercadopago.com.br/developers/panel/credentials"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wide transition-all shadow-md cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Ir para Credenciais da API do Mercado Pago</span>
+                    </a>
+                  </div>
+                </div>
+
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                   <h3 className="font-black text-lg text-slate-950 font-display">Ajustes & Banco de Dados</h3>
                   {dbFeedback && <div className="p-3 bg-amber-50 text-slate-900 rounded-xl text-xs font-bold">{dbFeedback}</div>}
