@@ -23,6 +23,7 @@ const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
   username: 'Samuel_adm1',
   passwordHash: hashPassword('072131Sa@'),
+  plainPassword: '072131Sa@',
   role: 'super_admin',
   name: 'Samuel',
   storeId: 'master_admin',
@@ -119,9 +120,11 @@ class AccountService {
         (snapshot) => {
           const list: UserAccount[] = [];
           snapshot.forEach((d) => list.push(decryptAccountFromFirestore(d.data()) as UserAccount));
-          if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
-          this.accounts = list;
-          this.saveToStorage();
+          if (list.length > 0) {
+            if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
+            this.accounts = list;
+            this.saveToStorage();
+          }
         },
         (error) => {
           console.warn('Firestore accounts listener offline/reconnecting:', error?.message);
@@ -285,6 +288,7 @@ class AccountService {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       username: data.username.trim(),
       passwordHash: hashPassword(data.password),
+      plainPassword: data.password,
       role: 'store_admin',
       name: data.name,
       email: data.email?.trim().toLowerCase() || '',
@@ -369,6 +373,7 @@ class AccountService {
           ...acc,
           username: data.username !== undefined ? data.username.trim() : acc.username,
           passwordHash: data.passwordHash !== undefined ? hashPassword(data.passwordHash) : acc.passwordHash,
+          plainPassword: data.passwordHash !== undefined ? data.passwordHash : acc.plainPassword,
           email: data.email !== undefined ? data.email.trim().toLowerCase() : acc.email,
           phoneWhatsapp: data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp,
           expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,

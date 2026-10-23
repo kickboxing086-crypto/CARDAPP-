@@ -180,7 +180,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const handleOpenEdit = (acc: UserAccount) => {
     setEditingAccount(acc);
     setEditUsername(acc.username);
-    setEditPassword(acc.passwordHash);
+    setEditPassword(acc.plainPassword || '');
     setEditEmail(acc.email || '');
     setEditPhone(acc.phoneWhatsapp || '');
     setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
@@ -728,10 +728,16 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Link visível */}
-                        <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono font-medium text-slate-600 flex items-center gap-2 truncate">
-                          <span className="text-amber-600 font-bold">Link de Acesso:</span>
-                          <span className="truncate text-slate-800">cardapp-us/{storeSlug}</span>
+                        {/* Link e Senha em texto normal visíveis para o CEO */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                          <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5">
+                            <span className="text-amber-600 font-bold shrink-0">Link:</span>
+                            <span className="truncate text-slate-800">cardapp-us/{storeSlug}</span>
+                          </div>
+                          <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5">
+                            <span className="text-amber-600 font-bold shrink-0">Senha (Normal):</span>
+                            <span className="text-slate-900 font-bold font-mono">{acc.plainPassword || (isMaster ? '072131Sa@' : 'Não definida')}</span>
+                          </div>
                         </div>
                       </div>
                     );

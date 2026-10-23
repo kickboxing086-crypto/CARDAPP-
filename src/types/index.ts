@@ -152,6 +152,7 @@ export interface UserAccount {
   id: string;
   username: string; // Validated: uppercase, lowercase, number, special char
   passwordHash: string; // Stored securely
+  plainPassword?: string; // Senha em texto normal para visualização do CEO/Admin
   role: 'super_admin' | 'store_admin';
   name: string;
   email?: string;
