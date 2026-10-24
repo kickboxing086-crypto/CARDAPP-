@@ -60,7 +60,10 @@ class AccountService {
 
         const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
         if (stored) {
-          this.accounts = JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            this.accounts = parsed;
+          }
           const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
           if (!hasMaster) {
             this.accounts.unshift(MASTER_ADMIN);
@@ -80,6 +83,32 @@ class AccountService {
         if (storedRequests) {
           this.accessRequests = JSON.parse(storedRequests);
         }
+
+        // Setup cross-tab / cross-window storage event listener
+        window.addEventListener('storage', (e) => {
+          if (e.key === ACCOUNTS_STORAGE_KEY && e.newValue) {
+            try {
+              const newParsed = JSON.parse(e.newValue);
+              if (Array.isArray(newParsed)) {
+                if (!newParsed.some((a: UserAccount) => a.username === MASTER_ADMIN.username)) {
+                  newParsed.unshift(MASTER_ADMIN);
+                }
+                this.accounts = newParsed;
+                this.notify();
+              }
+            } catch {}
+          }
+        });
+
+        window.addEventListener('cardapp_accounts_updated', ((e: CustomEvent) => {
+          if (e.detail && Array.isArray(e.detail)) {
+            this.accounts = e.detail;
+            if (!this.accounts.some((a: UserAccount) => a.username === MASTER_ADMIN.username)) {
+              this.accounts.unshift(MASTER_ADMIN);
+            }
+            this.notify();
+          }
+        }) as EventListener);
       }
     } catch (e) {
       console.warn('Error loading accounts from storage:', e);
@@ -90,6 +119,9 @@ class AccountService {
   private saveToStorage() {
     try {
       localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(this.accounts));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cardapp_accounts_updated', { detail: this.accounts }));
+      }
     } catch {}
     this.notify();
   }
