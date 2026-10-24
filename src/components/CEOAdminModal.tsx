@@ -144,6 +144,30 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
+  // Tutorial Básico de Primeiro Acesso
+  const tutorialSeenKey = `cardapp_tutorial_seen_${currentSession?.id || 'default'}`;
+  const [showTutorialModal, setShowTutorialModal] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(tutorialSeenKey) !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleCloseTutorial = () => {
+    try {
+      localStorage.setItem(tutorialSeenKey, 'true');
+    } catch {}
+    setShowTutorialModal(false);
+  };
+
+  const handleOpenManualRenewalWhatsApp = () => {
+    const days = daysUntilExpiry;
+    const msg = `Olá! Gostaria de realizar a renovação manual do plano da minha loja *${settings.storeName}* (ID: \`${currentStoreId}\`), que está faltando ${days} ${days === 1 ? 'dia' : 'dias'} para expirar. Segue o comprovante de pagamento Pix.`;
+    const url = `https://wa.me/5584986113980?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   // Loja Oficial e Login Oficial com ID real da loja do CEO
   const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
   const currentSession = accountSession || accountService.getCurrentSession();
@@ -1071,6 +1095,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </span>
               )}
             </button>
+
+            {/* Botão de Tutorial no Menu Lateral */}
+            <button
+              type="button"
+              onClick={() => setShowTutorialModal(true)}
+              className="w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black text-slate-700 hover:bg-amber-100/70 hover:text-slate-950 transition-all cursor-pointer bg-amber-50/80 border border-amber-200 mt-1"
+            >
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-amber-600 stroke-[2.4]" />
+                <span>Guia / Tutorial Básico</span>
+              </div>
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded">
+                Ajuda
+              </span>
+            </button>
           </nav>
 
           {/* Bottom Actions of Left Sidebar */}
@@ -1132,15 +1171,16 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               <div className="flex items-center gap-2.5">
                 <Clock className="w-5 h-5 shrink-0" />
                 <span>
-                  <strong>Aviso Importante:</strong> Seu plano expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Realize o pagamento manual da mensalidade (R$ 24,99) para manter seu cardápio ativo.
+                  <strong>Atenção:</strong> O plano da sua loja expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Realize a renovação manual para manter seu cardápio ativo.
                 </span>
               </div>
               <button
                 type="button"
-                onClick={() => setActiveTabState('status')}
-                className="px-3 py-1.5 bg-slate-950 text-amber-400 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-900"
+                onClick={handleOpenManualRenewalWhatsApp}
+                className="px-3.5 py-2 bg-slate-950 text-amber-400 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-900 flex items-center gap-1.5"
               >
-                Realizar Pagamento
+                <MessageCircle className="w-4 h-4 text-emerald-400" />
+                <span>Realizar Renovação</span>
               </button>
             </div>
           )}
@@ -4084,6 +4124,95 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 className="py-3 px-5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE TUTORIAL BÁSICO DE PRIMEIRO ACESSO */}
+      {showTutorialModal && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-xl w-full border border-amber-200 shadow-2xl p-6 sm:p-8 space-y-6 animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-amber-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-md shadow-amber-500/20 shrink-0">
+                  <Sparkles className="w-6 h-6 stroke-[2.3]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-black text-slate-950 tracking-tight">
+                    Bem-vindo ao CARDAPP! 🚀
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Guia rápido de configuração essencial para o seu negócio
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseTutorial}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+                title="Fechar Tutorial"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs sm:text-sm text-slate-700 leading-relaxed">
+              <p className="font-medium text-slate-800">
+                Parabéns por ativar sua plataforma digital! Para começar a receber pedidos e faturar sem comissões, siga estes <strong>4 passos simples e fundamentais</strong>:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center gap-2 font-black text-amber-900 text-xs uppercase tracking-wider">
+                    <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-bold">1</span>
+                    <span>Dados & WhatsApp</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-normal">
+                    Vá na aba <strong>Configurações</strong> e preencha o nome da sua loja e o número do seu WhatsApp comercial. É para lá que os pedidos chegarão formatados!
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center gap-2 font-black text-amber-900 text-xs uppercase tracking-wider">
+                    <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-bold">2</span>
+                    <span>Cadastrar Cardápio</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-normal">
+                    Vá na aba <strong>Cardápio</strong> e adicione categorias (ex: Lanches, Bebidas) e seus produtos com fotos nítidas, preços e complementos.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center gap-2 font-black text-amber-900 text-xs uppercase tracking-wider">
+                    <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-bold">3</span>
+                    <span>Taxas de Entrega</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-normal">
+                    Configure os bairros que você atende e suas respectivas taxas de frete para que o cliente calcule automaticamente no checkout.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center gap-2 font-black text-amber-900 text-xs uppercase tracking-wider">
+                    <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-bold">4</span>
+                    <span>Compartilhar Link</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-normal">
+                    Na aba <strong>Compartilhar</strong>, copie seu link exclusivo e cole na bio do Instagram e no status do WhatsApp para divulgar aos clientes.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3 border-t border-amber-100">
+              <button
+                type="button"
+                onClick={handleCloseTutorial}
+                className="w-full sm:w-auto py-3 px-8 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 cursor-pointer active:scale-95"
+              >
+                Entendi, Começar a Configurar!
               </button>
             </div>
           </div>
