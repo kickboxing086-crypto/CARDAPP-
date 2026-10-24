@@ -1126,6 +1126,24 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
         {/* LADO DIREITO: CONTEÚDO PRINCIPAL ORGANIZADO */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50/50">
+          {/* Alerta Automático de Vencimento em 5 Dias */}
+          {currentSession && currentSession.role !== 'super_admin' && daysUntilExpiry <= 5 && daysUntilExpiry >= 0 && (
+            <div className="bg-amber-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <Clock className="w-5 h-5 shrink-0" />
+                <span>
+                  <strong>Aviso Importante:</strong> Seu plano expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Realize o pagamento manual da mensalidade (R$ 24,99) para manter seu cardápio ativo.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTabState('status')}
+                className="px-3 py-1.5 bg-slate-950 text-amber-400 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-900"
+              >
+                Realizar Pagamento
+              </button>
+            </div>
+          )}
           {/* Top Bar of Active Tab */}
           <div className="bg-white border-b border-amber-200 px-4 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
