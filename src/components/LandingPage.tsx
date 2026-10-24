@@ -107,7 +107,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-[#0A0D14] text-slate-300 py-2.5 px-4 text-xs font-medium text-center flex items-center justify-center gap-2 border-b border-white/5">
         <Sparkles className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
         <span className="tracking-wide text-slate-300">
-          Tecnologia Gastronômica de Alta Performance • Plano Único <strong>R$ 24,99/mês</strong> • <strong>0% de Comissão</strong> sobre suas vendas
+          🚀 <strong>7 Dias Grátis</strong> para testar sem compromisso • Plano Único <strong>R$ 24,99/mês</strong> • <strong>0% de Comissão</strong> • Renovação manual após o período
         </span>
       </div>
 

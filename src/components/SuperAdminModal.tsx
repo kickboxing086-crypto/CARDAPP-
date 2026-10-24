@@ -50,7 +50,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 }) => {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'stores' | 'users' | 'subscriptions' | 'reports' | 'database' | 'requests' | 'help' | 'generator'>('users');
+  const [activeTabState, setActiveTabState] = useState<'dashboard' | 'stores' | 'users' | 'subscriptions' | 'reports' | 'database' | 'requests' | 'help' | 'generator'>('users');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const activeTab = activeTabState;
+  const setActiveTab = (tab: any) => {
+    setActiveTabState(tab);
+    setIsMobileSidebarOpen(false);
+  };
 
   // Generator Form State
   const [newStoreName, setNewStoreName] = useState('');
@@ -250,8 +257,18 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl max-w-7xl w-full max-h-[95vh] flex flex-col sm:flex-row shadow-2xl border border-amber-400 overflow-hidden">
         
+        {/* Mobile backdrop */}
+        {isMobileSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-slate-950/60 z-40 sm:hidden animate-in fade-in"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
+
         {/* Yellow Sidebar matching the mockup */}
-        <div className="w-full sm:w-64 bg-amber-400 text-slate-950 p-5 flex flex-col justify-between shrink-0 border-r border-amber-500">
+        <div className={`fixed sm:static inset-y-0 left-0 z-50 sm:z-auto w-72 sm:w-64 bg-amber-400 text-slate-950 p-5 flex flex-col justify-between shrink-0 border-r border-amber-500 transition-transform duration-200 shadow-2xl sm:shadow-none ${
+          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
+        }`}>
           <div className="space-y-6">
             {/* Logo & Brand */}
             <div className="flex items-center gap-3 px-2 py-1">
@@ -405,11 +422,19 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
         {/* Right Main Content Area */}
         <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
           {/* Top Bar matching image */}
-          <div className="bg-white px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-              <span className="font-black text-slate-900 tracking-wide">PAINEL ADMINISTRATIVO</span>
-              <span className="text-slate-300">|</span>
-              <span className="text-amber-600 font-extrabold">CARDAPP</span>
+          <div className="bg-white px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2.5 text-sm font-bold text-slate-700">
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="sm:hidden p-2 rounded-xl bg-amber-400 text-slate-950 font-black cursor-pointer shadow-xs"
+                title="Abrir Menu"
+              >
+                <Users className="w-4 h-4" />
+              </button>
+              <span className="font-black text-slate-900 tracking-wide text-xs sm:text-sm">PAINEL ADMINISTRATIVO</span>
+              <span className="hidden sm:inline text-slate-300">|</span>
+              <span className="hidden sm:inline text-amber-600 font-extrabold">CARDAPP</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -474,16 +499,40 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     />
                   </div>
 
-                  <div className="w-full sm:w-64">
-                    <select
-                      value={userStatusFilter}
-                      onChange={(e) => setUserStatusFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 text-slate-900 cursor-pointer"
+                  <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setUserStatusFilter('all')}
+                      className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        userStatusFilter === 'all'
+                          ? 'bg-slate-950 text-amber-400 shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
                     >
-                      <option value="all">Status (Ativo/Inativo)</option>
-                      <option value="ativo">Ativo</option>
-                      <option value="inativo">Inativo / Bloqueado</option>
-                    </select>
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUserStatusFilter('ativo')}
+                      className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        userStatusFilter === 'ativo'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Ativos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUserStatusFilter('inativo')}
+                      className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        userStatusFilter === 'inativo'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Bloqueados
+                    </button>
                   </div>
                 </div>
 
