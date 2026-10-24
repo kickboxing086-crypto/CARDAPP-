@@ -336,6 +336,27 @@ class AccountService {
 
     this.accounts.push(newAccount);
     this.saveToStorage();
+
+    // Salvar no registro global universal para garantir que o Admin Geral sempre os veja instantaneamente
+    try {
+      const globalKey = 'cardapp_global_all_accounts_v1';
+      const globalList = JSON.parse(localStorage.getItem(globalKey) || '[]');
+      if (!globalList.some((a: UserAccount) => a.id === newAccount.id || a.username === newAccount.username)) {
+        globalList.push(newAccount);
+        localStorage.setItem(globalKey, JSON.stringify(globalList));
+      }
+    } catch {}
+
+    // Criar solicitação de acesso correspondente visível no Admin Geral
+    try {
+      this.addAccessRequest({
+        name: newAccount.name,
+        email: newAccount.email || 'cliente@cardapp.com',
+        phoneWhatsapp: newAccount.phoneWhatsapp,
+        storeName: newAccount.storeName,
+      });
+    } catch {}
+
     storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp);
     try {
       setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch((err) =>
@@ -343,7 +364,7 @@ class AccountService {
       );
     } catch {}
 
-    return { success: true, message: 'Conta gerada!', account: newAccount };
+    return { success: true, message: 'Conta gerada com sucesso!', account: newAccount };
   }
 
   public registerClientAccount(data: ClientRegistrationFormData): {

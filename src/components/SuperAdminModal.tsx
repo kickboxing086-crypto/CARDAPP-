@@ -100,14 +100,16 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [dbFeedback, setDbFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    setAccounts(accountService.getAccounts());
-    setAccessRequests(accountService.getAccessRequests());
+    if (isOpen) {
+      setAccounts(accountService.getAccounts());
+      setAccessRequests(accountService.getAccessRequests());
+    }
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
     });
     return () => unsub();
-  }, []);
+  }, [isOpen]);
 
   const usernameSecurity = validateSecurityPolicy(newUsername);
   const passwordSecurity = validatePasswordSecurity(newPassword);
