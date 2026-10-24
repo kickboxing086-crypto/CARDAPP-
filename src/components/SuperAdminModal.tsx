@@ -493,11 +493,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-100 text-slate-700 text-[11px] font-black uppercase tracking-wider border-b border-slate-200">
-                          <th className="py-3.5 px-4">Nome</th>
-                          <th className="py-3.5 px-4">E-mail</th>
-                          <th className="py-3.5 px-4">Restaurante</th>
-                          <th className="py-3.5 px-4">Perfil</th>
-                          <th className="py-3.5 px-4">Último Acesso</th>
+                          <th className="py-3.5 px-4">Lojista & WhatsApp</th>
+                          <th className="py-3.5 px-4">Restaurante (Loja)</th>
+                          <th className="py-3.5 px-4">Credenciais (Login / Senha)</th>
+                          <th className="py-3.5 px-4">Validade / Vencimento</th>
                           <th className="py-3.5 px-4">Status</th>
                           <th className="py-3.5 px-4 text-center">Ações</th>
                         </tr>
@@ -505,7 +504,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-800">
                         {filteredAccounts.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-slate-400">
+                            <td colSpan={6} className="py-8 text-center text-slate-400">
                               Nenhum usuário encontrado.
                             </td>
                           </tr>
@@ -515,32 +514,43 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                             const isMaster = acc.role === 'super_admin';
                             return (
                               <tr key={acc.id} className="hover:bg-slate-50/80 transition-colors">
-                                <td className="py-3.5 px-4 font-bold text-slate-950">
-                                  {acc.name}
-                                </td>
-                                <td className="py-3.5 px-4 text-slate-600 font-normal">
-                                  {acc.email || 'Não informado'}
-                                </td>
-                                <td className="py-3.5 px-4 text-slate-900 font-bold">
-                                  {acc.storeName}
+                                <td className="py-3.5 px-4">
+                                  <div className="font-bold text-slate-950">{acc.name}</div>
+                                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">{acc.phoneWhatsapp || acc.email || 'Sem contato'}</div>
                                 </td>
                                 <td className="py-3.5 px-4">
-                                  <span className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-800 text-[11px] font-bold">
-                                    {isMaster ? 'Admin Geral' : 'Dono'}
-                                  </span>
+                                  <div className="font-bold text-slate-900">{acc.storeName}</div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyStoreLink(acc)}
+                                    className="text-[10px] text-amber-600 hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    <span>{copiedStoreId === acc.id ? 'Link Copiado!' : 'Copiar Link da Loja'}</span>
+                                  </button>
                                 </td>
-                                <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
-                                  {formatDateTime(acc.createdAt)}
+                                <td className="py-3.5 px-4 font-mono text-[11px]">
+                                  {isMaster ? (
+                                    <span className="text-amber-700 font-bold">Admin Mestre</span>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      <div><strong className="text-slate-500">User:</strong> <span className="text-slate-900">{acc.username}</span></div>
+                                      <div><strong className="text-slate-500">Pass:</strong> <span className="text-slate-900 bg-amber-50 px-1 py-0.5 rounded border border-amber-200">{acc.plainPassword || '••••••••'}</span></div>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
+                                  {isMaster ? 'Vitalício' : (acc.expiresAt ? new Date(acc.expiresAt).toLocaleDateString('pt-BR') : 'Indeterminado')}
                                 </td>
                                 <td className="py-3.5 px-4">
                                   <span
                                     className={`px-3 py-1 rounded-full text-[11px] font-black ${
                                       isActive
                                         ? 'bg-amber-400 text-slate-950 shadow-2xs'
-                                        : 'bg-slate-200 text-slate-700'
+                                        : 'bg-red-100 text-red-800'
                                     }`}
                                   >
-                                    {isActive ? 'Ativo' : 'Inativo'}
+                                    {isActive ? 'Ativo' : 'Bloqueado'}
                                   </span>
                                 </td>
                                 <td className="py-3.5 px-4 text-center">
@@ -559,7 +569,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => {
-                                            const newPass = prompt('Digite a nova senha para este usuário:');
+                                            const newPass = prompt(`Digite a nova senha (normal) para ${acc.name}:`);
                                             if (newPass) {
                                               accountService.updateAccountDetails(acc.id, { passwordHash: newPass });
                                               alert('Senha alterada com sucesso!');
