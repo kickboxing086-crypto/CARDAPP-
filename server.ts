@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import * as admin from 'firebase-admin';
 import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
-import { MercadoPagoConfig, Payment } from 'mercadopago';
+import { MercadoPagoConfig, Payment, Preference, WebhookSignatureValidator } from 'mercadopago';
 
 dotenv.config();
 
@@ -42,9 +42,56 @@ try {
   console.warn('[Server] Firebase Admin init notice:', e);
 }
 
-// Inicializa Mercado Pago
-const mpConfig = new MercadoPagoConfig({ accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '' });
-const paymentClient = new Payment(mpConfig);
+// Helper seguro para leitura das credenciais Mercado Pago do servidor
+function getMercadoPagoCredentials() {
+  const accessToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || '').trim();
+  const publicKey = (process.env.MERCADO_PAGO_PUBLIC_KEY || '').trim();
+  return { accessToken, publicKey };
+}
+
+function getMercadoPagoClients() {
+  const { accessToken, publicKey } = getMercadoPagoCredentials();
+  if (!accessToken) return null;
+  const config = new MercadoPagoConfig({
+    accessToken,
+    options: { timeout: 12000 },
+  });
+  return {
+    config,
+    paymentClient: new Payment(config),
+    preferenceClient: new Preference(config),
+    publicKey,
+  };
+}
+
+function sanitizeGatewayText(value: unknown, maxLen: number, fallback = ''): string {
+  if (typeof value !== 'string') return fallback;
+  const cleaned = value.replace(/[\r\n\t<>]/g, ' ').trim().slice(0, maxLen);
+  return cleaned || fallback;
+}
+
+function isValidEmailAddress(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 160;
+}
+
+function resolveAppBaseUrl(req: express.Request): string | null {
+  const envUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (envUrl && /^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?(\/.*)?$/.test(envUrl)) {
+    return envUrl;
+  }
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const rawHost = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || req.headers.host;
+  if (typeof rawHost === 'string' && /^[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(rawHost.trim())) {
+    const protoHeader = req.headers['x-forwarded-proto'];
+    const proto = typeof protoHeader === 'string' && protoHeader.split(',')[0].trim() === 'https'
+      ? 'https'
+      : req.protocol === 'https'
+      ? 'https'
+      : 'http';
+    return `${proto}://${rawHost.trim()}`;
+  }
+  return null;
+}
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -515,6 +562,369 @@ app.get('/api/check-email-verification', async (req, res) => {
   }
 });
 
+// =========================================================================
+// MERCADO PAGO GATEWAY API ROUTES (Registered BEFORE Vite / catch-all SPA)
+// =========================================================================
+
+// Status da integração Mercado Pago (nunca expõe o Access Token privado)
+app.get('/api/mercadopago/status', (_req, res) => {
+  const { accessToken, publicKey } = getMercadoPagoCredentials();
+  return res.json({
+    configured: Boolean(accessToken),
+    publicKeyConfigured: Boolean(publicKey),
+    publicKey: publicKey || null,
+  });
+});
+
+// Criar pagamento Pix oficial via Mercado Pago (retorna QR Code e Copia e Cola reais)
+app.post('/api/mercadopago/create-pix-payment', async (req, res) => {
+  try {
+    const clients = getMercadoPagoClients();
+    if (!clients) {
+      return res.status(503).json({
+        success: false,
+        code: 'MP_NOT_CONFIGURED',
+        message: 'Gateway Mercado Pago aguardando configuração do Access Token nos Secrets do servidor.',
+      });
+    }
+
+    const body = req.body || {};
+    const accountId = sanitizeGatewayText(body.accountId, 100);
+    const storeId = sanitizeGatewayText(body.storeId, 100, 'store');
+    const storeName = sanitizeGatewayText(body.storeName, 80, 'Loja CARDAPP');
+    const planId = sanitizeGatewayText(body.planId, 80, 'mensal');
+    const planPeriod = sanitizeGatewayText(body.planPeriod, 40, 'mensal');
+    const planName = sanitizeGatewayText(body.planName, 80, 'Plano Mensal');
+    const payerName = sanitizeGatewayText(body.payerName, 80, 'Lojista CARDAPP');
+    const rawEmail = sanitizeGatewayText(body.payerEmail, 160).toLowerCase();
+    const payerEmail = isValidEmailAddress(rawEmail) ? rawEmail : 'pagamentos@cardapp.com.br';
+
+    const parsedAmount = Number(body.amount);
+    if (!accountId || !Number.isFinite(parsedAmount) || parsedAmount < 1 || parsedAmount > 50000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados do plano ou valor de pagamento inválidos.',
+      });
+    }
+    const cleanAmount = Math.round(parsedAmount * 100) / 100;
+
+    const parsedDays = Number(body.durationDays);
+    const durationDays =
+      Number.isInteger(parsedDays) && parsedDays >= 1 && parsedDays <= 36500 ? parsedDays : 30;
+
+    const nameParts = payerName.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] || 'Lojista';
+    const lastName = nameParts.slice(1).join(' ') || 'CARDAPP';
+
+    const baseUrl = resolveAppBaseUrl(req);
+    const notificationUrl =
+      baseUrl && baseUrl.startsWith('https://') ? `${baseUrl}/api/mercadopago-webhook` : undefined;
+
+    const externalReference = `cardapp_renewal:${accountId}:${planPeriod}:${durationDays}`.slice(0, 250);
+    const idempotencyKey = crypto.randomUUID();
+
+    // Expiração do Pix em 30 minutos
+    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const mpPayment = await clients.paymentClient.create({
+      body: {
+        transaction_amount: cleanAmount,
+        description: `CARDAPP ${planName} - ${storeName}`.slice(0, 200),
+        payment_method_id: 'pix',
+        date_of_expiration: expirationDate,
+        payer: {
+          email: payerEmail,
+          first_name: firstName,
+          last_name: lastName,
+        },
+        external_reference: externalReference,
+        ...(notificationUrl ? { notification_url: notificationUrl } : {}),
+        metadata: {
+          account_id: accountId,
+          store_id: storeId,
+          store_name: storeName,
+          plan_id: planId,
+          plan_period: planPeriod,
+          plan_name: planName,
+          duration_days: durationDays,
+        },
+      },
+      requestOptions: { idempotencyKey },
+    });
+
+    const paymentId = String(mpPayment.id || '');
+    const txData = mpPayment.point_of_interaction?.transaction_data;
+    const qrCode = txData?.qr_code || '';
+    const qrCodeBase64 = txData?.qr_code_base64 || '';
+    const ticketUrl = txData?.ticket_url || '';
+
+    if (db && paymentId) {
+      try {
+        await db.collection('mp_payments').doc(paymentId).set({
+          paymentId,
+          accountId,
+          storeId,
+          storeName,
+          planId,
+          planPeriod,
+          planName,
+          durationDays,
+          amount: cleanAmount,
+          status: mpPayment.status || 'pending',
+          method: 'pix',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (dbErr) {
+        console.warn('[Mercado Pago] Non-blocking Firestore log warning:', dbErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      paymentId,
+      status: mpPayment.status || 'pending',
+      statusDetail: mpPayment.status_detail || '',
+      amount: cleanAmount,
+      qrCode,
+      qrCodeBase64,
+      ticketUrl,
+      expiresAt: mpPayment.date_of_expiration || expirationDate,
+    });
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido ao comunicar com Mercado Pago.';
+    console.error('[Mercado Pago Pix Error]:', error);
+    return res.status(502).json({
+      success: false,
+      message: `Não foi possível gerar o Pix no Mercado Pago: ${errMsg}`,
+    });
+  }
+});
+
+// Criar preferência de pagamento Checkout Pro (Cartão, Saldo Mercado Pago, Pix, Boleto)
+app.post('/api/mercadopago/create-preference', async (req, res) => {
+  try {
+    const clients = getMercadoPagoClients();
+    if (!clients) {
+      return res.status(503).json({
+        success: false,
+        code: 'MP_NOT_CONFIGURED',
+        message: 'Gateway Mercado Pago aguardando configuração do Access Token nos Secrets do servidor.',
+      });
+    }
+
+    const body = req.body || {};
+    const accountId = sanitizeGatewayText(body.accountId, 100);
+    const storeId = sanitizeGatewayText(body.storeId, 100, 'store');
+    const storeName = sanitizeGatewayText(body.storeName, 80, 'Loja CARDAPP');
+    const planId = sanitizeGatewayText(body.planId, 80, 'mensal');
+    const planPeriod = sanitizeGatewayText(body.planPeriod, 40, 'mensal');
+    const planName = sanitizeGatewayText(body.planName, 80, 'Plano Mensal');
+    const payerName = sanitizeGatewayText(body.payerName, 80, 'Lojista CARDAPP');
+    const rawEmail = sanitizeGatewayText(body.payerEmail, 160).toLowerCase();
+    const payerEmail = isValidEmailAddress(rawEmail) ? rawEmail : 'pagamentos@cardapp.com.br';
+
+    const parsedAmount = Number(body.amount);
+    if (!accountId || !Number.isFinite(parsedAmount) || parsedAmount < 1 || parsedAmount > 50000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados do plano ou valor de pagamento inválidos.',
+      });
+    }
+    const cleanAmount = Math.round(parsedAmount * 100) / 100;
+
+    const parsedDays = Number(body.durationDays);
+    const durationDays =
+      Number.isInteger(parsedDays) && parsedDays >= 1 && parsedDays <= 36500 ? parsedDays : 30;
+
+    const baseUrl = resolveAppBaseUrl(req);
+    const notificationUrl =
+      baseUrl && baseUrl.startsWith('https://') ? `${baseUrl}/api/mercadopago-webhook` : undefined;
+    const externalReference = `cardapp_renewal:${accountId}:${planPeriod}:${durationDays}`.slice(0, 250);
+
+    const backUrls = baseUrl
+      ? {
+          success: `${baseUrl}/?view=admin&mp_status=approved&mp_account=${encodeURIComponent(accountId)}&mp_plan=${encodeURIComponent(planPeriod)}&mp_days=${durationDays}&mp_amount=${cleanAmount}`,
+          pending: `${baseUrl}/?view=admin&mp_status=pending`,
+          failure: `${baseUrl}/?view=admin&mp_status=failure`,
+        }
+      : undefined;
+
+    const preference = await clients.preferenceClient.create({
+      body: {
+        items: [
+          {
+            id: planId,
+            title: `CARDAPP • ${planName} (${storeName})`.slice(0, 200),
+            description: `Renovação de licença por ${durationDays} dias`,
+            quantity: 1,
+            unit_price: cleanAmount,
+            currency_id: 'BRL',
+          },
+        ],
+        payer: {
+          name: payerName,
+          email: payerEmail,
+        },
+        external_reference: externalReference,
+        ...(backUrls ? { back_urls: backUrls } : {}),
+        ...(baseUrl && baseUrl.startsWith('https://') ? { auto_return: 'approved' as const } : {}),
+        ...(notificationUrl ? { notification_url: notificationUrl } : {}),
+        metadata: {
+          account_id: accountId,
+          store_id: storeId,
+          store_name: storeName,
+          plan_id: planId,
+          plan_period: planPeriod,
+          plan_name: planName,
+          duration_days: durationDays,
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      preferenceId: preference.id || '',
+      initPoint: preference.init_point || '',
+      sandboxInitPoint: preference.sandbox_init_point || '',
+    });
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido no Checkout Pro.';
+    console.error('[Mercado Pago Preference Error]:', error);
+    return res.status(502).json({
+      success: false,
+      message: `Erro ao iniciar Checkout Mercado Pago: ${errMsg}`,
+    });
+  }
+});
+
+// Consultar status oficial de um pagamento diretamente na API do Mercado Pago
+app.get('/api/mercadopago/payment-status/:paymentId', async (req, res) => {
+  try {
+    const paymentId = (req.params.paymentId || '').trim();
+    if (!/^\d{5,22}$/.test(paymentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de pagamento Mercado Pago inválido.',
+      });
+    }
+
+    const clients = getMercadoPagoClients();
+    if (!clients) {
+      return res.status(503).json({
+        success: false,
+        code: 'MP_NOT_CONFIGURED',
+        message: 'Gateway Mercado Pago não configurado no servidor.',
+      });
+    }
+
+    const mpPayment = await clients.paymentClient.get({ id: paymentId });
+    const status = mpPayment.status || 'pending';
+
+    if (db) {
+      try {
+        await db.collection('mp_payments').doc(paymentId).set(
+          {
+            paymentId,
+            status,
+            statusDetail: mpPayment.status_detail || '',
+            amount: mpPayment.transaction_amount || 0,
+            dateApproved: mpPayment.date_approved || null,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+
+    return res.json({
+      success: true,
+      paymentId: String(mpPayment.id || paymentId),
+      status,
+      statusDetail: mpPayment.status_detail || '',
+      amount: mpPayment.transaction_amount || 0,
+      dateApproved: mpPayment.date_approved || null,
+      paymentMethodId: mpPayment.payment_method_id || 'pix',
+      externalReference: mpPayment.external_reference || null,
+      metadata: mpPayment.metadata || null,
+    });
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : 'Pagamento não encontrado.';
+    console.warn('[Mercado Pago Status Lookup Warning]:', errMsg);
+    return res.status(404).json({
+      success: false,
+      message: 'Pagamento ainda não localizado ou pendente no Mercado Pago.',
+    });
+  }
+});
+
+// Webhook oficial Mercado Pago (revalida status diretamente na API antes de gravar)
+app.post('/api/mercadopago-webhook', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const type = body.type || body.topic || req.query.topic || req.query.type;
+    const rawId = body.data?.id || req.query['data.id'] || req.query.id;
+    const paymentId = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId).trim() : '';
+
+    // Valida assinatura HMAC se MERCADO_PAGO_WEBHOOK_SECRET estiver configurado
+    const webhookSecret = (process.env.MERCADO_PAGO_WEBHOOK_SECRET || '').trim();
+    const xSignature = req.headers['x-signature'];
+    const xRequestId = req.headers['x-request-id'];
+    if (webhookSecret && paymentId) {
+      try {
+        WebhookSignatureValidator.validate({
+          xSignature,
+          xRequestId,
+          dataId: paymentId,
+          secret: webhookSecret,
+          toleranceSeconds: 300,
+        });
+      } catch (sigErr) {
+        console.warn('[Mercado Pago Webhook] Assinatura inválida ignorada:', sigErr);
+        return res.status(401).send('Invalid signature');
+      }
+    }
+
+    if (type === 'payment' && /^\d{5,22}$/.test(paymentId)) {
+      const clients = getMercadoPagoClients();
+      if (clients) {
+        const payment = await clients.paymentClient.get({ id: paymentId });
+        if (payment.status === 'approved') {
+          const ref = payment.external_reference || '';
+          if (db) {
+            await db.collection('mp_payments').doc(paymentId).set(
+              {
+                paymentId,
+                status: 'approved',
+                externalReference: ref,
+                amount: payment.transaction_amount || 0,
+                dateApproved: payment.date_approved || null,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+
+            if (ref && !ref.startsWith('cardapp_renewal:')) {
+              await db.collection('orders').doc(ref).set(
+                {
+                  status: 'paid',
+                  mpPaymentId: paymentId,
+                  updatedAt: FieldValue.serverTimestamp(),
+                },
+                { merge: true }
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('[Mercado Pago Webhook] Error processing:', error);
+    return res.status(200).send('OK');
+  }
+});
+
 async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
@@ -534,32 +944,5 @@ async function startServer() {
     console.log(`CARDAPP server running on http://0.0.0.0:${port}`);
   });
 }
-
-app.post('/api/mercadopago-webhook', async (req, res) => {
-  const { data, type, action } = req.body;
-  console.log('[Mercado Pago Webhook] Received:', type, action, data);
-
-  if (type === 'payment') {
-    const paymentId = data.id;
-    try {
-      const payment = await paymentClient.get({ id: paymentId });
-      if (payment.status === 'approved') {
-        const orderId = payment.external_reference;
-        // Update database
-        if (orderId && db) {
-            await db.collection('orders').doc(orderId).update({
-              status: 'paid',
-              updatedAt: FieldValue.serverTimestamp()
-            });
-            console.log(`[Mercado Pago Webhook] Order ${orderId} updated to paid.`);
-        }
-      }
-    } catch (error) {
-      console.error('[Mercado Pago Webhook] Error processing:', error);
-    }
-  }
-
-  res.status(200).send('OK');
-});
 
 startServer();

@@ -31,7 +31,7 @@ const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
 const PLANS_STORAGE_KEY = 'cardapp_subscription_plans_v1';
 const PIX_KEY_STORAGE_KEY = 'cardapp_gateway_pix_key_v1';
-const DEFAULT_PIX_KEY = 'bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+const DEFAULT_PIX_KEY = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
 
 export const PLAN_PERIOD_DAYS: Record<PlanPeriod, number> = {
   mensal: 30,
@@ -143,7 +143,7 @@ class AccountService {
       if (typeof window !== 'undefined' && window.localStorage) {
         const storedPix = localStorage.getItem(PIX_KEY_STORAGE_KEY);
         if (storedPix && storedPix.trim()) {
-          this.pixKey = storedPix.trim();
+          this.pixKey = extractCleanPixKey(storedPix.trim()) || DEFAULT_PIX_KEY;
         } else {
           this.pixKey = DEFAULT_PIX_KEY;
         }
@@ -283,7 +283,7 @@ class AccountService {
           if (snapshot.exists()) {
             const data = snapshot.data();
             if (data?.pixKey && typeof data.pixKey === 'string' && data.pixKey.trim()) {
-              this.pixKey = data.pixKey.trim();
+              this.pixKey = extractCleanPixKey(data.pixKey.trim()) || DEFAULT_PIX_KEY;
               try { localStorage.setItem(PIX_KEY_STORAGE_KEY, this.pixKey); } catch {}
               this.notify();
             }
@@ -898,7 +898,7 @@ class AccountService {
   }
 
   public setPixKey(newKey: string): void {
-    let clean = newKey.trim();
+    let clean = extractCleanPixKey(newKey.trim());
     if (!clean) clean = DEFAULT_PIX_KEY;
     this.pixKey = clean;
     try {

@@ -55,6 +55,7 @@ import {
   generateSecurePassword,
 } from '../utils/security';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
+import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 
 interface SuperAdminModalProps {
   isOpen: boolean;
@@ -172,20 +173,49 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // Quick Copy Link State
   const [copiedStoreId, setCopiedStoreId] = useState<string | null>(null);
   const [dbFeedback, setDbFeedback] = useState<string | null>(null);
+  const [linkedPixKeyInput, setLinkedPixKeyInput] = useState<string>(() => accountService.getCleanPixKey());
+  const [copiedAdminPixKey, setCopiedAdminPixKey] = useState(false);
 
   // Blocking tab quick reason selector
   const [quickBlockReasons, setQuickBlockReasons] = useState<Record<string, string>>({});
+
+  // Status da Gateway Mercado Pago no servidor
+  const [mpGatewayStatus, setMpGatewayStatus] = useState<{
+    checked: boolean;
+    configured: boolean;
+    publicKeyConfigured: boolean;
+    publicKey: string | null;
+  }>({ checked: false, configured: false, publicKeyConfigured: false, publicKey: null });
+
+  const refreshMpStatus = () => {
+    fetch('/api/mercadopago/status')
+      .then((res) => res.json())
+      .then((data) => {
+        setMpGatewayStatus({
+          checked: true,
+          configured: Boolean(data?.configured),
+          publicKeyConfigured: Boolean(data?.publicKeyConfigured),
+          publicKey: data?.publicKey || null,
+        });
+      })
+      .catch(() => {
+        setMpGatewayStatus((prev) => ({ ...prev, checked: true }));
+      });
+  };
 
   useEffect(() => {
     if (isOpen) {
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
       setPlans(accountService.getSubscriptionPlans());
+      setLinkedPixKeyInput(accountService.getCleanPixKey());
+      refreshMpStatus();
     }
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
       setPlans(accountService.getSubscriptionPlans());
+      setLinkedPixKeyInput(accountService.getCleanPixKey());
     });
     return () => unsub();
   }, [isOpen]);
@@ -2005,7 +2035,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-slate-800">
                           Nome de Usuário (8+ caract.) *
                         </label>
@@ -2017,9 +2047,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           placeholder="Ex: Joao_adm1#"
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                         />
+                        <CredentialSecurityChecklist
+                          value={newUsername}
+                          fieldType="username"
+                          onQuickInsertChar={(c) => setNewUsername((prev) => prev + c)}
+                        />
                       </div>
 
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-slate-800">
                           Senha de Acesso (8+ caract.) *
                         </label>
@@ -2030,6 +2065,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Ex: Senha123@#"
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
+                        />
+                        <CredentialSecurityChecklist
+                          value={newPassword}
+                          fieldType="password"
+                          onQuickInsertChar={(c) => setNewPassword((prev) => prev + c)}
                         />
                       </div>
                     </div>
@@ -2177,6 +2217,152 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             {/* ============================================================ */}
             {activeTab === 'database' && (
               <div className="max-w-xl mx-auto space-y-4 animate-in fade-in">
+                {/* Status da Gateway Mercado Pago */}
+                <div className="bg-slate-950 text-white p-6 rounded-3xl border border-amber-400/50 shadow-md space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0">
+                        <CreditCard className="w-5 h-5 text-sky-300" />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-base text-white">
+                          Gateway Mercado Pago (Renovação Direta)
+                        </h3>
+                        <p className="text-[11px] text-slate-400">
+                          Status das credenciais configuradas nos Secrets do servidor
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={refreshMpStatus}
+                      className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 cursor-pointer"
+                      title="Atualizar status Mercado Pago"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                      <span className="text-slate-300 font-bold">Access Token (Servidor):</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          mpGatewayStatus.configured
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}
+                      >
+                        {mpGatewayStatus.checked
+                          ? mpGatewayStatus.configured
+                            ? 'Ativo'
+                            : 'Não definido'
+                          : 'Verificando...'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                      <span className="text-slate-300 font-bold">Public Key:</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          mpGatewayStatus.publicKeyConfigured
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-slate-700 text-slate-300'
+                        }`}
+                      >
+                        {mpGatewayStatus.checked
+                          ? mpGatewayStatus.publicKeyConfigured
+                            ? 'Ativa'
+                            : 'Opcional / Pendente'
+                          : 'Verificando...'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {mpGatewayStatus.publicKey && (
+                    <div className="text-[11px] font-mono text-amber-300 bg-white/5 px-3 py-2 rounded-xl border border-white/10 truncate">
+                      Public Key ativa: {mpGatewayStatus.publicKey}
+                    </div>
+                  )}
+
+                  {!mpGatewayStatus.configured && mpGatewayStatus.checked && (
+                    <p className="text-[11px] text-amber-200 leading-relaxed">
+                      Para processar pagamentos reais no painel dos clientes, adicione{' '}
+                      <code className="bg-white/10 px-1.5 py-0.5 rounded font-mono">
+                        MERCADO_PAGO_ACCESS_TOKEN
+                      </code>{' '}
+                      e{' '}
+                      <code className="bg-white/10 px-1.5 py-0.5 rounded font-mono">
+                        MERCADO_PAGO_PUBLIC_KEY
+                      </code>{' '}
+                      em <strong>Configurações → Secrets</strong>. O token privado permanece protegido exclusivamente no servidor.
+                    </p>
+                  )}
+                </div>
+
+                {/* Chave Pix Oficial Vinculada */}
+                <div className="bg-white p-6 rounded-3xl border border-amber-300 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-black text-base text-slate-950 font-display">
+                        Chave Pix Oficial Vinculada
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Chave utilizada no QR Code Pix Direto exibido para renovação dos clientes.
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase">
+                      Vinculada
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={linkedPixKeyInput}
+                      onChange={(e) => setLinkedPixKeyInput(e.target.value)}
+                      placeholder="a8d6dde8-33ae-45c8-b88a-5023cc204a55"
+                      className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(linkedPixKeyInput);
+                        setCopiedAdminPixKey(true);
+                        setTimeout(() => setCopiedAdminPixKey(false), 2500);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedAdminPixKey ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAdminPixKey ? 'Copiado!' : 'Copiar'}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        accountService.setPixKey(linkedPixKeyInput);
+                        showToast('success', 'Chave Pix oficial vinculada e salva com sucesso!');
+                      }}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase cursor-pointer"
+                    >
+                      Salvar Chave Pix
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        accountService.resetDefaultPixKey();
+                        setLinkedPixKeyInput(accountService.getCleanPixKey());
+                        showToast('success', 'Chave Pix padrão a8d6dde8-33ae-45c8-b88a-5023cc204a55 vinculada!');
+                      }}
+                      className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                    >
+                      Usar Chave Padrão
+                    </button>
+                  </div>
+                </div>
+
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                   <h3 className="font-black text-lg text-slate-950 font-display">
                     Ajustes & Backup de Segurança
@@ -2479,7 +2665,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </div>
                     )}
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-800">
                         Nome de Usuário (mínimo 8 caracteres) *
                       </label>
@@ -2490,9 +2676,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                         onChange={(e) => setEditUsername(e.target.value)}
                         className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                       />
+                      <CredentialSecurityChecklist
+                        value={editUsername}
+                        fieldType="username"
+                        onQuickInsertChar={(c) => setEditUsername((prev) => prev + c)}
+                      />
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-800">
                         Senha (mínimo 8 caracteres) *
                       </label>
@@ -2516,6 +2707,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           )}
                         </button>
                       </div>
+                      <CredentialSecurityChecklist
+                        value={editPassword}
+                        fieldType="password"
+                        onQuickInsertChar={(c) => setEditPassword((prev) => prev + c)}
+                      />
                     </div>
 
                     <div className="space-y-1">

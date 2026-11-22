@@ -54,6 +54,7 @@ import {
   Award,
   KeyRound,
   Receipt,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Product,
@@ -67,6 +68,7 @@ import {
   NeighborhoodDeliveryFee,
   UserAccount,
   PaymentInvoice,
+  SubscriptionPlan,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -148,14 +150,20 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
   const currentSession = accountSession || accountService.getCurrentSession();
   const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
-  const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
+  const [availablePlans, setAvailablePlans] = useState<SubscriptionPlan[]>(() => {
+    const active = accountService.getSubscriptionPlans().filter((p) => p.isActive);
+    return active.length > 0 ? active : accountService.getSubscriptionPlans();
+  });
+  const [officialPixKey, setOfficialPixKey] = useState<string>(() => accountService.getCleanPixKey());
 
-  // Assinar alterações da conta no accountService
+  // Assinar alterações da conta, chave Pix oficial e planos exclusivos no accountService
   useEffect(() => {
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
-      setPixKey(accountService.getPixKey());
+      setOfficialPixKey(accountService.getCleanPixKey());
+      const active = accountService.getSubscriptionPlans().filter((p) => p.isActive);
+      setAvailablePlans(active.length > 0 ? active : accountService.getSubscriptionPlans());
       if (updated?.planStatus === 'bloqueado') {
         setActiveTab('status');
       }
@@ -192,221 +200,386 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   const handleOpenManualRenewalWhatsApp = () => {
     const days = daysUntilExpiry;
-    const msg = `Olá! Gostaria de realizar a renovação manual do plano da minha loja *${settings.storeName}* (ID: \`${currentStoreId}\`), que está faltando ${days} ${days === 1 ? 'dia' : 'dias'} para expirar. Segue o comprovante de pagamento Pix.`;
+    const msg = `Olá! Gostaria de realizar a renovação do plano da minha loja *${settings.storeName}* (ID: \`${currentStoreId}\`), restando ${days} ${days === 1 ? 'dia' : 'dias'}.`;
     const url = `https://wa.me/5584986113980?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const PIX_AMOUNT = 24.99;
-  const PAYMENT_TIMEOUT_SECONDS = 300;
-  const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
-  const [copiedCleanPixKey, setCopiedCleanPixKey] = useState(false);
-  const [copiedBcbKey, setCopiedBcbKey] = useState(false);
+  // =========================================================================
+  // MERCADO PAGO GATEWAY STATE & HANDLERS
+  // =========================================================================
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(() => {
+    const plans = accountService.getSubscriptionPlans().filter((p) => p.isActive);
+    const mensal = plans.find((p) => p.period === 'mensal');
+    return mensal?.id || plans[0]?.id || 'plan_mensal_padrao';
+  });
+
+  const selectedPlan = useMemo<SubscriptionPlan>(() => {
+    return (
+      availablePlans.find((p) => p.id === selectedPlanId) ||
+      availablePlans[0] || {
+        id: 'plan_mensal_padrao',
+        period: 'mensal',
+        name: 'Plano Mensal',
+        durationDays: 30,
+        price: 24.99,
+        description: 'Renovação de 30 dias com acesso completo.',
+        isActive: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'Samuel_adm1',
+      }
+    );
+  }, [availablePlans, selectedPlanId]);
+
+  const [mpGatewayStatus, setMpGatewayStatus] = useState<{
+    checked: boolean;
+    configured: boolean;
+    publicKeyConfigured: boolean;
+    publicKey: string | null;
+  }>({ checked: false, configured: false, publicKeyConfigured: false, publicKey: null });
+
+  const [mpPixPayment, setMpPixPayment] = useState<{
+    paymentId: string;
+    qrCode: string;
+    qrCodeBase64: string;
+    ticketUrl: string;
+    expiresAt: string | null;
+    amount: number;
+    status: string;
+    plan: SubscriptionPlan;
+  } | null>(null);
+
+  const [mpFallbackQrUrl, setMpFallbackQrUrl] = useState<string>('');
+  const [mpCheckoutUrl, setMpCheckoutUrl] = useState<string | null>(null);
+  const [mpManualLookupId, setMpManualLookupId] = useState<string>('');
+  const [isGeneratingPix, setIsGeneratingPix] = useState(false);
+  const [isGeneratingCheckout, setIsGeneratingCheckout] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
-  const [copiedTxId, setCopiedTxId] = useState(false);
+  const [copiedDirectPixKey, setCopiedDirectPixKey] = useState(false);
+  const [copiedDirectPixPayload, setCopiedDirectPixPayload] = useState(false);
+  const [directPixQrUrl, setDirectPixQrUrl] = useState<string>('');
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [invoicesList, setInvoicesList] = useState<PaymentInvoice[]>(() => {
     return currentSession?.id ? accountService.getInvoices(currentSession.id) : [];
   });
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
-  const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
-  const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
-  const [pixTransactionId, setPixTransactionId] = useState('');
 
-  // Sempre exibe a Gateway com o QR Code (período de teste grátis ou renovação imediata)
-  const isPaymentDueSoon = useMemo(() => {
-    if (currentSession?.role === 'super_admin') return false;
-    return true;
-  }, [currentSession?.role]);
+  // Payload Pix Direto vinculado à Chave Pix Oficial (a8d6dde8-33ae-45c8-b88a-5023cc204a55)
+  const cleanOfficialPixKey = useMemo(
+    () => extractCleanPixKey(officialPixKey) || 'a8d6dde8-33ae-45c8-b88a-5023cc204a55',
+    [officialPixKey]
+  );
 
-  // Identificador Único de Transação / Protocolo Bancário
-  const transactionId = useMemo(() => {
-    const rawCode = (currentSession?.storeId || 'CARDAPP').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase();
-    return `PIX-APP-${rawCode}-2026`;
-  }, [currentSession?.storeId]);
-
-  // Chave limpa oficial (EVP / UUID) para o DICT e banco aceitarem sem erro
-  const cleanPixKey = useMemo(() => extractCleanPixKey(pixKey), [pixKey]);
-
-  // Payload oficial Pix Copia e Cola padrão EMVCo / BACEN com CRC16 válido e valor a partir de R$ 2,00
-  const officialPixPayload = useMemo(() => {
+  const directPixPayload = useMemo(() => {
+    const rawCode = (currentStoreId || 'CARDAPP').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase();
     return generatePixPayload({
-      pixKey: cleanPixKey,
-      amount: PIX_AMOUNT,
+      pixKey: cleanOfficialPixKey,
+      amount: selectedPlan.price > 0 ? selectedPlan.price : 24.99,
       merchantName: 'CARDAPP',
       merchantCity: 'NATAL',
-      transactionId: transactionId.slice(0, 25),
+      transactionId: `CARDAPP${rawCode}`.slice(0, 25),
     });
-  }, [cleanPixKey, transactionId]);
+  }, [cleanOfficialPixKey, selectedPlan.price, currentStoreId]);
 
-  // Chave de armazenamento da sessão da Gateway
-  const getSessionStorageKey = () => `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
-
-  // Inicializar contagem regressiva de 5 minutos automaticamente ao abrir
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
-    try {
-      const key = `cardapp_gateway_session_${currentSession?.id || 'ceo'}`;
-      const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
-      if (saved) {
-        const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
-        if (elapsed < PAYMENT_TIMEOUT_SECONDS) {
-          return PAYMENT_TIMEOUT_SECONDS - elapsed;
-        }
-      }
-      const now = Date.now().toString();
-      sessionStorage.setItem(key, now);
-      localStorage.setItem(key, now);
-      return PAYMENT_TIMEOUT_SECONDS;
-    } catch {
-      return PAYMENT_TIMEOUT_SECONDS;
-    }
-  });
-
-  // Gerar QR Code Oficial do Pix com Payload EMV completo e CRC16
   useEffect(() => {
-    QRCode.toDataURL(officialPixPayload, {
-      width: 280,
+    QRCode.toDataURL(directPixPayload, {
+      width: 240,
       margin: 1,
-      color: {
-        dark: '#020617',
-        light: '#ffffff',
-      },
+      color: { dark: '#020617', light: '#ffffff' },
     })
-      .then((url) => setPixQrDataUrl(url))
-      .catch(() => {
-        QRCode.toDataURL(cleanPixKey || pixKey, { width: 280, margin: 1 })
-          .then((url) => setPixQrDataUrl(url))
-          .catch(() => {});
-      });
-  }, [officialPixPayload, cleanPixKey, pixKey]);
+      .then((url) => setDirectPixQrUrl(url))
+      .catch(() => {});
+  }, [directPixPayload]);
 
-  // Intervalo regressivo de 5 minutos automático
+  const handleCopyDirectPixKey = async () => {
+    try {
+      await navigator.clipboard.writeText(cleanOfficialPixKey);
+      setCopiedDirectPixKey(true);
+      setTimeout(() => setCopiedDirectPixKey(false), 3000);
+    } catch {}
+  };
+
+  const handleCopyDirectPixPayload = async () => {
+    try {
+      await navigator.clipboard.writeText(directPixPayload);
+      setCopiedDirectPixPayload(true);
+      setTimeout(() => setCopiedDirectPixPayload(false), 3000);
+    } catch {}
+  };
+  const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
+  const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
+
+  // Mantém a lista de faturas atualizada quando a sessão muda
   useEffect(() => {
-    const isSuperAdmin = currentSession?.role === 'super_admin';
-    const isAlreadyBlocked = currentSession?.planStatus === 'bloqueado';
+    if (currentSession?.id) {
+      setInvoicesList(accountService.getInvoices(currentSession.id));
+    }
+  }, [currentSession?.id, currentSession?.invoices?.length]);
 
-    if (isAlreadyBlocked && activeTab !== 'status') {
-      setActiveTab('status');
+  // Verifica status da integração Mercado Pago no servidor
+  useEffect(() => {
+    let active = true;
+    fetch('/api/mercadopago/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        setMpGatewayStatus({
+          checked: true,
+          configured: Boolean(data?.configured),
+          publicKeyConfigured: Boolean(data?.publicKeyConfigured),
+          publicKey: data?.publicKey || null,
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setMpGatewayStatus((prev) => ({ ...prev, checked: true }));
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeTab]);
+
+  // Se o Mercado Pago não retornar qr_code_base64, renderiza localmente a partir do qr_code oficial
+  useEffect(() => {
+    if (mpPixPayment?.qrCode && !mpPixPayment.qrCodeBase64) {
+      QRCode.toDataURL(mpPixPayment.qrCode, { width: 280, margin: 1 })
+        .then((url) => setMpFallbackQrUrl(url))
+        .catch(() => setMpFallbackQrUrl(''));
+    } else {
+      setMpFallbackQrUrl('');
+    }
+  }, [mpPixPayment?.qrCode, mpPixPayment?.qrCodeBase64]);
+
+  // Aplica renovação confirmada pelo Mercado Pago com proteção contra duplicidade
+  const applyApprovedMercadoPagoRenewal = (
+    paymentId: string,
+    plan: SubscriptionPlan,
+    paidAmount?: number
+  ) => {
+    if (!currentSession?.id) return;
+    const protocolTag = `MP-${paymentId}`;
+    const existing = accountService.getInvoices(currentSession.id);
+    const alreadyApplied = existing.find((inv) => inv.protocol === protocolTag);
+    if (alreadyApplied) {
+      setPaymentSuccessFeedback(
+        `Pagamento Mercado Pago #${paymentId} já confirmado! Plano ativo.`
+      );
+      setSelectedInvoice(alreadyApplied);
+      setMpPixPayment(null);
+      setMpCheckoutUrl(null);
+      return;
     }
 
-    const timer = setInterval(() => {
-      try {
-        const key = getSessionStorageKey();
-        const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
-        if (!saved) {
-          const now = Date.now().toString();
-          sessionStorage.setItem(key, now);
-          localStorage.setItem(key, now);
-          setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
-          return;
-        }
-
-        const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
-        const left = Math.max(0, PAYMENT_TIMEOUT_SECONDS - elapsed);
-        setSecondsRemaining(left);
-
-        // Quando o cronômetro chega a 0 e o CEO não efetuou o pagamento:
-        if (left === 0 && !isSuperAdmin) {
-          if (currentSession && currentSession.planStatus !== 'bloqueado') {
-            accountService.blockAccount(currentSession.id);
-            setActiveTab('status');
-            setBlockedAlertNotice('Tempo limite de 5 minutos esgotado! O acesso ao painel foi bloqueado por falta de pagamento.');
-          }
-        }
-      } catch {}
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [currentSession?.id, currentSession?.planStatus, activeTab]);
-
-  // Reiniciar a sessão de 5 minutos
-  const handleRestartPaymentSession = () => {
-    try {
-      const key = getSessionStorageKey();
-      const now = Date.now().toString();
-      sessionStorage.setItem(key, now);
-      localStorage.setItem(key, now);
-      setSecondsRemaining(PAYMENT_TIMEOUT_SECONDS);
-      setBlockedAlertNotice(null);
-    } catch {}
+    const generatedInvoice = accountService.renewAccountPlan(
+      currentSession.id,
+      plan.durationDays,
+      protocolTag,
+      plan.period,
+      plan.name,
+      paidAmount ?? plan.price
+    );
+    accountService.updateAccountStatus(currentSession.id, 'ativo');
+    const updated = accountService.getCurrentSession();
+    setAccountSession(updated);
+    setBlockedAlertNotice(null);
+    setInvoicesList(accountService.getInvoices(currentSession.id));
+    setMpPixPayment(null);
+    setMpCheckoutUrl(null);
+    setMpManualLookupId('');
+    setPaymentSuccessFeedback(
+      `Pagamento aprovado via Mercado Pago! Fatura #${generatedInvoice.id} emitida e ${plan.name} ativado.`
+    );
+    setTimeout(() => {
+      setSelectedInvoice(generatedInvoice);
+    }, 450);
   };
 
-  // Botão de Confirmação de Pagamento: Atualizar e Verificar
-  const handleVerifyAndConfirmPayment = async () => {
-    setIsVerifyingPayment(true);
+  // Gerar Pix Real via API do Mercado Pago
+  const handleGenerateMpPix = async () => {
+    if (!currentSession?.id) return;
+    setIsGeneratingPix(true);
+    setBlockedAlertNotice(null);
     setPaymentSuccessFeedback(null);
+    setMpCheckoutUrl(null);
+
     try {
-      // Simulação realista de checagem imediata via SPI / Gateway
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const res = await fetch('/api/mercadopago/create-pix-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: currentSession.id,
+          storeId: currentStoreId,
+          storeName: settings.storeName || currentSession.storeName,
+          payerEmail: currentSession.email || 'pagamentos@cardapp.com.br',
+          payerName: currentSession.name || settings.storeName,
+          planId: selectedPlan.id,
+          planPeriod: selectedPlan.period,
+          planName: selectedPlan.name,
+          durationDays: selectedPlan.durationDays,
+          amount: selectedPlan.price,
+        }),
+      });
 
-      if (currentSession?.id) {
-        if (!pixTransactionId.trim()) {
-          setBlockedAlertNotice('Por favor, insira o número do comprovante Pix (TXID) para confirmar o pagamento.');
-          setIsVerifyingPayment(false);
-          return;
-        }
-        // Automaticamente gera a fatura de confirmação para registrar o pagamento
-        const generatedInvoice = accountService.renewAccountPlan(currentSession.id, 30, pixTransactionId);
-        accountService.updateAccountStatus(currentSession.id, 'ativo');
-        const updated = accountService.getCurrentSession();
-        setAccountSession(updated);
-        setBlockedAlertNotice(null);
-        handleRestartPaymentSession();
-
-        // Atualizar lista de faturas registradas
-        const updatedInvoices = accountService.getInvoices(currentSession.id);
-        setInvoicesList(updatedInvoices);
-
-        setPaymentSuccessFeedback(`Pagamento confirmado com sucesso! Fatura #${generatedInvoice.id} gerada e plano ativado por 30 dias.`);
-
-        // Automaticamente exibe a fatura gerada para que o cliente tenha o comprovante em mãos
-        setTimeout(() => {
-          setSelectedInvoice(generatedInvoice);
-        }, 600);
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setBlockedAlertNotice(
+          data?.message || 'Não foi possível gerar o Pix no Mercado Pago. Tente novamente.'
+        );
+        return;
       }
-    } catch (e) {
-      console.error(e);
+
+      setMpPixPayment({
+        paymentId: String(data.paymentId),
+        qrCode: data.qrCode || '',
+        qrCodeBase64: data.qrCodeBase64 || '',
+        ticketUrl: data.ticketUrl || '',
+        expiresAt: data.expiresAt || null,
+        amount: Number(data.amount || selectedPlan.price),
+        status: data.status || 'pending',
+        plan: selectedPlan,
+      });
+    } catch {
+      setBlockedAlertNotice('Erro de conexão ao gerar Pix no Mercado Pago.');
     } finally {
-      setIsVerifyingPayment(false);
+      setIsGeneratingPix(false);
     }
   };
 
-  // Copiar Chave Aleatória (EVP limpa sem prefixos) - formato que bancos reconhecem ao digitar a chave
-  const handleCopyCleanPixKey = async () => {
+  // Gerar Preferência Checkout Pro (Cartão, Boleto, Saldo Mercado Pago)
+  const handleCreateMpCheckoutPro = async () => {
+    if (!currentSession?.id) return;
+    setIsGeneratingCheckout(true);
+    setBlockedAlertNotice(null);
+    setPaymentSuccessFeedback(null);
+
     try {
-      await navigator.clipboard.writeText(cleanPixKey);
-      setCopiedCleanPixKey(true);
-      setTimeout(() => setCopiedCleanPixKey(false), 3000);
-    } catch {}
+      const res = await fetch('/api/mercadopago/create-preference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: currentSession.id,
+          storeId: currentStoreId,
+          storeName: settings.storeName || currentSession.storeName,
+          payerEmail: currentSession.email || 'pagamentos@cardapp.com.br',
+          payerName: currentSession.name || settings.storeName,
+          planId: selectedPlan.id,
+          planPeriod: selectedPlan.period,
+          planName: selectedPlan.name,
+          durationDays: selectedPlan.durationDays,
+          amount: selectedPlan.price,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.success || (!data.initPoint && !data.sandboxInitPoint)) {
+        setBlockedAlertNotice(
+          data?.message || 'Não foi possível criar o link de Checkout Mercado Pago.'
+        );
+        return;
+      }
+
+      setMpCheckoutUrl(data.initPoint || data.sandboxInitPoint);
+    } catch {
+      setBlockedAlertNotice('Erro de conexão ao iniciar Checkout Mercado Pago.');
+    } finally {
+      setIsGeneratingCheckout(false);
+    }
   };
 
-  // Copiar identificador oficial do sistema (bcb.pix...)
-  const handleCopyBcbKey = async () => {
+  // Consultar status real do pagamento direto no Mercado Pago
+  const handleCheckMpPaymentStatus = async (
+    targetId?: string,
+    targetPlan?: SubscriptionPlan,
+    silent = false
+  ) => {
+    const cleanId = (targetId || mpPixPayment?.paymentId || mpManualLookupId || '').trim();
+    if (!cleanId) {
+      if (!silent) {
+        setBlockedAlertNotice('Gere um Pix Mercado Pago ou informe o ID do pagamento para consultar.');
+      }
+      return;
+    }
+
+    if (!silent) {
+      setIsVerifyingPayment(true);
+      setBlockedAlertNotice(null);
+    }
+
     try {
-      await navigator.clipboard.writeText(pixKey);
-      setCopiedBcbKey(true);
-      setTimeout(() => setCopiedBcbKey(false), 3000);
-    } catch {}
+      const res = await fetch(`/api/mercadopago/payment-status/${encodeURIComponent(cleanId)}`);
+      const data = await res.json();
+
+      if (res.ok && data?.success) {
+        if (data.status === 'approved') {
+          const planFromMeta =
+            availablePlans.find((p) => p.period === data.metadata?.plan_period) ||
+            targetPlan ||
+            mpPixPayment?.plan ||
+            selectedPlan;
+          applyApprovedMercadoPagoRenewal(
+            String(data.paymentId || cleanId),
+            planFromMeta,
+            typeof data.amount === 'number' && data.amount > 0 ? data.amount : planFromMeta.price
+          );
+          return;
+        }
+        if (!silent) {
+          setBlockedAlertNotice(
+            `Status atual no Mercado Pago: "${data.status}". Conclua o pagamento no aplicativo do seu banco e aguarde alguns segundos.`
+          );
+        }
+      } else if (!silent) {
+        setBlockedAlertNotice(
+          data?.message || 'Pagamento ainda pendente de confirmação no Mercado Pago.'
+        );
+      }
+    } catch {
+      if (!silent) {
+        setBlockedAlertNotice('Erro ao consultar o status no Mercado Pago. Tente novamente.');
+      }
+    } finally {
+      if (!silent) {
+        setIsVerifyingPayment(false);
+      }
+    }
   };
 
-  // Copiar código Pix Copia e Cola oficial homologado pelo Banco Central (com CRC16)
+  // Polling automático a cada 5s enquanto houver Pix Mercado Pago pendente
+  useEffect(() => {
+    if (!mpPixPayment?.paymentId || mpPixPayment.status === 'approved') return;
+    const interval = setInterval(() => {
+      handleCheckMpPaymentStatus(mpPixPayment.paymentId, mpPixPayment.plan, true);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [mpPixPayment?.paymentId, mpPixPayment?.status, currentSession?.id]);
+
+  // Verifica retorno automático do Checkout Pro via parâmetros de URL (?payment_id=...)
+  useEffect(() => {
+    if (!currentSession?.id) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const returnedPaymentId = params.get('payment_id') || params.get('collection_id');
+      const mpStatusParam = params.get('mp_status');
+      if (returnedPaymentId && /^\d{5,22}$/.test(returnedPaymentId)) {
+        setActiveTab('status');
+        const planParam = params.get('mp_plan');
+        const matchedPlan =
+          availablePlans.find((p) => p.period === planParam) || selectedPlan;
+        handleCheckMpPaymentStatus(returnedPaymentId, matchedPlan, false);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (mpStatusParam === 'approved') {
+        setActiveTab('status');
+      }
+    } catch {}
+  }, [currentSession?.id]);
+
+  // Copiar código Pix Copia e Cola retornado pelo Mercado Pago
   const handleCopyPixPayload = async () => {
+    if (!mpPixPayment?.qrCode) return;
     try {
-      await navigator.clipboard.writeText(officialPixPayload);
+      await navigator.clipboard.writeText(mpPixPayment.qrCode);
       setCopiedPixPayload(true);
       setTimeout(() => setCopiedPixPayload(false), 3000);
-    } catch {}
-  };
-
-  // Manter compatibilidade com handler anterior
-  const handleCopyPixKey = handleCopyCleanPixKey;
-
-  // Copiar Identificador / Protocolo de Transação TxID
-  const handleCopyTxId = async () => {
-    try {
-      await navigator.clipboard.writeText(transactionId);
-      setCopiedTxId(true);
-      setTimeout(() => setCopiedTxId(false), 3000);
     } catch {}
   };
 
@@ -414,7 +587,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'settings' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
     if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin') {
-      setBlockedAlertNotice('Acesso bloqueado por falta de pagamento Pix. Conclua o pagamento na Gateway de 5 minutos para desbloquear.');
+      setBlockedAlertNotice('Acesso bloqueado. Conclua a renovação via Gateway Mercado Pago para reativar seu painel.');
       setActiveTab('status');
       setIsMobileSidebarOpen(false);
       return;
@@ -1077,9 +1250,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   Bloqueado
                 </span>
               ) : (
-                <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <QrCode className="w-3 h-3" />
-                  Gateway Pix
+                <span className="text-[10px] uppercase font-bold text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <CreditCard className="w-3 h-3" />
+                  Mercado Pago
                 </span>
               )}
             </button>
@@ -1159,15 +1332,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               <div className="flex items-center gap-2.5">
                 <Clock className="w-5 h-5 shrink-0" />
                 <span>
-                  <strong>Atenção:</strong> O plano da sua loja expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Realize a renovação manual para manter seu cardápio ativo.
+                  <strong>Atenção:</strong> O plano da sua loja expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Renove diretamente pela Gateway Mercado Pago.
                 </span>
               </div>
               <button
                 type="button"
-                onClick={handleOpenManualRenewalWhatsApp}
+                onClick={() => setActiveTab('status')}
                 className="px-3.5 py-2 bg-slate-950 text-amber-400 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-900 flex items-center gap-1.5"
               >
-                <MessageCircle className="w-4 h-4 text-emerald-400" />
+                <CreditCard className="w-4 h-4 text-sky-400" />
                 <span>Realizar Renovação</span>
               </button>
             </div>
@@ -3116,268 +3289,440 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 7: STATUS DE ANÁLISE E ATIVAÇÃO DA CONTA + CONTROLE DE VENCIMENTO & FATURAS */}
+          {/* TAB 7: STATUS DA CONTA & GATEWAY OFICIAL MERCADO PAGO */}
           {activeTab === 'status' && (
-            <div className="space-y-6 max-w-xl mx-auto py-2">
+            <div className="space-y-6 max-w-2xl mx-auto py-2">
               {/* Header do Status */}
               <div className="text-center pb-1">
                 <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-2.5 shadow-xs ${
                   currentSession?.planStatus === 'bloqueado'
                     ? 'bg-red-100 text-red-700'
-                    : isPaymentDueSoon
+                    : daysUntilExpiry <= 5
                     ? 'bg-amber-100 text-amber-800'
-                    : 'bg-emerald-100 text-emerald-800'
+                    : 'bg-sky-100 text-sky-700'
                 }`}>
                   {currentSession?.planStatus === 'bloqueado' ? (
                     <Lock className="w-6 h-6" />
-                  ) : isPaymentDueSoon ? (
+                  ) : daysUntilExpiry <= 5 ? (
                     <Clock className="w-6 h-6" />
                   ) : (
                     <ShieldCheck className="w-6 h-6" />
                   )}
                 </div>
-                <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                <h3 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Acesso Bloqueado • Renovação Necessária'
-                    : 'Período de Teste Grátis • Gateway Pix'}
+                    ? 'Acesso Bloqueado • Renove pelo Mercado Pago'
+                    : 'Renovação Direta • Gateway Mercado Pago'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 mt-0.5">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Efetue o Pix de R$ 24,99 para reativar seu acesso imediatamente.'
-                    : `Você está no período de teste grátis (restam ${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}). Adquira o sistema abaixo via QR Code Pix se desejar antecipar.`}
+                    ? 'Escolha seu plano abaixo e realize o pagamento via Pix ou Cartão no Mercado Pago para liberar na hora.'
+                    : currentSession?.planTier === 'vitalicio'
+                    ? 'Sua loja possui licença Vitalícia ativa.'
+                    : `Plano atual: ${currentSession?.planName || 'Teste Grátis 7 Dias'} • Restam ${Math.max(0, daysUntilExpiry)} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}.`}
                 </p>
               </div>
 
-              {/* CENÁRIO: GATEWAY COM QR CODE E PERÍODO DE TESTE / RENOVAÇÃO */}
-              <div className="bg-white rounded-3xl border-2 border-emerald-400 shadow-xl overflow-hidden">
-                  {/* Banner com Cronômetro Automático de 5 Minutos */}
-                  <div className={`p-4 text-white flex items-center justify-between transition-colors ${
-                    currentSession?.planStatus === 'bloqueado' || secondsRemaining === 0
-                      ? 'bg-red-600'
-                      : secondsRemaining <= 60
-                      ? 'bg-gradient-to-r from-red-600 to-amber-600 animate-pulse'
-                      : 'bg-slate-950'
+              {/* CARD PRINCIPAL: GATEWAY MERCADO PAGO */}
+              <div className="bg-white rounded-3xl border-2 border-slate-900 shadow-xl overflow-hidden">
+                {/* Banner Obsidian & Gold + Selo Mercado Pago */}
+                <div className="bg-slate-950 text-white p-4 sm:p-5 flex items-center justify-between gap-3 border-b border-amber-400/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0">
+                      <CreditCard className="w-5 h-5 text-sky-300" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
+                        Checkout Oficial Integrado
+                      </span>
+                      <h4 className="text-sm sm:text-base font-black">
+                        Gateway Mercado Pago
+                      </h4>
+                    </div>
+                  </div>
+
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${
+                    mpGatewayStatus.checked
+                      ? mpGatewayStatus.configured
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                        : 'bg-amber-500/20 text-amber-200 border border-amber-400/40'
+                      : 'bg-white/10 text-slate-300'
                   }`}>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold shrink-0 border border-white/10">
-                        <Timer className="w-5 h-5 stroke-[2.2]" />
+                    {mpGatewayStatus.checked
+                      ? mpGatewayStatus.configured
+                        ? 'Online • Pix & Cartão'
+                        : 'Aguardando Chave'
+                      : 'Verificando...'}
+                  </span>
+                </div>
+
+                <div className="p-5 sm:p-6 space-y-5">
+                  {/* Status da Licença */}
+                  {currentSession?.planStatus === 'bloqueado' ? (
+                    <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
+                      <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                      <span>
+                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Pague abaixo para reativar automaticamente.
+                      </span>
+                    </div>
+                  ) : currentSession?.planTier === 'vitalicio' ? (
+                    <div className="w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 font-bold text-xs flex items-center gap-2 text-left">
+                      <Award className="w-5 h-5 text-amber-600 shrink-0" />
+                      <span>
+                        <strong>Plano Vitalício Exclusivo Ativo:</strong> Sua loja possui licença permanente, sem data de vencimento.
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
+                      <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <span>
+                        <strong>{currentSession?.planName || 'Período de Teste Grátis (7 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Você pode renovar a qualquer momento pelo Mercado Pago.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Feedback de Sucesso */}
+                  {paymentSuccessFeedback && (
+                    <div className="w-full p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
+                      <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
+                      <span>{paymentSuccessFeedback}</span>
+                    </div>
+                  )}
+
+                  {/* Alerta ou Erro */}
+                  {blockedAlertNotice && !paymentSuccessFeedback && (
+                    <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
+                      <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                      <span>{blockedAlertNotice}</span>
+                    </div>
+                  )}
+
+                  {/* Aviso se MERCADO_PAGO_ACCESS_TOKEN ainda não foi ativado nos Secrets */}
+                  {mpGatewayStatus.checked && !mpGatewayStatus.configured && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs space-y-2.5 text-left">
+                      <div className="flex items-center gap-2 font-black">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Gateway aguardando ativação da credencial segura no servidor</span>
                       </div>
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
-                          Sessão Gateway Pix
-                        </span>
-                        <h4 className="text-xs sm:text-sm font-bold">
-                          {secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
-                            ? 'Tempo Esgotado'
-                            : 'Contagem Regressiva de 5 Minutos'}
-                        </h4>
-                      </div>
+                      <p className="text-[11px] leading-relaxed text-amber-900">
+                        O Administrador Geral precisa confirmar a chave <strong>MERCADO_PAGO_ACCESS_TOKEN</strong> nas variáveis de ambiente (Secrets) do sistema. Enquanto isso, você pode solicitar a renovação direta pelo WhatsApp abaixo.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleOpenManualRenewalWhatsApp}
+                        className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>Falar com Administrador no WhatsApp</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* PASSO 1: ESCOLHA DO PLANO CRIADO PELO ADMIN GERAL */}
+                  <div className="space-y-2.5 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-700">
+                        1. Escolha o Plano para Renovação
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500">
+                        Planos oficiais da plataforma
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <div className="px-3.5 py-1.5 rounded-xl bg-white/15 backdrop-blur-xs border border-white/20 text-center">
-                        <span className="text-lg sm:text-xl font-black font-mono tracking-wider">
-                          {String(Math.floor(secondsRemaining / 60)).padStart(2, '0')}:
-                          {String(secondsRemaining % 60).padStart(2, '0')}
-                        </span>
-                      </div>
-
-                      {(secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado') && (
-                        <button
-                          type="button"
-                          onClick={handleRestartPaymentSession}
-                          className="p-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow-md active:scale-95 transition-all"
-                          title="Reiniciar 5 minutos"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
-                      )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {availablePlans.map((plan) => {
+                        const isSelected = selectedPlan.id === plan.id;
+                        return (
+                          <button
+                            key={plan.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlanId(plan.id);
+                              setMpPixPayment(null);
+                              setMpCheckoutUrl(null);
+                            }}
+                            className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? 'border-slate-950 bg-amber-50 shadow-sm'
+                                : 'border-slate-200 bg-white hover:border-amber-300'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <span className="font-black text-xs text-slate-950 block truncate">
+                                {plan.name}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-semibold block">
+                                {plan.period === 'vitalicio'
+                                  ? 'Licença permanente'
+                                  : `${plan.durationDays} dias de acesso`}
+                              </span>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono shrink-0 ${
+                              isSelected
+                                ? 'bg-slate-950 text-amber-400'
+                                : 'bg-emerald-50 text-emerald-700'
+                            }`}>
+                              {formatCurrency(plan.price)}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Barra de Progresso do Tempo Restante */}
-                  <div className="w-full bg-slate-200 h-1.5 overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-1000 ${
-                        secondsRemaining === 0 || currentSession?.planStatus === 'bloqueado'
-                          ? 'bg-red-600'
-                          : secondsRemaining <= 60
-                          ? 'bg-red-500'
-                          : 'bg-emerald-500'
-                      }`}
-                      style={{ width: `${Math.max(0, Math.min(100, (secondsRemaining / PAYMENT_TIMEOUT_SECONDS) * 100))}%` }}
-                    />
+                  {/* PASSO 2: BOTÕES DE PAGAMENTO MERCADO PAGO */}
+                  <div className="space-y-3 pt-1">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 block text-left">
+                      2. Pague com Mercado Pago ({selectedPlan.name} • {formatCurrency(selectedPlan.price)})
+                    </span>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={handleGenerateMpPix}
+                        disabled={isGeneratingPix || isGeneratingCheckout}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
+                      >
+                        {isGeneratingPix ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <QrCode className="w-4 h-4" />
+                        )}
+                        <span>{isGeneratingPix ? 'Gerando Pix...' : 'Pagar via Pix (Instantâneo)'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCreateMpCheckoutPro}
+                        disabled={isGeneratingCheckout || isGeneratingPix}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
+                      >
+                        {isGeneratingCheckout ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <CreditCard className="w-4 h-4" />
+                        )}
+                        <span>{isGeneratingCheckout ? 'Gerando Link...' : 'Cartão / Boleto Mercado Pago'}</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Conteúdo: QR Code e Chave Pix para Copiar + Botão de Confirmação */}
-                  <div className="p-6 flex flex-col items-center text-center space-y-5">
-                    {/* Alerta de Período de Teste Grátis, Plano Ativo ou Bloqueio */}
-                    {currentSession?.planStatus === 'bloqueado' ? (
-                      <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
-                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
-                        <span>
-                          <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou ou foi suspenso pelo administrador geral.'} Entre em contato para reativar seu cardápio.
+                  {/* EXIBIÇÃO DO PIX GERADO PELO MERCADO PAGO */}
+                  {mpPixPayment && (
+                    <div className="p-5 rounded-3xl bg-slate-50 border-2 border-emerald-500 space-y-4 text-center animate-in fade-in">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-black text-emerald-800 uppercase">
+                          Pix Mercado Pago #{mpPixPayment.paymentId}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold text-[10px] flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Aguardando pagamento
                         </span>
                       </div>
-                    ) : currentSession?.planTier === 'vitalicio' ? (
-                      <div className="w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 font-bold text-xs flex items-center gap-2 text-left">
-                        <Award className="w-5 h-5 text-amber-600 shrink-0" />
-                        <span>
-                          <strong>Plano Vitalício Exclusivo Ativo:</strong> Sua loja possui licença permanente liberada pelo Administrador Geral, sem data de expiração.
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
-                        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
-                        <span>
-                          <strong>{currentSession?.planName || 'Período de Teste Grátis'}:</strong> Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> de vigência. Para renovação manual (Mensal, Trimestral, Semestral, Anual ou Vitalício), fale com o Administrador Geral.
-                        </span>
-                      </div>
-                    )}
 
-                    {/* Mensagem de Sucesso na Verificação */}
-                    {paymentSuccessFeedback && (
-                      <div className="w-full p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
-                        <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
-                        <span>{paymentSuccessFeedback}</span>
-                      </div>
-                    )}
-
-                    {/* Alerta de Bloqueio se houver */}
-                    {blockedAlertNotice && !paymentSuccessFeedback && (
-                      <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-900 font-bold text-xs flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
-                        <span className="text-left text-[11px]">{blockedAlertNotice}</span>
-                      </div>
-                    )}
-
-                    {/* 1. O QR CODE */}
-                    {daysUntilExpiry <= 5 ? (
-                      <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-md relative flex flex-col items-center">
-                        {pixQrDataUrl ? (
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 inline-flex flex-col items-center shadow-xs">
+                        {mpPixPayment.qrCodeBase64 ? (
                           <img
-                            src={pixQrDataUrl}
-                            alt={`QR Code Pix ${formatCurrency(PIX_AMOUNT)}`}
-                            className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
+                            src={`data:image/png;base64,${mpPixPayment.qrCodeBase64}`}
+                            alt="QR Code Pix Mercado Pago"
+                            className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+                          />
+                        ) : mpFallbackQrUrl ? (
+                          <img
+                            src={mpFallbackQrUrl}
+                            alt="QR Code Pix Mercado Pago"
+                            className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
                           />
                         ) : (
-                          <div className="w-52 h-52 flex items-center justify-center text-slate-400">
-                            <QrCode className="w-16 h-16 animate-pulse" />
+                          <div className="w-48 h-48 flex items-center justify-center text-slate-400">
+                            <QrCode className="w-16 h-16" />
                           </div>
                         )}
-                        <div className="mt-2.5 text-center">
-                          <span className="text-[11px] font-bold text-slate-500 block">Valor da Renovação</span>
-                          <span className="text-2xl font-black text-emerald-600">
-                            {formatCurrency(PIX_AMOUNT)}
-                            <span className="text-xs text-slate-500 font-normal"> /mês</span>
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-8 text-center bg-slate-100 rounded-2xl border border-slate-200">
-                        <p className="text-xs font-bold text-slate-600">
-                          O QR Code de pagamento será liberado quando restarem 5 dias para o vencimento do seu plano (atualmente restam {daysUntilExpiry} dias).
-                        </p>
-                      </div>
-                    )}
-
-                    {/* 2. A CHAVE PIX PARA COPIAR */}
-                    <div className="w-full space-y-2.5">
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block text-left">
-                          Chave Pix:
+                        <span className="mt-2 text-lg font-black text-emerald-700">
+                          {formatCurrency(mpPixPayment.amount)}
                         </span>
-                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 shadow-inner">
-                          <code className="text-xs font-mono font-bold text-slate-900 truncate select-all">
-                            {cleanPixKey}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={handleCopyCleanPixKey}
-                            className={`py-2 px-3.5 rounded-lg font-black text-xs shrink-0 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
-                              copiedCleanPixKey
-                                ? 'bg-emerald-500 text-white'
-                                : 'bg-slate-900 hover:bg-slate-800 text-white'
-                            }`}
-                            title="Copiar Chave Pix"
-                          >
-                            {copiedCleanPixKey ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                <span>Copiado!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5" />
-                                <span>Copiar Chave Pix</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
+                        <span className="text-[10px] text-slate-500 font-semibold">
+                          {mpPixPayment.plan.name}
+                        </span>
                       </div>
 
-                      {/* Botão Pix Copia e Cola */}
-                      <button
-                        type="button"
-                        onClick={handleCopyPixPayload}
-                        className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border ${
-                          copiedPixPayload
-                            ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
-                            : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {copiedPixPayload ? (
-                          <>
-                            <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
-                            <span>Código Pix Copia e Cola Copiado!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 text-slate-500" />
-                            <span>Copiar Código Pix Copia e Cola</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+                      {mpPixPayment.qrCode && (
+                        <button
+                          type="button"
+                          onClick={handleCopyPixPayload}
+                          className={`w-full py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border ${
+                            copiedPixPayload
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white hover:bg-slate-100 text-slate-900 border-slate-300'
+                          }`}
+                        >
+                          {copiedPixPayload ? (
+                            <>
+                              <Check className="w-4 h-4 stroke-[3]" />
+                              <span>Código Pix Copia e Cola Copiado!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4" />
+                              <span>Copiar Código Pix Copia e Cola</span>
+                            </>
+                          )}
+                        </button>
+                      )}
 
-                    {/* 3. BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO (ATUALIZAR E VERIFICAR) */}
-                    <div className="w-full pt-1 space-y-4">
-                      <div className="w-full space-y-2">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">
-                          Código da Transação Pix (TXID)
-                        </label>
-                        <input
-                          type="text"
-                          value={pixTransactionId}
-                          onChange={(e) => setPixTransactionId(e.target.value)}
-                          placeholder="Digite o código da transação"
-                          className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 transition-all text-slate-900"
-                        />
-                      </div>
                       <button
                         type="button"
-                        onClick={handleVerifyAndConfirmPayment}
+                        onClick={() => handleCheckMpPaymentStatus(mpPixPayment.paymentId, mpPixPayment.plan, false)}
                         disabled={isVerifyingPayment}
-                        className="w-full py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="w-full py-3.5 px-5 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
                       >
                         {isVerifyingPayment ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span>Atualizando e Verificando Pagamento...</span>
-                          </>
+                          <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <>
-                            <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                            <span>Confirmar Pagamento • Atualizar e Verificar</span>
-                          </>
+                          <CheckCircle2 className="w-4 h-4" />
                         )}
+                        <span>{isVerifyingPayment ? 'Consultando Mercado Pago...' : 'Já paguei • Confirmar no Mercado Pago'}</span>
                       </button>
-                      <p className="text-[11px] text-slate-400 mt-2">
-                        Após realizar o Pix no seu banco, clique no botão acima para verificar, liberar seu acesso e emitir a fatura de confirmação.
+
+                      <p className="text-[11px] text-slate-500">
+                        A verificação também acontece automaticamente a cada 5 segundos após você pagar no app do banco.
                       </p>
+                    </div>
+                  )}
+
+                  {/* EXIBIÇÃO DO LINK CHECKOUT PRO MERCADO PAGO */}
+                  {mpCheckoutUrl && (
+                    <div className="p-5 rounded-3xl bg-sky-50 border-2 border-sky-400 space-y-3 text-left animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-black text-sm text-sky-950">
+                          Link Seguro Mercado Pago Pronto
+                        </h4>
+                        <span className="text-xs font-black text-sky-800">
+                          {formatCurrency(selectedPlan.price)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-sky-900">
+                        Clique abaixo para abrir a tela oficial do Mercado Pago e pagar com Cartão de Crédito, Débito, Boleto ou Saldo em Conta.
+                      </p>
+                      <a
+                        href={mpCheckoutUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3.5 px-5 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white font-black text-xs uppercase flex items-center justify-center gap-2 shadow-md"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Abrir Checkout Oficial Mercado Pago</span>
+                      </a>
+                    </div>
+                  )}
+
+                  {/* CONSULTA MANUAL DE ID DE PAGAMENTO MERCADO PAGO (OPCIONAL) */}
+                  <div className="pt-3 border-t border-slate-200 space-y-2 text-left">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                      Já concluiu um pagamento no Mercado Pago? Validar por ID da operação:
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={mpManualLookupId}
+                        onChange={(e) => setMpManualLookupId(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Ex: 105482910421 (ID numérico Mercado Pago)"
+                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-sky-500 text-slate-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleCheckMpPaymentStatus(mpManualLookupId, selectedPlan, false)}
+                        disabled={isVerifyingPayment || !mpManualLookupId.trim()}
+                        className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase cursor-pointer disabled:opacity-50 shrink-0"
+                      >
+                        Validar ID
+                      </button>
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* CARD COMPLEMENTAR: PIX DIRETO COM A CHAVE PIX OFICIAL VINCULADA */}
+              <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-lg overflow-hidden">
+                <div className="bg-amber-400 px-5 py-3.5 flex items-center justify-between text-slate-950">
+                  <div className="flex items-center gap-2.5">
+                    <QrCode className="w-5 h-5 stroke-[2.5]" />
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider block text-amber-950">
+                        Transferência Pix Direta
+                      </span>
+                      <h4 className="text-sm font-black">
+                        Chave Pix Oficial Vinculada ({selectedPlan.name})
+                      </h4>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-xl bg-slate-950 text-amber-400 font-black text-xs font-mono">
+                    {formatCurrency(selectedPlan.price)}
+                  </span>
+                </div>
+
+                <div className="p-5 sm:p-6 flex flex-col items-center text-center space-y-4">
+                  {directPixQrUrl && (
+                    <div className="p-3 bg-white rounded-2xl border-2 border-slate-900 shadow-sm inline-flex flex-col items-center">
+                      <img
+                        src={directPixQrUrl}
+                        alt={`QR Code Pix Direto ${formatCurrency(selectedPlan.price)}`}
+                        className="w-44 h-44 object-contain"
+                      />
+                      <span className="mt-1.5 text-[11px] font-bold text-slate-600">
+                        Escaneie no app do seu banco • {selectedPlan.name}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="w-full space-y-1.5 text-left">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                      Chave Pix Oficial (Aleatória / EVP):
+                    </span>
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                      <code className="text-xs font-mono font-bold text-slate-900 truncate select-all">
+                        {cleanOfficialPixKey}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={handleCopyDirectPixKey}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black shrink-0 flex items-center gap-1.5 cursor-pointer transition-all ${
+                          copiedDirectPixKey
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-950 hover:bg-slate-800 text-amber-400'
+                        }`}
+                      >
+                        {copiedDirectPixKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedDirectPixKey ? 'Copiado!' : 'Copiar Chave'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleCopyDirectPixPayload}
+                      className={`py-3 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 border cursor-pointer transition-all ${
+                        copiedDirectPixPayload
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-slate-50 hover:bg-amber-50 text-slate-900 border-slate-300'
+                      }`}
+                    >
+                      {copiedDirectPixPayload ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedDirectPixPayload ? 'Copia e Cola Copiado!' : 'Copiar Pix Copia e Cola'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenManualRenewalWhatsApp}
+                      className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Enviar Comprovante (WhatsApp)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               {/* SEÇÃO DE HISTÓRICO DE FATURAS E COMPROVANTES (REGISTRO AUTOMÁTICO DE CADA PAGAMENTO) */}
               <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">

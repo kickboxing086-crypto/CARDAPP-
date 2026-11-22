@@ -33,6 +33,7 @@ import {
   hasAccentsOrDiacritics,
 } from '../utils/security';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
+import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -656,6 +657,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-2 focus:ring-amber-200 transition-all text-slate-900"
                 />
               </div>
+              <CredentialSecurityChecklist value={loginUsername} fieldType="username" compact />
             </div>
 
             {/* Senha */}
@@ -691,16 +693,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   autoComplete="current-password"
                   className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-2 focus:ring-amber-200 transition-all text-slate-900"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
-                  tabIndex={-1}
-                >
-                  {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                    tabIndex={-1}
+                  >
+                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <CredentialSecurityChecklist value={loginPassword} fieldType="password" compact />
               </div>
-            </div>
 
             <button
               type="submit"
