@@ -583,8 +583,8 @@ app.post('/api/mercadopago/create-pix-payment', async (req, res) => {
     if (!clients) {
       return res.status(503).json({
         success: false,
-        code: 'MP_NOT_CONFIGURED',
-        message: 'Gateway Mercado Pago aguardando configuração do Access Token nos Secrets do servidor.',
+        code: 'GATEWAY_UNAVAILABLE',
+        message: 'Gateway de pagamento temporariamente indisponível.',
       });
     }
 
@@ -623,8 +623,8 @@ app.post('/api/mercadopago/create-pix-payment', async (req, res) => {
     const externalReference = `cardapp_renewal:${accountId}:${planPeriod}:${durationDays}`.slice(0, 250);
     const idempotencyKey = crypto.randomUUID();
 
-    // Expiração do Pix em 30 minutos
-    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    // Expiração do Pix em 5 minutos (prazo estrito de pagamento)
+    const expirationDate = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
     const mpPayment = await clients.paymentClient.create({
       body: {
@@ -691,24 +691,24 @@ app.post('/api/mercadopago/create-pix-payment', async (req, res) => {
       expiresAt: mpPayment.date_of_expiration || expirationDate,
     });
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido ao comunicar com Mercado Pago.';
+    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido ao gerar Gateway Pix.';
     console.error('[Mercado Pago Pix Error]:', error);
     return res.status(502).json({
       success: false,
-      message: `Não foi possível gerar o Pix no Mercado Pago: ${errMsg}`,
+      message: `Não foi possível gerar o código na Gateway Pix: ${errMsg}`,
     });
   }
 });
 
-// Criar preferência de pagamento Checkout Pro (Cartão, Saldo Mercado Pago, Pix, Boleto)
+// Criar preferência de pagamento Gateway (uso interno)
 app.post('/api/mercadopago/create-preference', async (req, res) => {
   try {
     const clients = getMercadoPagoClients();
     if (!clients) {
       return res.status(503).json({
         success: false,
-        code: 'MP_NOT_CONFIGURED',
-        message: 'Gateway Mercado Pago aguardando configuração do Access Token nos Secrets do servidor.',
+        code: 'GATEWAY_UNAVAILABLE',
+        message: 'Gateway de pagamento temporariamente indisponível.',
       });
     }
 
@@ -788,23 +788,23 @@ app.post('/api/mercadopago/create-preference', async (req, res) => {
       sandboxInitPoint: preference.sandbox_init_point || '',
     });
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido no Checkout Pro.';
+    const errMsg = error instanceof Error ? error.message : 'Erro desconhecido no gateway.';
     console.error('[Mercado Pago Preference Error]:', error);
     return res.status(502).json({
       success: false,
-      message: `Erro ao iniciar Checkout Mercado Pago: ${errMsg}`,
+      message: `Erro ao iniciar pagamento na Gateway: ${errMsg}`,
     });
   }
 });
 
-// Consultar status oficial de um pagamento diretamente na API do Mercado Pago
+// Consultar status oficial de um pagamento diretamente na Gateway
 app.get('/api/mercadopago/payment-status/:paymentId', async (req, res) => {
   try {
     const paymentId = (req.params.paymentId || '').trim();
     if (!/^\d{5,22}$/.test(paymentId)) {
       return res.status(400).json({
         success: false,
-        message: 'ID de pagamento Mercado Pago inválido.',
+        message: 'ID de pagamento da Gateway inválido.',
       });
     }
 
@@ -812,8 +812,8 @@ app.get('/api/mercadopago/payment-status/:paymentId', async (req, res) => {
     if (!clients) {
       return res.status(503).json({
         success: false,
-        code: 'MP_NOT_CONFIGURED',
-        message: 'Gateway Mercado Pago não configurado no servidor.',
+        code: 'GATEWAY_UNAVAILABLE',
+        message: 'Gateway de pagamento temporariamente indisponível.',
       });
     }
 
@@ -852,7 +852,7 @@ app.get('/api/mercadopago/payment-status/:paymentId', async (req, res) => {
     console.warn('[Mercado Pago Status Lookup Warning]:', errMsg);
     return res.status(404).json({
       success: false,
-      message: 'Pagamento ainda não localizado ou pendente no Mercado Pago.',
+      message: 'Pagamento ainda não localizado ou pendente na Gateway Pix.',
     });
   }
 });

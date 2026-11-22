@@ -77,7 +77,7 @@ type AdminTab =
   | 'database';
 
 const PERIOD_DEFAULT_PRICES: Record<PlanPeriod, string> = {
-  mensal: '24.99',
+  mensal: '29.99',
   trimestral: '69.90',
   semestral: '129.90',
   anual: '239.90',
@@ -141,7 +141,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // Exclusive Plan Builder State (SuperAdmin only)
   const [planPeriod, setPlanPeriod] = useState<PlanPeriod>('mensal');
   const [planName, setPlanName] = useState('Plano Mensal');
-  const [planPrice, setPlanPrice] = useState('24.99');
+  const [planPrice, setPlanPrice] = useState('29.99');
   const [planDurationDays, setPlanDurationDays] = useState('30');
   const [planDescription, setPlanDescription] = useState('');
   const [planTargetAccountId, setPlanTargetAccountId] = useState('');
@@ -357,7 +357,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       planStatus: 'ativo',
       planTier: newAccountPlanTier,
       planName: chosenPlan?.name || PLAN_PERIOD_LABELS[newAccountPlanTier],
-      monthlyFee: chosenPlan?.price ?? (newAccountPlanTier === 'teste_gratis' ? 24.99 : Number(PERIOD_DEFAULT_PRICES[newAccountPlanTier as PlanPeriod])),
+      monthlyFee: chosenPlan?.price ?? (newAccountPlanTier === 'teste_gratis' ? 29.99 : Number(PERIOD_DEFAULT_PRICES[newAccountPlanTier as PlanPeriod])),
     });
 
     if (result.success && result.account) {
@@ -518,7 +518,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   const totalEstimatedRevenue = storeAccounts
     .filter((a) => a.planStatus === 'ativo')
-    .reduce((sum, a) => sum + (a.monthlyFee || 24.99), 0);
+    .reduce((sum, a) => sum + (a.monthlyFee || 29.99), 0);
 
   if (!isOpen) return null;
 
@@ -1752,7 +1752,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           required
                           value={planPrice}
                           onChange={(e) => setPlanPrice(e.target.value)}
-                          placeholder="24.99"
+                          placeholder="29.99"
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500 text-slate-900"
                         />
                       </div>

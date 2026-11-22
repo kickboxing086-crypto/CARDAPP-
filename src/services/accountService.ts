@@ -56,7 +56,7 @@ const DEFAULT_PLANS: SubscriptionPlan[] = [
     period: 'mensal',
     name: 'Plano Mensal',
     durationDays: 30,
-    price: 24.99,
+    price: 29.99,
     description: 'Renovação de 30 dias com acesso completo ao cardápio e painel.',
     isActive: true,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -178,7 +178,9 @@ class AccountService {
         if (storedPlans) {
           const parsedPlans = JSON.parse(storedPlans);
           if (Array.isArray(parsedPlans) && parsedPlans.length > 0) {
-            this.subscriptionPlans = parsedPlans;
+            this.subscriptionPlans = parsedPlans.map((p: SubscriptionPlan) =>
+              p.id === 'plan_mensal_padrao' && p.price === 24.99 ? { ...p, price: 29.99 } : p
+            );
           }
         } else {
           localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(DEFAULT_PLANS));
@@ -496,7 +498,7 @@ class AccountService {
       planStatus: data.planStatus || 'ativo',
       planTier: resolvedTier,
       planName: data.planName || PLAN_PERIOD_LABELS[resolvedTier],
-      monthlyFee: data.monthlyFee ?? 24.99,
+      monthlyFee: data.monthlyFee ?? 29.99,
       phoneWhatsapp: data.phoneWhatsapp.trim(),
       createdAt: now.toISOString(),
       expiresAt: expiry.toISOString(),
@@ -785,7 +787,7 @@ class AccountService {
     const invoiceId = `FAT-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const targetAccount = this.accounts.find((a) => a.id === accountId);
     const resolvedPlanName = planName || PLAN_PERIOD_LABELS[resolvedTier];
-    const resolvedAmount = amount ?? (targetAccount?.monthlyFee || 24.99);
+    const resolvedAmount = amount ?? (targetAccount?.monthlyFee || 29.99);
 
     const invoice: PaymentInvoice = {
       id: invoiceId,

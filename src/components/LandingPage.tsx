@@ -50,7 +50,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [monthlySales, setMonthlySales] = useState<number>(12000);
   const appFeePercentage = 0.27; // 27% market average
   const appLoss = monthlySales * appFeePercentage;
-  const cardappCost = 24.99;
+  const cardappCost = 29.99;
   const savedAmount = appLoss - cardappCost;
 
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -68,7 +68,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const handleOpenWhatsapp = (customTopic?: string) => {
     const defaultText =
-      'Olá! Gostaria de informações sobre o CARDAPP Digital (Plano Exclusivo R$ 24,99/mês) da SF TECNOLOGIA e como ativar para o meu estabelecimento.';
+      'Olá! Gostaria de informações sobre o CARDAPP Digital (Plano Exclusivo R$ 29,99/mês) da SF TECNOLOGIA e como ativar para o meu estabelecimento.';
     const textToSend = customTopic || defaultText;
     const url = `https://wa.me/5584986113980?text=${encodeURIComponent(textToSend)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -77,7 +77,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const faqs = [
     {
       q: 'O CARDAPP desconta alguma porcentagem ou comissão sobre os pedidos?',
-      a: 'Absolutamente NÃO. Nós trabalhamos com o modelo de assinatura fixa (R$ 24,99/mês). O faturamento de suas vendas é 100% seu, depositado diretamente em sua chave Pix ou recebido em sua maquininha, sem intermediários ou retenções.',
+      a: 'Absolutamente NÃO. Nós trabalhamos com o modelo de assinatura fixa (R$ 29,99/mês). O faturamento de suas vendas é 100% seu, depositado diretamente em sua chave Pix ou recebido em sua maquininha, sem intermediários ou retenções.',
     },
     {
       q: 'Os clientes precisam baixar algum aplicativo na App Store ou Google Play?',
@@ -107,7 +107,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-[#0A0D14] text-slate-300 py-2.5 px-4 text-xs font-medium text-center flex items-center justify-center gap-2 border-b border-white/5">
         <Sparkles className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
         <span className="tracking-wide text-slate-300">
-          🚀 <strong>7 Dias Grátis</strong> para testar sem compromisso • Plano Único <strong>R$ 24,99/mês</strong> • <strong>0% de Comissão</strong> • Renovação manual após o período
+          🚀 <strong>7 Dias Grátis</strong> para testar sem compromisso • Plano Único <strong>R$ 29,99/mês</strong> • <strong>0% de Comissão</strong> • Renovação manual após o período
         </span>
       </div>
 
@@ -216,7 +216,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white border border-white/20 font-black text-sm sm:text-base transition-all shadow-xl active:scale-98 flex items-center justify-center gap-2.5 cursor-pointer backdrop-blur-md"
               >
-                <span>Criar Minha Loja (R$ 24,99/mês)</span>
+                <span>Criar Minha Loja (R$ 29,99/mês)</span>
                 <ArrowRight className="w-4 h-4 text-amber-400" />
               </button>
             ) : (
@@ -269,7 +269,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
               <h3 className="font-bold text-sm text-white">Preço Fixo</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Assinatura sem surpresas de R$ 24,99/mês. Sem contratos de fidelidade ou carência.
+                Assinatura sem surpresas de R$ 29,99/mês. Sem contratos de fidelidade ou carência.
               </p>
             </div>
           </div>
@@ -681,7 +681,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <ul className="space-y-3 text-xs text-slate-300">
               <li className="flex items-start gap-2.5">
                 <Check className="w-4 h-4 text-emerald-400 shrink-0 stroke-[3]" />
-                <span>Zero comissão. Você paga apenas a mensalidade fixa de R$ 24,99/mês.</span>
+                <span>Zero comissão. Você paga apenas a mensalidade fixa de R$ 29,99/mês.</span>
               </li>
               <li className="flex items-start gap-2.5">
                 <Check className="w-4 h-4 text-emerald-400 shrink-0 stroke-[3]" />
@@ -734,7 +734,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
               <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">Assinatura CARDAPP</span>
-              <span className="text-xl font-black text-white block">R$ 24,99</span>
+              <span className="text-xl font-black text-white block">R$ 29,99</span>
               <span className="text-[10px] text-slate-400">mensalidade fixa</span>
             </div>
 
@@ -861,7 +861,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="text-left sm:text-right shrink-0">
               <span className="text-xs font-bold text-slate-400 block">Mensalidade Fixa</span>
               <div className="flex items-baseline gap-1">
-                <span className="text-3xl sm:text-5xl font-black text-white font-display">R$ 24,99</span>
+                <span className="text-3xl sm:text-5xl font-black text-white font-display">R$ 29,99</span>
                 <span className="text-xs font-bold text-slate-400">/mês</span>
               </div>
               <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md inline-block mt-2">
