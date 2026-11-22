@@ -698,6 +698,38 @@ export default function App() {
     }
   };
 
+  const handleEnterUserAccount = (targetAcc: UserAccount) => {
+    const res = accountService.impersonateAccount(targetAcc.id);
+    if (!res.success || !res.user) return;
+    const targetUser = res.user;
+    storageService.setStoreId(targetUser.storeId, targetUser.storeName, targetUser.phoneWhatsapp);
+    localStorage.setItem('cardapp_last_store_id', targetUser.storeId);
+    setCurrentUser(targetUser);
+    setCartItems([]);
+    setActiveOrderId(null);
+    setProducts(storageService.getProducts());
+    setOrders(storageService.getOrders());
+    setCategories(storageService.getCategories());
+    setSettings(storageService.getSettings());
+    setIsSuperAdminModalOpen(false);
+    setIsCeoModalOpen(true);
+    setCurrentView('menu');
+    localStorage.setItem('cardapp_last_view', 'ceo');
+  };
+
+  const handleReturnToSuperAdmin = () => {
+    const res = accountService.returnToSuperAdmin();
+    if (!res.success || !res.user) return;
+    const adminUser = res.user;
+    setCurrentUser(adminUser);
+    setCartItems([]);
+    setActiveOrderId(null);
+    setIsCeoModalOpen(false);
+    setIsSuperAdminModalOpen(true);
+    setCurrentView('menu');
+    localStorage.setItem('cardapp_last_view', 'menu');
+  };
+
   const handleLogout = () => {
     accountService.logout();
     setCurrentUser(null);
@@ -1088,6 +1120,8 @@ export default function App() {
           localStorage.setItem('cardapp_last_view', 'menu');
         }}
         onLogout={handleLogout}
+        isAdminImpersonating={accountService.isImpersonating()}
+        onReturnToSuperAdmin={handleReturnToSuperAdmin}
       />
 
       {/* SUPER ADMIN MODAL (SAMUEL_ADM1 - GERADOR DE CONTAS E BANCO DE DADOS) */}
@@ -1097,6 +1131,7 @@ export default function App() {
           onClose={() => setIsSuperAdminModalOpen(false)}
           currentUser={currentUser}
           onLogout={handleLogout}
+          onEnterUserAccount={handleEnterUserAccount}
         />
       )}
 

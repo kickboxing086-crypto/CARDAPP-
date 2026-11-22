@@ -28,6 +28,7 @@ import {
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
+const SUPER_ADMIN_BACKUP_KEY = 'cardapp_super_admin_backup_v1';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
 const PLANS_STORAGE_KEY = 'cardapp_subscription_plans_v1';
 const PIX_KEY_STORAGE_KEY = 'cardapp_gateway_pix_key_v1';
@@ -128,6 +129,7 @@ class AccountService {
   private accessRequests: UserAccessRequest[] = [];
   private subscriptionPlans: SubscriptionPlan[] = [...DEFAULT_PLANS];
   private currentSession: UserAccount | null = null;
+  private originalAdminSession: UserAccount | null = null;
   private listeners: (() => void)[] = [];
   public pixKey: string = DEFAULT_PIX_KEY;
 
@@ -168,6 +170,16 @@ class AccountService {
         if (storedSession) {
           this.currentSession = JSON.parse(storedSession);
         }
+
+        try {
+          const backupAdmin = sessionStorage.getItem(SUPER_ADMIN_BACKUP_KEY);
+          if (backupAdmin) {
+            const parsedBackup = JSON.parse(backupAdmin) as UserAccount;
+            if (parsedBackup && parsedBackup.role === 'super_admin') {
+              this.originalAdminSession = parsedBackup;
+            }
+          }
+        } catch {}
 
         const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
         if (storedRequests) {
@@ -453,6 +465,70 @@ class AccountService {
     return { success: true, message: 'Login realizado.', user };
   }
 
+  public isImpersonating(): boolean {
+    return Boolean(this.originalAdminSession && this.originalAdminSession.role === 'super_admin');
+  }
+
+  public getOriginalAdminSession(): UserAccount | null {
+    return this.originalAdminSession;
+  }
+
+  public impersonateAccount(targetAccountId: string): {
+    success: boolean;
+    message: string;
+    user?: UserAccount;
+  } {
+    const activeAdmin =
+      this.originalAdminSession?.role === 'super_admin'
+        ? this.originalAdminSession
+        : this.currentSession?.role === 'super_admin'
+        ? this.currentSession
+        : null;
+
+    if (!activeAdmin) {
+      return {
+        success: false,
+        message: 'Acesso negado: somente o Administrador Geral pode entrar na conta de usuários.',
+      };
+    }
+
+    const target = this.accounts.find((a) => a.id === targetAccountId);
+    if (!target) {
+      return { success: false, message: 'Conta do usuário não encontrada.' };
+    }
+
+    this.originalAdminSession = activeAdmin;
+    try {
+      sessionStorage.setItem(SUPER_ADMIN_BACKUP_KEY, JSON.stringify(activeAdmin));
+    } catch {}
+
+    this.currentSession = target;
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(target));
+    } catch {}
+    this.notify();
+    return {
+      success: true,
+      message: `Entrou na conta de ${target.storeName} (${target.username}).`,
+      user: target,
+    };
+  }
+
+  public returnToSuperAdmin(): { success: boolean; user?: UserAccount } {
+    const admin =
+      this.originalAdminSession?.role === 'super_admin'
+        ? this.originalAdminSession
+        : this.accounts.find((a) => a.role === 'super_admin') || null;
+    if (!admin) return { success: false };
+
+    this.originalAdminSession = null;
+    try {
+      sessionStorage.removeItem(SUPER_ADMIN_BACKUP_KEY);
+    } catch {}
+    this.switchSession(admin);
+    return { success: true, user: admin };
+  }
+
   public switchSession(user: UserAccount) {
     this.currentSession = user;
     try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
@@ -461,7 +537,11 @@ class AccountService {
 
   public logout() {
     this.currentSession = null;
-    try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch {}
+    this.originalAdminSession = null;
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      sessionStorage.removeItem(SUPER_ADMIN_BACKUP_KEY);
+    } catch {}
     this.notify();
   }
 

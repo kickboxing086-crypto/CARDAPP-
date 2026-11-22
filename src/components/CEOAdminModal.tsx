@@ -54,6 +54,8 @@ import {
   Award,
   KeyRound,
   Receipt,
+  Crown,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   Product,
@@ -96,6 +98,8 @@ interface CEOAdminModalProps {
   onSaveSettings: (settings: StoreSettings) => void;
   onSwitchToClientView: () => void;
   onLogout?: () => void;
+  isAdminImpersonating?: boolean;
+  onReturnToSuperAdmin?: () => void;
 }
 
 export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
@@ -115,12 +119,16 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   onSaveSettings,
   onSwitchToClientView,
   onLogout,
+  isAdminImpersonating = false,
+  onReturnToSuperAdmin,
 }) => {
   if (!isOpen) return null;
 
+  const isSuperAdminViewing = Boolean(isAdminImpersonating || accountService.isImpersonating());
+
   const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
     const sess = accountService.getCurrentSession();
-    if (sess?.planStatus === 'bloqueado' && sess?.role !== 'super_admin') {
+    if (sess?.planStatus === 'bloqueado' && sess?.role !== 'super_admin' && !accountService.isImpersonating()) {
       return 'status';
     }
     try {
@@ -161,7 +169,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
       setOfficialPixKey(accountService.getCleanPixKey());
-      if (updated?.planStatus === 'bloqueado' && updated?.role !== 'super_admin') {
+      if (updated?.planStatus === 'bloqueado' && updated?.role !== 'super_admin' && !accountService.isImpersonating()) {
         setActiveTab('status');
       }
     });
@@ -169,10 +177,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (currentSession?.planStatus === 'bloqueado' && currentSession?.role !== 'super_admin') {
+    if (currentSession?.planStatus === 'bloqueado' && currentSession?.role !== 'super_admin' && !isSuperAdminViewing) {
       setActiveTab('status');
     }
-  }, [currentSession?.planStatus, currentSession?.role]);
+  }, [currentSession?.planStatus, currentSession?.role, isSuperAdminViewing]);
 
   // Cálculo dos dias restantes para o vencimento do plano
   const daysUntilExpiry = useMemo(() => {
@@ -500,7 +508,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Interceptar troca de aba caso o acesso esteja bloqueado
   const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
-    if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin') {
+    if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin' && !isSuperAdminViewing) {
       setBlockedAlertNotice('Acesso bloqueado. Conclua a renovação (R$ 29,99/mês) pela Gateway Pix para reativar seu painel.');
       setActiveTab('status');
       setIsMobileSidebarOpen(false);
@@ -1240,6 +1248,33 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
         {/* LADO DIREITO: CONTEÚDO PRINCIPAL ORGANIZADO */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50/50">
+          {/* Barra Superior de Acesso Direto do Administrador Geral */}
+          {isSuperAdminViewing && onReturnToSuperAdmin && (
+            <div className="bg-slate-950 text-white px-4 py-2.5 border-b border-amber-400/50 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-7 h-7 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0">
+                  <Crown className="w-4 h-4 stroke-[2.5]" />
+                </span>
+                <div className="min-w-0 text-xs">
+                  <span className="font-black text-amber-400 uppercase tracking-wider text-[10px] block leading-tight">
+                    Acesso Direto • Administrador Geral
+                  </span>
+                  <span className="text-slate-200 font-semibold truncate block">
+                    Conectado à loja <strong>{currentSession?.storeName}</strong> (@{currentSession?.username})
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onReturnToSuperAdmin}
+                className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Voltar ao Admin Geral</span>
+              </button>
+            </div>
+          )}
+
           {/* Alerta Automático de Vencimento em 5 Dias */}
           {currentSession && currentSession.role !== 'super_admin' && daysUntilExpiry <= 5 && daysUntilExpiry >= 0 && (
             <div className="bg-amber-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">

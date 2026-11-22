@@ -10,6 +10,7 @@ import {
   Check,
   Download,
   LogOut,
+  LogIn,
   Store,
   MessageCircle,
   Eye,
@@ -62,6 +63,7 @@ interface SuperAdminModalProps {
   onClose: () => void;
   currentUser: UserAccount;
   onLogout: () => void;
+  onEnterUserAccount?: (account: UserAccount) => void;
 }
 
 type AdminTab =
@@ -97,6 +99,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   onClose,
   currentUser,
   onLogout,
+  onEnterUserAccount,
 }) => {
   const isSuperAdmin = currentUser.role === 'super_admin';
 
@@ -1176,6 +1179,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                 <td className="py-3.5 px-4 text-right">
                                   {!isMaster && (
                                     <div className="inline-flex items-center gap-1.5">
+                                      {isSuperAdmin && onEnterUserAccount && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onEnterUserAccount(acc)}
+                                          className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                          title={`Entrar diretamente no painel de ${acc.storeName}`}
+                                        >
+                                          <LogIn className="w-3.5 h-3.5" />
+                                          <span>Entrar na Conta</span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() => openAccountDrawer(acc, 'actions')}
@@ -1270,26 +1284,38 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           )}
 
                           {!isMaster && (
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openAccountDrawer(acc, 'actions')}
-                                className="flex-1 py-2.5 px-3 rounded-xl bg-slate-950 text-amber-400 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                              >
-                                <SlidersHorizontal className="w-3.5 h-3.5" />
-                                <span>Renovar / Gerenciar</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleBlockAccount(acc)}
-                                className={`py-2.5 px-3 rounded-xl font-black text-xs cursor-pointer ${
-                                  isActive
-                                    ? 'bg-red-100 text-red-800'
-                                    : 'bg-emerald-600 text-white'
-                                }`}
-                              >
-                                {isActive ? 'Bloquear' : 'Liberar'}
-                              </button>
+                            <div className="space-y-2">
+                              {isSuperAdmin && onEnterUserAccount && (
+                                <button
+                                  type="button"
+                                  onClick={() => onEnterUserAccount(acc)}
+                                  className="w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                                >
+                                  <LogIn className="w-3.5 h-3.5" />
+                                  <span>Entrar na Conta do Usuário</span>
+                                </button>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openAccountDrawer(acc, 'actions')}
+                                  className="flex-1 py-2.5 px-3 rounded-xl bg-slate-950 text-amber-400 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                >
+                                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                                  <span>Renovar / Gerenciar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBlockAccount(acc)}
+                                  className={`py-2.5 px-3 rounded-xl font-black text-xs cursor-pointer ${
+                                    isActive
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-emerald-600 text-white'
+                                  }`}
+                                >
+                                  {isActive ? 'Bloquear' : 'Liberar'}
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1364,14 +1390,26 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                             </a>
 
                             {!isMaster && (
-                              <button
-                                type="button"
-                                onClick={() => openAccountDrawer(acc, 'actions')}
-                                className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 font-black text-xs flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <SlidersHorizontal className="w-3.5 h-3.5" />
-                                <span>Gerenciar</span>
-                              </button>
+                              <>
+                                {isSuperAdmin && onEnterUserAccount && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEnterUserAccount(acc)}
+                                    className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                  >
+                                    <LogIn className="w-3.5 h-3.5" />
+                                    <span>Entrar na Conta</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => openAccountDrawer(acc, 'actions')}
+                                  className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 font-black text-xs flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                                  <span>Gerenciar</span>
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -2479,6 +2517,21 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
                 {drawerTab === 'actions' ? (
                   <>
+                    {/* Direito de Acesso Direto do Administrador Geral à Conta do Usuário */}
+                    {isSuperAdmin && onEnterUserAccount && drawerAccount.role !== 'super_admin' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerAccountId(null);
+                          onEnterUserAccount(drawerAccount);
+                        }}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                      >
+                        <LogIn className="w-4 h-4 stroke-[2.5]" />
+                        <span>Entrar na Conta do Usuário</span>
+                      </button>
+                    )}
+
                     {/* Resumo Atual da Licença */}
                     <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between">
