@@ -296,11 +296,11 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
   const handleGenerateRandomCredentials = () => {
     const cleanPrefix = newStoreName
-      ? newStoreName.replace(/[^A-Za-z]/g, '').slice(0, 5) || 'Loja'
-      : 'Loja';
-    const capitalized = cleanPrefix.charAt(0).toUpperCase() + cleanPrefix.slice(1).toLowerCase();
-    const generatedPass = generateSecurePassword('Pass');
-    const generatedUser = `${capitalized}_adm${Math.floor(100 + Math.random() * 899)}#`;
+      ? newStoreName.replace(/[^A-Za-z]/g, '').slice(0, 2) || 'Lj'
+      : 'Lj';
+    const capitalized = cleanPrefix.charAt(0).toUpperCase() + (cleanPrefix.charAt(1) || 'a').toLowerCase();
+    const generatedPass = generateSecurePassword('Cd');
+    const generatedUser = `${capitalized}${Math.floor(1000 + Math.random() * 8999)}u#`;
 
     setNewUsername(generatedUser);
     setNewPassword(generatedPass);
@@ -314,7 +314,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       setFormFeedback({
         type: 'error',
         message:
-          'O nome de usuário deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+          'O nome de usuário deve ter entre 4 e no máximo 8 caracteres (não pode passar de 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       });
       return;
     }
@@ -323,7 +323,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       setFormFeedback({
         type: 'error',
         message:
-          'A senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+          'A senha deve ter entre 4 e no máximo 8 caracteres (não pode passar de 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       });
       return;
     }
@@ -1011,7 +1011,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                         Criar Nova Loja / Login
                       </span>
                       <span className="text-[11px] text-slate-600 block">
-                        Gere acesso seguro (8+ caracteres) já escolhendo o plano.
+                        Gere acesso seguro (até 8 caracteres) já escolhendo o plano.
                       </span>
                     </button>
                   </div>
@@ -1921,7 +1921,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                         Cadastrar Novo Usuário / Loja
                       </h3>
                       <p className="text-xs text-slate-600">
-                        Credenciais exigem mínimo de 8 caracteres. Escolha o plano inicial exclusivo.
+                        Credenciais exigem limite máximo de até 8 caracteres. Escolha o plano inicial exclusivo.
                       </p>
                     </div>
                     <button
@@ -2037,39 +2037,45 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-slate-800">
-                          Nome de Usuário (8+ caract.) *
+                          Nome de Usuário (até 8 caract.) *
                         </label>
                         <input
                           type="text"
                           required
+                          maxLength={8}
                           value={newUsername}
-                          onChange={(e) => setNewUsername(e.target.value)}
-                          placeholder="Ex: Joao_adm1#"
+                          onChange={(e) => setNewUsername(e.target.value.slice(0, 8))}
+                          placeholder="Ex: Joao12#@"
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                         />
                         <CredentialSecurityChecklist
                           value={newUsername}
                           fieldType="username"
-                          onQuickInsertChar={(c) => setNewUsername((prev) => prev + c)}
+                          onQuickInsertChar={(c) =>
+                            setNewUsername((prev) => (prev.length < 8 ? prev + c : prev))
+                          }
                         />
                       </div>
 
                       <div className="space-y-1.5">
                         <label className="block text-xs font-bold text-slate-800">
-                          Senha de Acesso (8+ caract.) *
+                          Senha de Acesso (até 8 caract.) *
                         </label>
                         <input
                           type="text"
                           required
+                          maxLength={8}
                           value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          placeholder="Ex: Senha123@#"
+                          onChange={(e) => setNewPassword(e.target.value.slice(0, 8))}
+                          placeholder="Ex: Pass12@#"
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                         />
                         <CredentialSecurityChecklist
                           value={newPassword}
                           fieldType="password"
-                          onQuickInsertChar={(c) => setNewPassword((prev) => prev + c)}
+                          onQuickInsertChar={(c) =>
+                            setNewPassword((prev) => (prev.length < 8 ? prev + c : prev))
+                          }
                         />
                       </div>
                     </div>
@@ -2095,7 +2101,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     Solicitações de Acesso de Novos Clientes
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Ao aprovar, o sistema gera automaticamente a conta segura (8+ caracteres) e libera o acesso de 7 dias.
+                    Ao aprovar, o sistema gera automaticamente a conta segura (até 8 caracteres) e libera o acesso de 7 dias.
                   </p>
                 </div>
 
@@ -2667,32 +2673,48 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-800">
-                        Nome de Usuário (mínimo 8 caracteres) *
+                        Nome de Usuário (máximo 8 caracteres) *
                       </label>
                       <input
                         type="text"
                         required
+                        maxLength={drawerAccount.role === 'super_admin' ? undefined : 8}
                         value={editUsername}
-                        onChange={(e) => setEditUsername(e.target.value)}
+                        onChange={(e) =>
+                          setEditUsername(
+                            drawerAccount.role === 'super_admin'
+                              ? e.target.value
+                              : e.target.value.slice(0, 8)
+                          )
+                        }
                         className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                       />
                       <CredentialSecurityChecklist
                         value={editUsername}
                         fieldType="username"
-                        onQuickInsertChar={(c) => setEditUsername((prev) => prev + c)}
+                        onQuickInsertChar={(c) =>
+                          setEditUsername((prev) => (prev.length < 8 ? prev + c : prev))
+                        }
                       />
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-800">
-                        Senha (mínimo 8 caracteres) *
+                        Senha (máximo 8 caracteres) *
                       </label>
                       <div className="relative">
                         <input
                           type={showEditPassword ? 'text' : 'password'}
                           required
+                          maxLength={drawerAccount.role === 'super_admin' ? undefined : 8}
                           value={editPassword}
-                          onChange={(e) => setEditPassword(e.target.value)}
+                          onChange={(e) =>
+                            setEditPassword(
+                              drawerAccount.role === 'super_admin'
+                                ? e.target.value
+                                : e.target.value.slice(0, 8)
+                            )
+                          }
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-amber-500 pr-9"
                         />
                         <button
@@ -2710,7 +2732,9 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       <CredentialSecurityChecklist
                         value={editPassword}
                         fieldType="password"
-                        onQuickInsertChar={(c) => setEditPassword((prev) => prev + c)}
+                        onQuickInsertChar={(c) =>
+                          setEditPassword((prev) => (prev.length < 8 ? prev + c : prev))
+                        }
                       />
                     </div>
 

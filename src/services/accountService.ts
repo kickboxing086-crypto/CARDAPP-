@@ -381,16 +381,16 @@ class AccountService {
     } catch {}
 
     if (status === 'aprovado' && request) {
-        const cleanPrefix = (request.email.split('@')[0] || 'Loja')
+        const cleanPrefix = (request.email.split('@')[0] || 'Lj')
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .replace(/[^a-zA-Z0-9]/g, '')
-          .slice(0, 5) || 'Loja';
-        const capPrefix = cleanPrefix.charAt(0).toUpperCase() + cleanPrefix.slice(1).toLowerCase();
-        const safeUsername = `${capPrefix}_u${Math.floor(100 + Math.random() * 899)}#`;
+          .slice(0, 2) || 'Lj';
+        const capPrefix = cleanPrefix.charAt(0).toUpperCase() + (cleanPrefix.charAt(1) || 'a').toLowerCase();
+        const safeUsername = `${capPrefix}${Math.floor(1000 + Math.random() * 8999)}u#`;
         this.createAccount({
             username: safeUsername,
-            password: generateSecurePassword('Card'),
+            password: generateSecurePassword('Cd'),
             name: request.name,
             storeName: request.storeName,
             phoneWhatsapp: request.phoneWhatsapp,
@@ -457,7 +457,7 @@ class AccountService {
     if (!usernameCheck.isValid) {
       return {
         success: false,
-        message: 'O nome de usuário deve ter no mínimo 8 caracteres, letra maiúscula, minúscula, número, caractere especial e sem espaços.',
+        message: 'O nome de usuário deve ter entre 4 e no máximo 8 caracteres (não pode passar de 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       };
     }
     if (hasAccentsOrDiacritics(data.password)) {
@@ -467,7 +467,7 @@ class AccountService {
     if (!passwordCheck.isValid) {
       return {
         success: false,
-        message: 'A senha deve ter no mínimo 8 caracteres, letra maiúscula, minúscula, número, caractere especial e sem espaços.',
+        message: 'A senha deve ter entre 4 e no máximo 8 caracteres (não pode passar de 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       };
     }
     if (this.accounts.some((a) => a.username.toLowerCase() === data.username.toLowerCase().trim())) {
@@ -612,7 +612,7 @@ class AccountService {
       if (!validateUsernameSecurity(data.username.trim()).isValid) {
         return {
           success: false,
-          message: 'O nome de usuário deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+          message: 'O nome de usuário deve ter entre 4 e no máximo 8 caracteres (até 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
         };
       }
     }
@@ -623,7 +623,7 @@ class AccountService {
       if (!validatePasswordSecurity(data.passwordHash).isValid) {
         return {
           success: false,
-          message: 'A senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+          message: 'A senha deve ter entre 4 e no máximo 8 caracteres (até 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
         };
       }
     }
@@ -1001,7 +1001,7 @@ class AccountService {
     if (!validatePasswordSecurity(newPassword).isValid) {
       return {
         success: false,
-        message: 'A nova senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+        message: 'A nova senha deve ter entre 4 e no máximo 8 caracteres (até 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       };
     }
 
@@ -1161,7 +1161,7 @@ class AccountService {
     if (!validatePasswordSecurity(newPassword).isValid) {
       return {
         success: false,
-        message: 'A nova senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+        message: 'A nova senha deve ter entre 4 e no máximo 8 caracteres (até 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
       };
     }
     const safeHash = hashPassword(newPassword);

@@ -66,8 +66,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   // Etapa 3: Foto de Perfil da Loja (Obrigatória)
   // Etapa 4: WhatsApp Comercial
   // Etapa 5: E-mail Obrigatório (Chave oficial de recuperação)
-  // Etapa 6: Nome de Usuário de Acesso (mínimo 8 caracteres + maiúscula, minúscula, número, especial)
-  // Etapa 7: Senha de Acesso (mínimo 8 caracteres + maiúscula, minúscula, número, especial)
+  // Etapa 6: Nome de Usuário de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
+  // Etapa 7: Senha de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
   // Etapa 8: Revisão Final & Ativação (7 Dias Grátis)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const [regName, setRegName] = useState('');
@@ -293,8 +293,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       if (!usernameSecurity.isValid) {
         if (usernameHasAccents) {
           setRegError('Não é permitido adicionar acentos nem cedilhas no nome de usuário.');
+        } else if (!usernameSecurity.hasMaxLength) {
+          setRegError('O nome de usuário não pode passar de 8 caracteres.');
         } else if (!usernameSecurity.hasMinLength) {
-          setRegError('O nome de usuário precisa ter no mínimo 8 caracteres.');
+          setRegError('O nome de usuário precisa ter pelo menos 4 caracteres (máximo 8).');
         } else if (!usernameSecurity.hasUppercase) {
           setRegError('O nome de usuário precisa conter pelo menos uma letra MAIÚSCULA (A-Z).');
         } else if (!usernameSecurity.hasLowercase) {
@@ -315,8 +317,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       if (!passwordSecurity.isValid) {
         if (passwordHasAccents) {
           setRegError('Não é permitido adicionar acentos nem cedilhas na senha.');
+        } else if (!passwordSecurity.hasMaxLength) {
+          setRegError('A senha não pode passar de 8 caracteres.');
         } else if (!passwordSecurity.hasMinLength) {
-          setRegError('A senha precisa ter no mínimo 8 caracteres.');
+          setRegError('A senha precisa ter pelo menos 4 caracteres (máximo 8).');
         } else if (!passwordSecurity.hasUppercase) {
           setRegError('A senha precisa conter pelo menos uma letra MAIÚSCULA (A-Z).');
         } else if (!passwordSecurity.hasLowercase) {
@@ -363,13 +367,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     if (!usernameSecurity.isValid) {
       setWizardStep(6);
-      setRegError('Verifique os requisitos do nome de usuário (mínimo 8 caracteres).');
+      setRegError('Verifique os requisitos do nome de usuário (máximo 8 caracteres).');
       return;
     }
 
     if (!passwordSecurity.isValid) {
       setWizardStep(7);
-      setRegError('Verifique os requisitos da senha (mínimo 8 caracteres).');
+      setRegError('Verifique os requisitos da senha (máximo 8 caracteres).');
       return;
     }
 
@@ -755,8 +759,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {wizardStep === 3 && '3. Foto de Perfil'}
                   {wizardStep === 4 && '4. WhatsApp'}
                   {wizardStep === 5 && '5. E-mail Obrigatório'}
-                  {wizardStep === 6 && '6. Usuário (8+ caract.)'}
-                  {wizardStep === 7 && '7. Senha (8+ caract.)'}
+                  {wizardStep === 6 && '6. Usuário (até 8 caract.)'}
+                  {wizardStep === 7 && '7. Senha (até 8 caract.)'}
                   {wizardStep === 8 && '8. Ativação'}
                 </span>
               </div>
@@ -1215,7 +1219,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 6: USUÁRIO COM OBRIGAÇÕES (MÍNIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
+            {/* ETAPA 6: USUÁRIO COM OBRIGAÇÕES (MÁXIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
             {wizardStep === 6 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
@@ -1226,20 +1230,26 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     Crie seu Nome de Usuário (Login)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Mínimo de <strong>8 caracteres</strong>, com maiúsculas, minúsculas, número e caractere especial. <strong>Sem acentos ou cedilhas.</strong>
+                    Limite máximo de <strong>até 8 caracteres</strong> (4 a 8), com maiúsculas, minúsculas, número e caractere especial. <strong>Sem acentos ou cedilhas.</strong>
                   </p>
                 </div>
 
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      Nome de Usuário *
+                      Nome de Usuário (até 8 caract.) *
                     </label>
-                    {regUsername && (
-                      <span className={`text-[10px] font-bold ${usernameSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {usernameSecurity.isValid ? 'Usuário Válido ✓' : `${regUsername.length}/8+ caracteres`}
-                      </span>
-                    )}
+                    <span
+                      className={`text-[10px] font-bold ${
+                        regUsername.length > 8
+                          ? 'text-red-600'
+                          : usernameSecurity.isValid
+                          ? 'text-emerald-700'
+                          : 'text-amber-700'
+                      }`}
+                    >
+                      {usernameSecurity.isValid ? `Usuário Válido (${regUsername.length}/8) ✓` : `${regUsername.length}/8 caracteres`}
+                    </span>
                   </div>
 
                   <div className="relative">
@@ -1250,12 +1260,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       type="text"
                       autoFocus
                       required
+                      maxLength={8}
                       value={regUsername}
                       onChange={(e) => {
-                        setRegUsername(e.target.value);
+                        setRegUsername(e.target.value.slice(0, 8));
                         setRegError('');
                       }}
-                      placeholder="Ex: Carlos_adm1#"
+                      placeholder="Ex: Ana_12#@"
                       className={`w-full pl-10 pr-3 py-3 bg-slate-50 border rounded-xl text-sm font-mono font-bold focus:outline-none transition-colors ${
                         usernameHasAccents
                           ? 'border-red-500 bg-red-50 text-red-900 ring-2 ring-red-200'
@@ -1277,18 +1288,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Atalhos rápidos para inserir Caracteres Especiais com 1 toque */}
                   <div className="space-y-1 pt-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Toque para inserir um caractere especial:
+                      Toque para inserir um caractere especial (máx. 8):
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {['@', '#', '$', '%', '&', '*', '!', '_', '-'].map((char) => (
                         <button
                           key={char}
                           type="button"
+                          disabled={regUsername.length >= 8}
                           onClick={() => {
-                            setRegUsername((prev) => prev + char);
+                            setRegUsername((prev) => (prev.length < 8 ? prev + char : prev));
                             setRegError('');
                           }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {char}
                         </button>
@@ -1299,16 +1311,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Checklist de Acompanhamento do Usuário em Tempo Real */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                     <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                      Obrigações do Nome de Usuário (Mesmo padrão de segurança):
+                      Obrigações do Nome de Usuário (Máximo 8 Caracteres):
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <div className={`flex items-center gap-2 transition-colors ${usernameSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {usernameSecurity.hasMinLength ? (
+                      <div className={`flex items-center gap-2 transition-colors ${usernameSecurity.hasMinLength && usernameSecurity.hasMaxLength ? 'text-emerald-700 font-bold' : regUsername.length > 8 ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                        {usernameSecurity.hasMinLength && usernameSecurity.hasMaxLength ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                        ) : regUsername.length > 8 ? (
+                          <X className="w-3.5 h-3.5 text-red-600 stroke-[3]" />
                         ) : (
                           <div className="w-3 h-3 rounded-full border border-slate-300" />
                         )}
-                        <span>Mínimo de 8 caracteres</span>
+                        <span>Até 8 caracteres ({regUsername.length}/8)</span>
                       </div>
 
                       <div className={`flex items-center gap-2 transition-colors ${usernameSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1390,7 +1404,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 7: SENHA COM OBRIGAÇÕES (MÍNIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
+            {/* ETAPA 7: SENHA COM OBRIGAÇÕES (MÁXIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
             {wizardStep === 7 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
@@ -1401,20 +1415,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     Crie sua Senha de Acesso
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Mesmas exigências: mínimo de <strong>8 caracteres</strong>, maiúscula, minúscula, número e especial. <strong>Sem acentos ou espaços.</strong>
+                    Mesmas exigências: limite máximo de <strong>até 8 caracteres</strong> (4 a 8), maiúscula, minúscula, número e especial. <strong>Sem acentos ou espaços.</strong>
                   </p>
                 </div>
 
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      Senha de Acesso *
+                      Senha de Acesso (até 8 caract.) *
                     </label>
-                    {regPassword && (
-                      <span className={`text-[10px] font-bold ${passwordSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        Força: {passwordSecurity.strengthLabel} ({regPassword.length}/8+)
-                      </span>
-                    )}
+                    <span
+                      className={`text-[10px] font-bold ${
+                        regPassword.length > 8
+                          ? 'text-red-600'
+                          : passwordSecurity.isValid
+                          ? 'text-emerald-700'
+                          : 'text-amber-700'
+                      }`}
+                    >
+                      {regPassword
+                        ? `Força: ${passwordSecurity.strengthLabel} (${regPassword.length}/8)`
+                        : `${regPassword.length}/8 caracteres`}
+                    </span>
                   </div>
 
                   <div className="relative">
@@ -1425,12 +1447,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       type={showRegPassword ? 'text' : 'password'}
                       autoFocus
                       required
+                      maxLength={8}
                       value={regPassword}
                       onChange={(e) => {
-                        setRegPassword(e.target.value);
+                        setRegPassword(e.target.value.slice(0, 8));
                         setRegError('');
                       }}
-                      placeholder="Ex: Carlos2026@#"
+                      placeholder="Ex: Cd2026@#"
                       className={`w-full pl-10 pr-10 py-3 bg-slate-50 border rounded-xl text-sm font-mono font-bold focus:outline-none transition-colors ${
                         passwordHasAccents
                           ? 'border-red-500 bg-red-50 text-red-900 ring-2 ring-red-200'
@@ -1460,18 +1483,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Atalhos rápidos para inserir Caracteres Especiais na Senha */}
                   <div className="space-y-1 pt-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Toque para inserir um caractere especial na senha:
+                      Toque para inserir um caractere especial na senha (máx. 8):
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {['@', '#', '$', '%', '&', '*', '!', '_', '-'].map((char) => (
                         <button
                           key={char}
                           type="button"
+                          disabled={regPassword.length >= 8}
                           onClick={() => {
-                            setRegPassword((prev) => prev + char);
+                            setRegPassword((prev) => (prev.length < 8 ? prev + char : prev));
                             setRegError('');
                           }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {char}
                         </button>
@@ -1498,16 +1522,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Checklist de Acompanhamento da Senha em Tempo Real */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                     <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                      Obrigações da Senha (Mínimo 8 Caracteres):
+                      Obrigações da Senha (Máximo 8 Caracteres):
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                        {passwordSecurity.hasMinLength ? (
+                      <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasMinLength && passwordSecurity.hasMaxLength ? 'text-emerald-700 font-bold' : regPassword.length > 8 ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                        {passwordSecurity.hasMinLength && passwordSecurity.hasMaxLength ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                        ) : regPassword.length > 8 ? (
+                          <X className="w-3.5 h-3.5 text-red-600 stroke-[3]" />
                         ) : (
                           <div className="w-3 h-3 rounded-full border border-slate-300" />
                         )}
-                        <span>Mínimo de 8 caracteres</span>
+                        <span>Até 8 caracteres ({regPassword.length}/8)</span>
                       </div>
 
                       <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1827,7 +1853,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                           setRecoverUsernameInput(e.target.value);
                           setRecoverError('');
                         }}
-                        placeholder="Ex: Carlos_adm1#"
+                        placeholder="Ex: Ana_12#@"
                         className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                       />
                     </div>
@@ -1970,11 +1996,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      • NOVA SENHA *
+                      • NOVA SENHA (ATÉ 8 CARACT.) *
                     </label>
                     {recoverNewPassword && (
-                      <span className={`text-[10px] font-bold ${recoverPasswordSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        Força: {recoverPasswordSecurity.strengthLabel}
+                      <span className={`text-[10px] font-bold ${recoverPasswordSecurity.isValid ? 'text-emerald-700' : recoverNewPassword.length > 8 ? 'text-red-600' : 'text-amber-700'}`}>
+                        Força: {recoverPasswordSecurity.strengthLabel} ({recoverNewPassword.length}/8)
                       </span>
                     )}
                   </div>
@@ -1987,12 +2013,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       type={showRecoverNewPassword ? 'text' : 'password'}
                       autoFocus
                       required
+                      maxLength={8}
                       value={recoverNewPassword}
                       onChange={(e) => {
-                        setRecoverNewPassword(e.target.value);
+                        setRecoverNewPassword(e.target.value.slice(0, 8));
                         setRecoverError('');
                       }}
-                      placeholder="Digite sua nova senha"
+                      placeholder="Máximo 8 caracteres"
                       className={`w-full pl-10 pr-10 py-3 bg-slate-50 border rounded-xl text-sm font-mono font-bold focus:outline-none transition-colors ${
                         recoverPasswordHasAccents
                           ? 'border-red-500 bg-red-50 text-red-900 ring-2 ring-red-200'
@@ -2022,18 +2049,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Atalhos rápidos para inserir Caracteres Especiais */}
                   <div className="space-y-1 pt-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Toque para inserir um caractere especial:
+                      Toque para inserir um caractere especial (máx. 8):
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {['@', '#', '$', '%', '&', '*', '!', '_', '-'].map((char) => (
                         <button
                           key={char}
                           type="button"
+                          disabled={recoverNewPassword.length >= 8}
                           onClick={() => {
-                            setRecoverNewPassword((prev) => prev + char);
+                            setRecoverNewPassword((prev) => (prev.length < 8 ? prev + char : prev));
                             setRecoverError('');
                           }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-amber-100 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-mono font-black text-slate-800 hover:text-amber-950 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {char}
                         </button>
@@ -2062,9 +2090,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     <input
                       type={showRecoverRepeatPassword ? 'text' : 'password'}
                       required
+                      maxLength={8}
                       value={recoverRepeatPassword}
                       onChange={(e) => {
-                        setRecoverRepeatPassword(e.target.value);
+                        setRecoverRepeatPassword(e.target.value.slice(0, 8));
                         setRecoverError('');
                       }}
                       placeholder="Repita exatamente a mesma senha"
@@ -2090,16 +2119,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 {/* Checklist de Validação das Obrigações de Segurança */}
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                   <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                    Obrigações da Nova Senha (Mínimo 8 Caracteres):
+                    Obrigações da Nova Senha (Máximo 8 Caracteres):
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                      {recoverPasswordSecurity.hasMinLength ? (
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasMinLength && recoverPasswordSecurity.hasMaxLength ? 'text-emerald-700 font-bold' : recoverNewPassword.length > 8 ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasMinLength && recoverPasswordSecurity.hasMaxLength ? (
                         <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : recoverNewPassword.length > 8 ? (
+                        <X className="w-3.5 h-3.5 text-red-600 stroke-[3]" />
                       ) : (
                         <div className="w-3 h-3 rounded-full border border-slate-300" />
                       )}
-                      <span>Mínimo de 8 caracteres</span>
+                      <span>Até 8 caracteres ({recoverNewPassword.length}/8)</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>

@@ -237,11 +237,13 @@ export interface SecurityRequirements {
   hasNumber: boolean;
   hasSpecialChar: boolean;
   hasMinLength: boolean;
+  hasMaxLength: boolean;
   isValid: boolean;
 }
 
 export interface UsernameSecurityRequirements {
-  hasMinLength: boolean;     // Pelo menos 8 caracteres
+  hasMinLength: boolean;     // Pelo menos 4 caracteres
+  hasMaxLength: boolean;     // Máximo de 8 caracteres (até 8)
   hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
   hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
   hasNumber: boolean;        // Pelo menos 1 número (0-9)
@@ -252,7 +254,8 @@ export interface UsernameSecurityRequirements {
 }
 
 export interface PasswordSecurityRequirements {
-  hasMinLength: boolean;     // Mínimo de 8 caracteres
+  hasMinLength: boolean;     // Pelo menos 4 caracteres
+  hasMaxLength: boolean;     // Máximo de 8 caracteres (até 8)
   hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
   hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
   hasNumber: boolean;        // Pelo menos 1 número (0-9)
