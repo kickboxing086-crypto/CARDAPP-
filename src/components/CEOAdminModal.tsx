@@ -144,6 +144,35 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
+  // Loja Oficial e Login Oficial com ID real da loja do CEO
+  const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
+  const currentSession = accountSession || accountService.getCurrentSession();
+  const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
+  const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
+
+  // Assinar alterações da conta no accountService
+  useEffect(() => {
+    const unsub = accountService.subscribe(() => {
+      const updated = accountService.getCurrentSession();
+      setAccountSession(updated);
+      setPixKey(accountService.getPixKey());
+      if (updated?.planStatus === 'bloqueado') {
+        setActiveTab('status');
+      }
+    });
+    return unsub;
+  }, []);
+
+  // Cálculo dos dias restantes para o vencimento do plano
+  const daysUntilExpiry = useMemo(() => {
+    if (currentSession?.planTier === 'vitalicio') return 99999;
+    if (!currentSession?.expiresAt) return 0;
+    const now = new Date();
+    const expiry = new Date(currentSession.expiresAt);
+    const diffTime = expiry.getTime() - now.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, [currentSession?.expiresAt, currentSession?.planTier]);
+
   // Tutorial Básico de Primeiro Acesso
   const tutorialSeenKey = `cardapp_tutorial_seen_${currentSession?.id || 'default'}`;
   const [showTutorialModal, setShowTutorialModal] = useState<boolean>(() => {
@@ -168,34 +197,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  // Loja Oficial e Login Oficial com ID real da loja do CEO
-  const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
-  const currentSession = accountSession || accountService.getCurrentSession();
-  const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
-
-  // Assinar alterações da conta no accountService
-  useEffect(() => {
-    const unsub = accountService.subscribe(() => {
-      const updated = accountService.getCurrentSession();
-      setAccountSession(updated);
-      setPixKey(accountService.getPixKey());
-      if (updated?.planStatus === 'bloqueado') {
-        setActiveTab('status');
-      }
-    });
-    return unsub;
-  }, []);
-
-  // GATEWAY DE PAGAMENTO PIX (5 MINUTOS LIMITE MÁXIMO • PLANO A PARTIR DE R$ 2,00/MÊS)
-  const [pixKey, setPixKey] = useState<string>(() => accountService.getPixKey());
-  const PIX_BENEFICIARY = 'Erijan Gois / SF Tecnologia';
-  const PIX_COMPANY_NAME = 'ERIJAN GOIS';
-  const PIX_CITY_UF = 'NATAL - RN';
-  const PIX_AMOUNT = 24.99; // Valor do plano mensal R$ 24,99/Mês
-  const PAYMENT_TIMEOUT_SECONDS = 300; // 5 minutos = 300 segundos
-
+  const PIX_AMOUNT = 24.99;
+  const PAYMENT_TIMEOUT_SECONDS = 300;
   const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
-  const [copiedPixKey, setCopiedPixKey] = useState(false);
   const [copiedCleanPixKey, setCopiedCleanPixKey] = useState(false);
   const [copiedBcbKey, setCopiedBcbKey] = useState(false);
   const [copiedPixPayload, setCopiedPixPayload] = useState(false);
@@ -208,22 +212,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
   const [pixTransactionId, setPixTransactionId] = useState('');
-
-  // Sincronizar faturas do cliente
-  useEffect(() => {
-    if (currentSession?.id) {
-      setInvoicesList(accountService.getInvoices(currentSession.id));
-    }
-  }, [currentSession?.id, currentSession?.invoices]);
-
-  // Cálculo dos dias restantes para o vencimento do plano
-  const daysUntilExpiry = useMemo(() => {
-    if (!currentSession?.expiresAt) return 0;
-    const now = new Date();
-    const expiry = new Date(currentSession.expiresAt);
-    const diffTime = expiry.getTime() - now.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }, [currentSession?.expiresAt]);
 
   // Sempre exibe a Gateway com o QR Code (período de teste grátis ou renovação imediata)
   const isPaymentDueSoon = useMemo(() => {
@@ -3223,19 +3211,26 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                   {/* Conteúdo: QR Code e Chave Pix para Copiar + Botão de Confirmação */}
                   <div className="p-6 flex flex-col items-center text-center space-y-5">
-                    {/* Alerta de Período de Teste Grátis ou Bloqueio */}
+                    {/* Alerta de Período de Teste Grátis, Plano Ativo ou Bloqueio */}
                     {currentSession?.planStatus === 'bloqueado' ? (
                       <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
                         <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                         <span>
-                          <strong>Acesso Bloqueado:</strong> Seu período de teste grátis expirou. Realize o pagamento do Pix de R$ 24,99 para reativar seu cardápio imediatamente.
+                          <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou ou foi suspenso pelo administrador geral.'} Entre em contato para reativar seu cardápio.
+                        </span>
+                      </div>
+                    ) : currentSession?.planTier === 'vitalicio' ? (
+                      <div className="w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 font-bold text-xs flex items-center gap-2 text-left">
+                        <Award className="w-5 h-5 text-amber-600 shrink-0" />
+                        <span>
+                          <strong>Plano Vitalício Exclusivo Ativo:</strong> Sua loja possui licença permanente liberada pelo Administrador Geral, sem data de expiração.
                         </span>
                       </div>
                     ) : (
                       <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
                         <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
                         <span>
-                          <strong>Período de Teste Grátis:</strong> Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> de uso gratuito. Você pode adquirir o sistema imediatamente via QR Code Pix abaixo a qualquer momento (R$ 24,99/mês).
+                          <strong>{currentSession?.planName || 'Período de Teste Grátis'}:</strong> Restam <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> de vigência. Para renovação manual (Mensal, Trimestral, Semestral, Anual ou Vitalício), fale com o Administrador Geral.
                         </span>
                       </div>
                     )}

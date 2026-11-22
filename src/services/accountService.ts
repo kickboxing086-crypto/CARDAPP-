@@ -1,9 +1,22 @@
 import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { UserAccount, ClientRegistrationFormData, UserAccessRequest, PaymentInvoice } from '../types';
+import {
+  UserAccount,
+  ClientRegistrationFormData,
+  UserAccessRequest,
+  PaymentInvoice,
+  SubscriptionPlan,
+  PlanPeriod,
+  PlanTier,
+} from '../types';
 import { storageService } from './storageService';
 import { extractCleanPixKey } from '../utils/pixPayload';
-import { hasAccentsOrDiacritics } from '../utils/security';
+import {
+  hasAccentsOrDiacritics,
+  validateUsernameSecurity,
+  validatePasswordSecurity,
+  generateSecurePassword,
+} from '../utils/security';
 import {
   hashPassword,
   verifyPassword,
@@ -16,8 +29,84 @@ import {
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
+const PLANS_STORAGE_KEY = 'cardapp_subscription_plans_v1';
 const PIX_KEY_STORAGE_KEY = 'cardapp_gateway_pix_key_v1';
 const DEFAULT_PIX_KEY = 'bcb.pix.a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+
+export const PLAN_PERIOD_DAYS: Record<PlanPeriod, number> = {
+  mensal: 30,
+  trimestral: 90,
+  semestral: 180,
+  anual: 365,
+  vitalicio: 36500,
+};
+
+export const PLAN_PERIOD_LABELS: Record<PlanTier, string> = {
+  teste_gratis: 'Teste Grátis (7 dias)',
+  mensal: 'Mensal',
+  trimestral: 'Trimestral',
+  semestral: 'Semestral',
+  anual: 'Anual',
+  vitalicio: 'Vitalício',
+};
+
+const DEFAULT_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'plan_mensal_padrao',
+    period: 'mensal',
+    name: 'Plano Mensal',
+    durationDays: 30,
+    price: 24.99,
+    description: 'Renovação de 30 dias com acesso completo ao cardápio e painel.',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'Samuel_adm1',
+  },
+  {
+    id: 'plan_trimestral_padrao',
+    period: 'trimestral',
+    name: 'Plano Trimestral',
+    durationDays: 90,
+    price: 69.90,
+    description: '90 dias de acesso contínuo com economia para o lojista.',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'Samuel_adm1',
+  },
+  {
+    id: 'plan_semestral_padrao',
+    period: 'semestral',
+    name: 'Plano Semestral',
+    durationDays: 180,
+    price: 129.90,
+    description: '180 dias de vigência sem preocupações mensais.',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'Samuel_adm1',
+  },
+  {
+    id: 'plan_anual_padrao',
+    period: 'anual',
+    name: 'Plano Anual',
+    durationDays: 365,
+    price: 239.90,
+    description: '365 dias de licença completa com melhor custo-benefício.',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'Samuel_adm1',
+  },
+  {
+    id: 'plan_vitalicio_padrao',
+    period: 'vitalicio',
+    name: 'Plano Vitalício',
+    durationDays: 36500,
+    price: 499.90,
+    description: 'Licença vitalícia exclusiva sem data de expiração.',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'Samuel_adm1',
+  },
+];
 
 const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
@@ -37,6 +126,7 @@ const MASTER_ADMIN: UserAccount = {
 class AccountService {
   private accounts: UserAccount[] = [MASTER_ADMIN];
   private accessRequests: UserAccessRequest[] = [];
+  private subscriptionPlans: SubscriptionPlan[] = [...DEFAULT_PLANS];
   private currentSession: UserAccount | null = null;
   private listeners: (() => void)[] = [];
   public pixKey: string = DEFAULT_PIX_KEY;
@@ -84,6 +174,16 @@ class AccountService {
           this.accessRequests = JSON.parse(storedRequests);
         }
 
+        const storedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
+        if (storedPlans) {
+          const parsedPlans = JSON.parse(storedPlans);
+          if (Array.isArray(parsedPlans) && parsedPlans.length > 0) {
+            this.subscriptionPlans = parsedPlans;
+          }
+        } else {
+          localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(DEFAULT_PLANS));
+        }
+
         // Setup cross-tab / cross-window storage event listener
         window.addEventListener('storage', (e) => {
           if (e.key === ACCOUNTS_STORAGE_KEY && e.newValue) {
@@ -129,6 +229,18 @@ class AccountService {
   private saveRequestsToStorage() {
     try {
       localStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(this.accessRequests));
+    } catch {}
+    this.notify();
+  }
+
+  private savePlansToStorage() {
+    try {
+      localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(this.subscriptionPlans));
+      setDoc(
+        doc(db, 'systemConfig', 'subscriptionPlans'),
+        { plans: this.subscriptionPlans, updatedAt: new Date().toISOString() },
+        { merge: true }
+      ).catch(() => {});
     } catch {}
     this.notify();
   }
@@ -181,6 +293,25 @@ class AccountService {
           console.warn('Firestore pixGateway listener offline/reconnecting:', error?.message);
         }
       );
+
+      // Sincronizar Planos Exclusivos criados pelo Administrador Geral
+      const plansDoc = doc(db, 'systemConfig', 'subscriptionPlans');
+      onSnapshot(
+        plansDoc,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (Array.isArray(data?.plans) && data.plans.length > 0) {
+              this.subscriptionPlans = data.plans;
+              try { localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(this.subscriptionPlans)); } catch {}
+              this.notify();
+            }
+          }
+        },
+        (error) => {
+          console.warn('Firestore subscriptionPlans listener offline/reconnecting:', error?.message);
+        }
+      );
     } catch (e) {
       console.warn('Firestore sync error:', e);
     }
@@ -210,9 +341,9 @@ class AccountService {
     const now = new Date();
     let updated = false;
     this.accounts = this.accounts.map(acc => {
-        if (acc.role !== 'super_admin' && acc.planStatus === 'ativo' && new Date(acc.expiresAt) < now) {
+        if (acc.role !== 'super_admin' && acc.planTier !== 'vitalicio' && acc.planStatus === 'ativo' && new Date(acc.expiresAt) < now) {
             updated = true;
-            return { ...acc, planStatus: 'bloqueado' };
+            return { ...acc, planStatus: 'bloqueado', blockedReason: acc.blockedReason || 'Plano expirado automaticamente' };
         }
         return acc;
     });
@@ -221,6 +352,7 @@ class AccountService {
 
   public getAccounts(): UserAccount[] { return [...this.accounts]; }
   public getAccessRequests(): UserAccessRequest[] { return [...this.accessRequests]; }
+  public getSubscriptionPlans(): SubscriptionPlan[] { return [...this.subscriptionPlans]; }
   public getCurrentSession(): UserAccount | null { return this.currentSession; }
 
   public addAccessRequest(data: { name: string; email: string; phoneWhatsapp: string; storeName: string }) {
@@ -249,12 +381,20 @@ class AccountService {
     } catch {}
 
     if (status === 'aprovado' && request) {
+        const cleanPrefix = (request.email.split('@')[0] || 'Loja')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9]/g, '')
+          .slice(0, 5) || 'Loja';
+        const capPrefix = cleanPrefix.charAt(0).toUpperCase() + cleanPrefix.slice(1).toLowerCase();
+        const safeUsername = `${capPrefix}_u${Math.floor(100 + Math.random() * 899)}#`;
         this.createAccount({
-            username: request.email.split('@')[0] + '_' + Math.random().toString(36).substring(2, 5),
-            password: 'User@' + Math.random().toString(36).substring(2, 8),
+            username: safeUsername,
+            password: generateSecurePassword('Card'),
             name: request.name,
             storeName: request.storeName,
             phoneWhatsapp: request.phoneWhatsapp,
+            email: request.email,
             planStatus: 'ativo',
             daysValid: 7
         });
@@ -294,27 +434,53 @@ class AccountService {
     storeName: string;
     email?: string;
     phoneWhatsapp?: string;
+    logoBase64?: string;
+    address?: string;
+    tagline?: string;
+    instagramHandle?: string;
     planStatus?: 'ativo' | 'pendente' | 'bloqueado';
+    planTier?: PlanTier;
+    planName?: string;
     monthlyFee?: number;
     daysValid?: number;
   }): { success: boolean; message: string; account?: UserAccount } {
+    if (!data.storeName || data.storeName.trim().length < 2) {
+      return { success: false, message: 'O nome do estabelecimento é obrigatório.' };
+    }
     if (!data.phoneWhatsapp || !data.phoneWhatsapp.trim()) {
       return { success: false, message: 'O telefone (WhatsApp) é obrigatório para cadastrar a conta.' };
     }
     if (hasAccentsOrDiacritics(data.username)) {
       return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
     }
+    const usernameCheck = validateUsernameSecurity(data.username.trim());
+    if (!usernameCheck.isValid) {
+      return {
+        success: false,
+        message: 'O nome de usuário deve ter no mínimo 8 caracteres, letra maiúscula, minúscula, número, caractere especial e sem espaços.',
+      };
+    }
     if (hasAccentsOrDiacritics(data.password)) {
       return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
+    }
+    const passwordCheck = validatePasswordSecurity(data.password);
+    if (!passwordCheck.isValid) {
+      return {
+        success: false,
+        message: 'A senha deve ter no mínimo 8 caracteres, letra maiúscula, minúscula, número, caractere especial e sem espaços.',
+      };
     }
     if (this.accounts.some((a) => a.username.toLowerCase() === data.username.toLowerCase().trim())) {
       return { success: false, message: 'Usuário já cadastrado.' };
     }
 
     const now = new Date();
-    // Use 7 days if planStatus is 'ativo' and no specific daysValid provided
-    const days = data.daysValid || (data.planStatus === 'ativo' ? 7 : 30);
-    const expiry = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    const resolvedTier: PlanTier = data.planTier || (data.daysValid === 7 ? 'teste_gratis' : 'mensal');
+    const isVitalicio = resolvedTier === 'vitalicio';
+    const days = data.daysValid || (resolvedTier === 'teste_gratis' ? 7 : PLAN_PERIOD_DAYS[resolvedTier as PlanPeriod] || 30);
+    const expiry = isVitalicio
+      ? new Date('2099-12-31T23:59:59.000Z')
+      : new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
     const newAccount: UserAccount = {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -328,7 +494,9 @@ class AccountService {
       storeId: `store_${Date.now()}`,
       storeName: data.storeName,
       planStatus: data.planStatus || 'ativo',
-      monthlyFee: 24.99,
+      planTier: resolvedTier,
+      planName: data.planName || PLAN_PERIOD_LABELS[resolvedTier],
+      monthlyFee: data.monthlyFee ?? 24.99,
       phoneWhatsapp: data.phoneWhatsapp.trim(),
       createdAt: now.toISOString(),
       expiresAt: expiry.toISOString(),
@@ -352,12 +520,17 @@ class AccountService {
       this.addAccessRequest({
         name: newAccount.name,
         email: newAccount.email || 'cliente@cardapp.com',
-        phoneWhatsapp: newAccount.phoneWhatsapp,
+        phoneWhatsapp: newAccount.phoneWhatsapp || '',
         storeName: newAccount.storeName,
       });
     } catch {}
 
-    storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp);
+    storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp, {
+      logoBase64: data.logoBase64,
+      address: data.address,
+      tagline: data.tagline,
+      instagramHandle: data.instagramHandle,
+    });
     try {
       setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch((err) =>
         handleFirestoreError(err, OperationType.WRITE, `accounts/${newAccount.id}`)
@@ -372,6 +545,12 @@ class AccountService {
     message: string;
     account?: UserAccount;
   } {
+    if (!data.logoBase64 || !data.logoBase64.trim()) {
+      return { success: false, message: 'A foto de perfil da loja é obrigatória antes de criar seu acesso.' };
+    }
+    if (!data.storeName || data.storeName.trim().length < 2) {
+      return { success: false, message: 'O nome do estabelecimento é obrigatório.' };
+    }
     return this.createAccount({
       username: data.username,
       password: data.password,
@@ -379,22 +558,38 @@ class AccountService {
       storeName: data.storeName,
       email: data.email,
       phoneWhatsapp: data.phoneWhatsapp,
+      logoBase64: data.logoBase64,
+      address: data.address,
+      tagline: data.tagline,
+      instagramHandle: data.instagramHandle,
       planStatus: 'ativo',
       daysValid: 7, // 7 dias grátis de teste
     });
   }
 
-  public updateAccountStatus(accountId: string, newStatus: 'ativo' | 'pendente' | 'bloqueado') {
+  public updateAccountStatus(
+    accountId: string,
+    newStatus: 'ativo' | 'pendente' | 'bloqueado',
+    blockedReason?: string
+  ) {
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
-        const updated = { ...acc, planStatus: newStatus };
+        const updated: UserAccount = {
+          ...acc,
+          planStatus: newStatus,
+          blockedReason: newStatus === 'ativo' ? undefined : blockedReason ?? acc.blockedReason,
+        };
         try { setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {}); } catch {}
         return updated;
       }
       return acc;
     });
     if (this.currentSession?.id === accountId) {
-      this.currentSession = { ...this.currentSession, planStatus: newStatus };
+      this.currentSession = {
+        ...this.currentSession,
+        planStatus: newStatus,
+        blockedReason: newStatus === 'ativo' ? undefined : blockedReason ?? this.currentSession.blockedReason,
+      };
       try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession)); } catch {}
     }
     this.saveToStorage();
@@ -410,11 +605,27 @@ class AccountService {
       expiresAt?: string;
     }
   ): { success: boolean; message: string } {
-    if (data.username !== undefined && hasAccentsOrDiacritics(data.username)) {
-      return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
+    if (data.username !== undefined) {
+      if (hasAccentsOrDiacritics(data.username)) {
+        return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
+      }
+      if (!validateUsernameSecurity(data.username.trim()).isValid) {
+        return {
+          success: false,
+          message: 'O nome de usuário deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+        };
+      }
     }
-    if (data.passwordHash !== undefined && hasAccentsOrDiacritics(data.passwordHash)) {
-      return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
+    if (data.passwordHash !== undefined && data.passwordHash.trim() !== '') {
+      if (hasAccentsOrDiacritics(data.passwordHash)) {
+        return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
+      }
+      if (!validatePasswordSecurity(data.passwordHash).isValid) {
+        return {
+          success: false,
+          message: 'A senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+        };
+      }
     }
 
     const target = this.accounts.find((a) => a.id === accountId);
@@ -450,31 +661,156 @@ class AccountService {
     return { success: true, message: 'Conta atualizada com sucesso!' };
   }
 
-  public renewAccountPlan(accountId: string, daysToAdd: number = 30, customProtocol?: string): PaymentInvoice {
+  public createSubscriptionPlan(data: {
+    period: PlanPeriod;
+    name: string;
+    price: number;
+    description?: string;
+    durationDays?: number;
+  }): { success: boolean; message: string; plan?: SubscriptionPlan } {
+    if (this.currentSession?.role !== 'super_admin') {
+      return { success: false, message: 'Acesso negado: somente o Administrador Geral pode criar planos.' };
+    }
+    if (!data.name || data.name.trim().length < 2) {
+      return { success: false, message: 'Informe um nome válido para o plano.' };
+    }
+    if (Number.isNaN(data.price) || data.price < 0) {
+      return { success: false, message: 'Informe um valor válido para o plano.' };
+    }
+
+    const durationDays = data.durationDays && data.durationDays > 0
+      ? data.durationDays
+      : PLAN_PERIOD_DAYS[data.period];
+
+    const newPlan: SubscriptionPlan = {
+      id: `plan_${data.period}_${Date.now()}`,
+      period: data.period,
+      name: data.name.trim(),
+      durationDays,
+      price: Number(data.price.toFixed(2)),
+      description: data.description?.trim() || '',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      createdBy: this.currentSession.username,
+    };
+
+    this.subscriptionPlans = [newPlan, ...this.subscriptionPlans];
+    this.savePlansToStorage();
+    return { success: true, message: `Plano "${newPlan.name}" criado com sucesso!`, plan: newPlan };
+  }
+
+  public toggleSubscriptionPlanStatus(planId: string): { success: boolean; message: string } {
+    if (this.currentSession?.role !== 'super_admin') {
+      return { success: false, message: 'Acesso negado: somente o Administrador Geral pode alterar planos.' };
+    }
+    this.subscriptionPlans = this.subscriptionPlans.map((p) =>
+      p.id === planId ? { ...p, isActive: !p.isActive } : p
+    );
+    this.savePlansToStorage();
+    return { success: true, message: 'Status do plano atualizado.' };
+  }
+
+  public deleteSubscriptionPlan(planId: string): { success: boolean; message: string } {
+    if (this.currentSession?.role !== 'super_admin') {
+      return { success: false, message: 'Acesso negado: somente o Administrador Geral pode excluir planos.' };
+    }
+    this.subscriptionPlans = this.subscriptionPlans.filter((p) => p.id !== planId);
+    this.savePlansToStorage();
+    return { success: true, message: 'Plano removido com sucesso.' };
+  }
+
+  public applyPlanToAccount(
+    accountId: string,
+    planOrPeriod: SubscriptionPlan | PlanPeriod
+  ): { success: boolean; message: string; invoice?: PaymentInvoice } {
+    if (this.currentSession?.role !== 'super_admin') {
+      return { success: false, message: 'Somente o Administrador Geral pode aplicar planos de assinatura.' };
+    }
+
+    let planObj: SubscriptionPlan | undefined;
+    if (typeof planOrPeriod === 'string') {
+      planObj =
+        this.subscriptionPlans.find((p) => p.period === planOrPeriod && p.isActive) ||
+        DEFAULT_PLANS.find((p) => p.period === planOrPeriod);
+    } else {
+      planObj = planOrPeriod;
+    }
+
+    if (!planObj) {
+      return { success: false, message: 'Plano não encontrado.' };
+    }
+
+    const invoice = this.renewAccountPlan(
+      accountId,
+      planObj.durationDays,
+      `ADMIN-PLAN-${planObj.period.toUpperCase()}`,
+      planObj.period,
+      planObj.name,
+      planObj.price
+    );
+
+    return {
+      success: true,
+      message: `${planObj.name} aplicado com sucesso! Conta ativada.`,
+      invoice,
+    };
+  }
+
+  public renewAccountPlan(
+    accountId: string,
+    daysToAdd: number = 30,
+    customProtocol?: string,
+    planTier?: PlanTier,
+    planName?: string,
+    amount?: number
+  ): PaymentInvoice {
     const now = new Date();
-    const expiry = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+    const resolvedTier: PlanTier =
+      planTier ||
+      (daysToAdd >= 36500
+        ? 'vitalicio'
+        : daysToAdd >= 365
+        ? 'anual'
+        : daysToAdd >= 180
+        ? 'semestral'
+        : daysToAdd >= 90
+        ? 'trimestral'
+        : 'mensal');
+
+    const isVitalicio = resolvedTier === 'vitalicio' || daysToAdd >= 36500;
+    const expiry = isVitalicio
+      ? new Date('2099-12-31T23:59:59.000Z')
+      : new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+
     const invoiceId = `FAT-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const targetAccount = this.accounts.find((a) => a.id === accountId);
+    const resolvedPlanName = planName || PLAN_PERIOD_LABELS[resolvedTier];
+    const resolvedAmount = amount ?? (targetAccount?.monthlyFee || 24.99);
+
     const invoice: PaymentInvoice = {
       id: invoiceId,
       accountId,
       storeName: targetAccount?.storeName || this.currentSession?.storeName || 'CARDAPP Loja Parceira',
-      amount: 24.99,
+      amount: resolvedAmount,
       paymentMethod: 'PIX',
       status: 'confirmado',
       paidAt: now.toISOString(),
       validUntil: expiry.toISOString(),
       protocol: customProtocol || `PIX-CONF-${invoiceId}`,
-      description: 'Assinatura Mensal Plataforma CARDAPP Digital (R$ 24,99/mês)',
+      description: `${resolvedPlanName} • CARDAPP Digital (${isVitalicio ? 'Vitalício' : `${daysToAdd} dias`})`,
     };
 
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
         const existingInvoices = acc.invoices || [];
         const updatedInvoices = [invoice, ...existingInvoices];
-        const updated = {
+        const updated: UserAccount = {
           ...acc,
           planStatus: 'ativo' as const,
+          planTier: resolvedTier,
+          planName: resolvedPlanName,
+          blockedReason: undefined,
+          monthlyFee: resolvedAmount,
           expiresAt: expiry.toISOString(),
           invoices: updatedInvoices,
         };
@@ -489,6 +825,10 @@ class AccountService {
       this.currentSession = {
         ...this.currentSession,
         planStatus: 'ativo',
+        planTier: resolvedTier,
+        planName: resolvedPlanName,
+        blockedReason: undefined,
+        monthlyFee: resolvedAmount,
         expiresAt: expiry.toISOString(),
         invoices: [invoice, ...existingInvoices],
       };
@@ -658,11 +998,18 @@ class AccountService {
       return { success: false, message: 'Conta não localizada para este usuário ou e-mail.' };
     }
 
+    if (!validatePasswordSecurity(newPassword).isValid) {
+      return {
+        success: false,
+        message: 'A nova senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+      };
+    }
+
     const newHashedPassword = hashPassword(newPassword);
 
     this.accounts = this.accounts.map((a) => {
       if (a.id === account!.id) {
-        const updated = { ...a, passwordHash: newHashedPassword };
+        const updated = { ...a, passwordHash: newHashedPassword, plainPassword: newPassword };
         try {
           setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
         } catch {}
@@ -811,10 +1158,16 @@ class AccountService {
     }
 
     // Atualiza a senha no array de contas com hash e criptografia
+    if (!validatePasswordSecurity(newPassword).isValid) {
+      return {
+        success: false,
+        message: 'A nova senha deve ter no mínimo 8 caracteres, maiúscula, minúscula, número, caractere especial e sem espaços.',
+      };
+    }
     const safeHash = hashPassword(newPassword);
     this.accounts = this.accounts.map((a) => {
       if (a.id === account.id) {
-        const updated = { ...a, passwordHash: safeHash };
+        const updated = { ...a, passwordHash: safeHash, plainPassword: newPassword };
         try {
           setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
         } catch {}

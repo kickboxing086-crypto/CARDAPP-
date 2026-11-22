@@ -147,6 +147,21 @@ export interface StoreSettings {
   tables?: string[];
 }
 
+export type PlanPeriod = 'mensal' | 'trimestral' | 'semestral' | 'anual' | 'vitalicio';
+export type PlanTier = 'teste_gratis' | PlanPeriod;
+
+export interface SubscriptionPlan {
+  id: string;
+  period: PlanPeriod;
+  name: string;
+  durationDays: number; // 30, 90, 180, 365, ou 36500 (vitalicio)
+  price: number;
+  description?: string;
+  isActive: boolean;
+  createdAt: string;
+  createdBy: string;
+}
+
 // User accounts and multi-tenant authentication
 export interface UserAccount {
   id: string;
@@ -160,7 +175,10 @@ export interface UserAccount {
   storeId: string;
   storeName: string;
   planStatus: 'ativo' | 'pendente' | 'bloqueado';
-  monthlyFee: number; // 2.00
+  planTier?: PlanTier;
+  planName?: string;
+  blockedReason?: string;
+  monthlyFee: number;
   phoneWhatsapp?: string;
   createdAt: string;
   expiresAt: string;
@@ -185,6 +203,10 @@ export interface ClientRegistrationFormData {
   email: string;
   phoneWhatsapp: string;
   storeName: string;
+  logoBase64: string;
+  address?: string;
+  tagline?: string;
+  instagramHandle?: string;
   username: string;
   password: string;
 }
@@ -219,7 +241,7 @@ export interface SecurityRequirements {
 }
 
 export interface UsernameSecurityRequirements {
-  hasMinLength: boolean;     // Pelo menos 4 caracteres
+  hasMinLength: boolean;     // Pelo menos 8 caracteres
   hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
   hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
   hasNumber: boolean;        // Pelo menos 1 número (0-9)
@@ -230,7 +252,7 @@ export interface UsernameSecurityRequirements {
 }
 
 export interface PasswordSecurityRequirements {
-  hasMinLength: boolean;     // Mínimo de 6 caracteres
+  hasMinLength: boolean;     // Mínimo de 8 caracteres
   hasUppercase: boolean;     // Pelo menos 1 letra maiúscula (A-Z)
   hasLowercase: boolean;     // Pelo menos 1 letra minúscula (a-z)
   hasNumber: boolean;        // Pelo menos 1 número (0-9)

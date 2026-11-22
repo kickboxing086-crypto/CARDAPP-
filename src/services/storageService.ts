@@ -109,7 +109,17 @@ export const storageService = {
     }
   },
 
-  initializeNewStore(storeId: string, storeName: string, phoneWhatsapp?: string): StoreSettings {
+  initializeNewStore(
+    storeId: string,
+    storeName: string,
+    phoneWhatsapp?: string,
+    storeExtras?: {
+      logoBase64?: string;
+      address?: string;
+      tagline?: string;
+      instagramHandle?: string;
+    }
+  ): StoreSettings {
     const cleanId = storeId || `store_${Date.now()}`;
     const prodKey = `cardapp_products_${cleanId}`;
     const ordKey = `cardapp_orders_${cleanId}`;
@@ -120,10 +130,10 @@ export const storageService = {
       ...INITIAL_SETTINGS,
       storeName: storeName || 'Minha Loja',
       phoneWhatsapp: phoneWhatsapp || '',
-      logoBase64: '',
-      tagline: 'Cardápio Digital exclusivo com atendimento rápido e prático',
-      instagramHandle: '',
-      address: '',
+      logoBase64: storeExtras?.logoBase64 || '',
+      tagline: storeExtras?.tagline?.trim() || 'Cardápio Digital exclusivo com atendimento rápido e prático',
+      instagramHandle: storeExtras?.instagramHandle?.trim() || '',
+      address: storeExtras?.address?.trim() || '',
       pixKey: '',
       deliveryNeighborhoods: [],
       isOpen: true,

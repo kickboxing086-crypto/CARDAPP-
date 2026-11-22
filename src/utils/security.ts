@@ -16,7 +16,7 @@ export function hasAccentsOrDiacritics(text: string): boolean {
 
 /**
  * Validação rigorosa e acompanhamento visual para Nome de Usuário (Username):
- * - Mínimo de 4 caracteres
+ * - Mínimo de 8 caracteres
  * - Pelo menos uma letra maiúscula (A-Z)
  * - Pelo menos uma letra minúscula (a-z)
  * - Pelo menos um número (0-9)
@@ -26,7 +26,7 @@ export function hasAccentsOrDiacritics(text: string): boolean {
  */
 export function validateUsernameSecurity(username: string): UsernameSecurityRequirements {
   const clean = username || '';
-  const hasMinLength = clean.length >= 4;
+  const hasMinLength = clean.length >= 8;
   const hasUppercase = /[A-Z]/.test(clean);
   const hasLowercase = /[a-z]/.test(clean);
   const hasNumber = /[0-9]/.test(clean);
@@ -57,7 +57,7 @@ export function validateUsernameSecurity(username: string): UsernameSecurityRequ
 
 /**
  * Validação rigorosa e acompanhamento visual para Senha (Password):
- * - Mínimo de 6 caracteres
+ * - Mínimo de 8 caracteres
  * - Pelo menos uma letra maiúscula (A-Z)
  * - Pelo menos uma letra minúscula (a-z)
  * - Pelo menos um número (0-9)
@@ -67,7 +67,7 @@ export function validateUsernameSecurity(username: string): UsernameSecurityRequ
  */
 export function validatePasswordSecurity(password: string): PasswordSecurityRequirements {
   const clean = password || '';
-  const hasMinLength = clean.length >= 6;
+  const hasMinLength = clean.length >= 8;
   const hasUppercase = /[A-Z]/.test(clean);
   const hasLowercase = /[a-z]/.test(clean);
   const hasNumber = /[0-9]/.test(clean);
@@ -122,7 +122,7 @@ export function validateSecurityPolicy(text: string): SecurityRequirements {
   const hasLowercase = /[a-z]/.test(text);
   const hasNumber = /[0-9]/.test(text);
   const hasSpecialChar = /[@#$%&*!_.\-+=?]/.test(text);
-  const hasMinLength = text.length >= 6;
+  const hasMinLength = text.length >= 8;
 
   const isValid =
     hasUppercase && hasLowercase && hasNumber && hasSpecialChar && hasMinLength && !hasAccentsOrDiacritics(text);

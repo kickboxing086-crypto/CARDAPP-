@@ -17,8 +17,13 @@ import {
   ShieldAlert,
   MessageCircle,
   KeyRound,
-  RefreshCw,
   Loader2,
+  Camera,
+  Upload,
+  MapPin,
+  Instagram,
+  Sparkles,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
 import { UserAccount } from '../types';
@@ -54,17 +59,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoginLoading, setIsLoginLoading] = useState(false);
 
-  // Cadastro Passo a Passo (1 por 1 para não sobrecarregar e não ficar cansativo)
-  // Etapa 1: Nome Completo do Responsável
-  // Etapa 2: Nome da Loja / Restaurante
-  // Etapa 3: WhatsApp Comercial
-  // Etapa 4: E-mail Obrigatório (Chave oficial de recuperação)
-  // Etapa 5: Usuário de Acesso (com obrigações e acompanhamento visual)
-  // Etapa 6: Senha de Acesso (com obrigações e acompanhamento visual)
-  // Etapa 7: Revisão & Botão direto para WhatsApp
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7>(1);
+  // Cadastro Passo a Passo (Obrigações da Loja ANTES da criação do acesso)
+  // Etapa 1: Nome Completo do Responsável (CEO)
+  // Etapa 2: Obrigações da Loja (Nome do Estabelecimento, Endereço, Slogan/Instagram)
+  // Etapa 3: Foto de Perfil da Loja (Obrigatória)
+  // Etapa 4: WhatsApp Comercial
+  // Etapa 5: E-mail Obrigatório (Chave oficial de recuperação)
+  // Etapa 6: Nome de Usuário de Acesso (mínimo 8 caracteres + maiúscula, minúscula, número, especial)
+  // Etapa 7: Senha de Acesso (mínimo 8 caracteres + maiúscula, minúscula, número, especial)
+  // Etapa 8: Revisão Final & Ativação (7 Dias Grátis)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const [regName, setRegName] = useState('');
   const [regStoreName, setRegStoreName] = useState('');
+  const [regAddress, setRegAddress] = useState('');
+  const [regTagline, setRegTagline] = useState('');
+  const [regInstagram, setRegInstagram] = useState('');
+  const [regLogoBase64, setRegLogoBase64] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regUsername, setRegUsername] = useState('');
@@ -72,12 +83,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regError, setRegError] = useState('');
 
-  // Recuperação de Conta Simplificada e Criptografada (Usuário ou E-mail -> Nova Senha + Repita a Senha)
-  // recoverStep: 1 = Informar Usuário ou E-mail; 2 = Digitar Nova Senha e Repita a Senha
+  // Recuperação de Conta CEO com Validação Completa de Dados da Loja e Usuário
+  // recoverStep: 1 = Informar Usuário ou E-mail; 2 = Confirmar Loja, Usuário, Nome, E-mail e WhatsApp; 3 = Nova Senha
   const [recoverStep, setRecoverStep] = useState<1 | 2 | 3>(1);
   const [recoverIdentifier, setRecoverIdentifier] = useState('');
   const [identifiedAccount, setIdentifiedAccount] = useState<UserAccount | null>(null);
   const [recoverStoreNameInput, setRecoverStoreNameInput] = useState('');
+  const [recoverUsernameInput, setRecoverUsernameInput] = useState('');
+  const [recoverOwnerNameInput, setRecoverOwnerNameInput] = useState('');
+  const [recoverEmailInput, setRecoverEmailInput] = useState('');
   const [recoverPhoneLast4Input, setRecoverPhoneLast4Input] = useState('');
   const [recoverNewPassword, setRecoverNewPassword] = useState('');
   const [recoverRepeatPassword, setRecoverRepeatPassword] = useState('');
@@ -125,6 +139,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setRecoverStep(1);
     setRecoverIdentifier('');
     setIdentifiedAccount(null);
+    setRecoverStoreNameInput('');
+    setRecoverUsernameInput('');
+    setRecoverOwnerNameInput('');
+    setRecoverEmailInput('');
+    setRecoverPhoneLast4Input('');
     setRecoverNewPassword('');
     setRecoverRepeatPassword('');
     setRegError('');
@@ -132,6 +151,67 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setRecoverError('');
     setRecoverSuccess('');
   }, [initialMode, isOpen]);
+
+  const compressProfileImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        reject(new Error('Selecione um arquivo de imagem válido (PNG, JPG ou WebP).'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Arquivo de imagem inválido ou corrompido.'));
+        img.onload = () => {
+          const maxSize = 400;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxSize) {
+              height = Math.round((height * maxSize) / width);
+              width = maxSize;
+            }
+          } else {
+            if (height > maxSize) {
+              width = Math.round((width * maxSize) / height);
+              height = maxSize;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(reader.result as string);
+            return;
+          }
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleProfilePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRegError('');
+    setIsUploadingLogo(true);
+    try {
+      const compressed = await compressProfileImage(file);
+      setRegLogoBase64(compressed);
+    } catch (err: any) {
+      setRegError(err?.message || 'Erro ao processar a foto de perfil da loja.');
+    } finally {
+      setIsUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -161,7 +241,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
 
 
-  // Avançar no Wizard de Cadastro (Passo a Passo 1 por 1)
+  // Avançar no Wizard de Cadastro (Obrigações da Loja -> Credenciais de Acesso)
   const handleNextWizardStep = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setRegError('');
@@ -177,15 +257,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setRegError('Por favor, informe o nome do seu estabelecimento.');
         return;
       }
+      if (!regAddress.trim() || regAddress.trim().length < 5) {
+        setRegError('Por favor, informe o endereço completo da loja (Rua, número e bairro/cidade).');
+        return;
+      }
       setWizardStep(3);
     } else if (wizardStep === 3) {
+      if (!regLogoBase64 || !regLogoBase64.trim()) {
+        setRegError('A foto de perfil (logomarca) da loja é obrigatória antes de criar seu acesso.');
+        return;
+      }
+      setWizardStep(4);
+    } else if (wizardStep === 4) {
       const digitsOnly = regPhone.replace(/\D/g, '');
       if (!regPhone.trim() || digitsOnly.length < 10) {
         setRegError('Por favor, informe seu WhatsApp com DDD (Ex: 11 98888-7777).');
         return;
       }
-      setWizardStep(4);
-    } else if (wizardStep === 4) {
+      setWizardStep(5);
+    } else if (wizardStep === 5) {
       // E-MAIL OBRIGATÓRIO PARA RECUPERAÇÃO DE CONTA
       const cleanEmail = regEmail.trim().toLowerCase();
       if (!cleanEmail) {
@@ -197,11 +287,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setRegError('Por favor, informe um endereço de e-mail válido (Ex: seunome@gmail.com).');
         return;
       }
-      setWizardStep(5);
-    } else if (wizardStep === 5) {
+      setWizardStep(6);
+    } else if (wizardStep === 6) {
       if (!usernameSecurity.isValid) {
         if (usernameHasAccents) {
           setRegError('Não é permitido adicionar acentos nem cedilhas no nome de usuário.');
+        } else if (!usernameSecurity.hasMinLength) {
+          setRegError('O nome de usuário precisa ter no mínimo 8 caracteres.');
         } else if (!usernameSecurity.hasUppercase) {
           setRegError('O nome de usuário precisa conter pelo menos uma letra MAIÚSCULA (A-Z).');
         } else if (!usernameSecurity.hasLowercase) {
@@ -210,20 +302,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           setRegError('O nome de usuário precisa conter pelo menos um NÚMERO (0-9).');
         } else if (!usernameSecurity.hasSpecialChar) {
           setRegError('O nome de usuário precisa conter pelo menos um CARACTERE ESPECIAL (@, #, $, %, &, *, !, _, etc).');
-        } else if (!usernameSecurity.hasMinLength) {
-          setRegError('O nome de usuário precisa ter no mínimo 4 caracteres.');
         } else if (!usernameSecurity.hasNoSpaces) {
           setRegError('Não é permitido espaços no nome de usuário.');
         } else {
-          setRegError('Preencha todos os requisitos do nome de usuário.');
+          setRegError('Preencha todos os requisitos obrigatórios do nome de usuário.');
         }
         return;
       }
-      setWizardStep(6);
-    } else if (wizardStep === 6) {
+      setWizardStep(7);
+    } else if (wizardStep === 7) {
       if (!passwordSecurity.isValid) {
         if (passwordHasAccents) {
           setRegError('Não é permitido adicionar acentos nem cedilhas na senha.');
+        } else if (!passwordSecurity.hasMinLength) {
+          setRegError('A senha precisa ter no mínimo 8 caracteres.');
         } else if (!passwordSecurity.hasUppercase) {
           setRegError('A senha precisa conter pelo menos uma letra MAIÚSCULA (A-Z).');
         } else if (!passwordSecurity.hasLowercase) {
@@ -232,14 +324,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           setRegError('A senha precisa conter pelo menos um número (0-9).');
         } else if (!passwordSecurity.hasSpecialChar) {
           setRegError('A senha precisa conter pelo menos um caractere especial (@, #, $, %, etc).');
-        } else if (!passwordSecurity.hasMinLength) {
-          setRegError('A senha precisa ter no mínimo 6 caracteres.');
+        } else if (!passwordSecurity.hasNoSpaces) {
+          setRegError('Não é permitido espaços na senha.');
         } else {
           setRegError('Preencha todos os requisitos de segurança da senha.');
         }
         return;
       }
-      setWizardStep(7);
+      setWizardStep(8);
     }
   };
 
@@ -247,7 +339,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const handlePrevWizardStep = () => {
     setRegError('');
     if (wizardStep > 1) {
-      setWizardStep((prev) => (prev - 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7);
+      setWizardStep((prev) => (prev - 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8);
     }
   };
 
@@ -256,22 +348,38 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (e) e.preventDefault();
     setRegError('');
 
+    if (!regStoreName.trim() || regStoreName.trim().length < 2) {
+      setWizardStep(2);
+      setRegError('Informe o nome do estabelecimento antes de criar seu acesso.');
+      return;
+    }
+
+    if (!regLogoBase64 || !regLogoBase64.trim()) {
+      setWizardStep(3);
+      setRegError('Envie a foto de perfil da sua loja antes de finalizar o cadastro.');
+      return;
+    }
+
     if (!usernameSecurity.isValid) {
-      setWizardStep(5);
-      setRegError('Verifique os requisitos do nome de usuário.');
+      setWizardStep(6);
+      setRegError('Verifique os requisitos do nome de usuário (mínimo 8 caracteres).');
       return;
     }
 
     if (!passwordSecurity.isValid) {
-      setWizardStep(6);
-      setRegError('Verifique os requisitos da senha.');
+      setWizardStep(7);
+      setRegError('Verifique os requisitos da senha (mínimo 8 caracteres).');
       return;
     }
 
-    // Registra a conta com 7 dias grátis de período de teste
+    // Registra a conta com 7 dias grátis de período de teste e obrigações da loja salvas
     const res = accountService.registerClientAccount({
       name: regName.trim(),
       storeName: regStoreName.trim(),
+      logoBase64: regLogoBase64,
+      address: regAddress.trim(),
+      tagline: regTagline.trim(),
+      instagramHandle: regInstagram.trim(),
       phoneWhatsapp: regPhone.trim(),
       email: regEmail.trim().toLowerCase(),
       username: regUsername.trim(),
@@ -324,8 +432,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
 
       setIdentifiedAccount(account);
+      setRecoverStoreNameInput('');
+      setRecoverUsernameInput('');
+      setRecoverOwnerNameInput('');
+      setRecoverEmailInput('');
+      setRecoverPhoneLast4Input('');
       setRecoverStep(2);
-      setRecoverSuccess('Conta localizada. Confirme o nome do estabelecimento e os 4 últimos dígitos do celular.');
+      setRecoverSuccess('Conta localizada! Para segurança do CEO, confirme todas as informações da loja e do titular abaixo.');
     } catch {
       setRecoverError('Erro ao consultar banco de dados. Tente novamente.');
     } finally {
@@ -342,22 +455,46 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const cleanStoreInput = recoverStoreNameInput.trim().toLowerCase();
     const actualStoreName = (identifiedAccount.storeName || '').trim().toLowerCase();
 
+    const cleanUsernameInput = recoverUsernameInput.trim().toLowerCase();
+    const actualUsername = (identifiedAccount.username || '').trim().toLowerCase();
+
+    const cleanOwnerInput = recoverOwnerNameInput.trim().toLowerCase();
+    const actualOwnerName = (identifiedAccount.name || '').trim().toLowerCase();
+
+    const cleanEmailInput = recoverEmailInput.trim().toLowerCase();
+    const actualEmail = (identifiedAccount.email || '').trim().toLowerCase();
+
     const cleanPhoneInput = recoverPhoneLast4Input.trim().replace(/\D/g, '');
     const actualPhone = (identifiedAccount.phoneWhatsapp || '').replace(/\D/g, '');
     const actualPhoneLast4 = actualPhone.slice(-4);
 
-    if (cleanStoreInput !== actualStoreName) {
-      setRecoverError('O nome do estabelecimento não confere com o cadastrado nesta conta.');
+    if (!cleanStoreInput || cleanStoreInput !== actualStoreName) {
+      setRecoverError('O nome da loja / estabelecimento não confere com o cadastrado nesta conta.');
       return;
     }
 
-    if (cleanPhoneInput.length !== 4 || cleanPhoneInput !== actualPhoneLast4) {
-      setRecoverError('Os 4 últimos dígitos do celular não conferem com o cadastrado nesta conta.');
+    if (!cleanUsernameInput || cleanUsernameInput !== actualUsername) {
+      setRecoverError('O nome de usuário (login) não confere com o cadastrado nesta conta.');
+      return;
+    }
+
+    if (!cleanOwnerInput || cleanOwnerInput !== actualOwnerName) {
+      setRecoverError('O nome completo do responsável (CEO) não confere com o cadastrado nesta conta.');
+      return;
+    }
+
+    if (actualEmail && cleanEmailInput !== actualEmail) {
+      setRecoverError('O e-mail oficial informado não confere com o cadastrado nesta conta.');
+      return;
+    }
+
+    if (actualPhoneLast4 && (cleanPhoneInput.length !== 4 || cleanPhoneInput !== actualPhoneLast4)) {
+      setRecoverError('Os 4 últimos dígitos do WhatsApp não conferem com o cadastrado nesta conta.');
       return;
     }
 
     setRecoverStep(3);
-    setRecoverSuccess('Confirmação bem-sucedida! Crie sua nova senha abaixo.');
+    setRecoverSuccess('Identidade do CEO confirmada! Crie sua nova senha de segurança abaixo.');
   };
 
   // 2. Salvar Nova Senha e Repita a Senha com Criptografia no Firebase
@@ -599,30 +736,31 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         )}
 
         {/* ============================================================== */}
-        {/* ABA 2: CADASTRO PASSO A PASSO (E-MAIL OBRIGATÓRIO)            */}
+        {/* ABA 2: CADASTRO PASSO A PASSO (OBRIGAÇÕES DA LOJA -> ACESSO)   */}
         {/* ============================================================== */}
         {activeMode === 'register' && (
           <div className="space-y-4">
-            {/* Barra de Progresso do Wizard (1 a 7) */}
+            {/* Barra de Progresso do Wizard (1 a 8) */}
             <div className="space-y-1.5 pb-1">
               <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
                 <span className="uppercase tracking-wider text-amber-800">
-                  Etapa {wizardStep} de 7
+                  Etapa {wizardStep} de 8
                 </span>
                 <span className="text-slate-500 font-medium">
                   {wizardStep === 1 && '1. Seu Nome'}
-                  {wizardStep === 2 && '2. Nome da Loja'}
-                  {wizardStep === 3 && '3. WhatsApp'}
-                  {wizardStep === 4 && '4. E-mail Obrigatório'}
-                  {wizardStep === 5 && '5. Usuário'}
-                  {wizardStep === 6 && '6. Senha'}
-                  {wizardStep === 7 && '7. Ativação'}
+                  {wizardStep === 2 && '2. Dados da Loja'}
+                  {wizardStep === 3 && '3. Foto de Perfil'}
+                  {wizardStep === 4 && '4. WhatsApp'}
+                  {wizardStep === 5 && '5. E-mail Obrigatório'}
+                  {wizardStep === 6 && '6. Usuário (8+ caract.)'}
+                  {wizardStep === 7 && '7. Senha (8+ caract.)'}
+                  {wizardStep === 8 && '8. Ativação'}
                 </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
                 <div
                   className="bg-amber-400 h-full transition-all duration-300 rounded-full"
-                  style={{ width: `${(wizardStep / 7) * 100}%` }}
+                  style={{ width: `${(wizardStep / 8) * 100}%` }}
                 />
               </div>
             </div>
@@ -640,13 +778,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider block">
-                    Etapa 1 de 7
+                    Etapa 1 de 8 • Titular da Loja (CEO)
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
                     Como você se chama?
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Informe seu nome completo para a identificação da sua conta.
+                    Informe seu nome completo para a identificação oficial da sua conta.
                   </p>
                 </div>
 
@@ -677,52 +815,122 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   type="submit"
                   className="w-full py-3.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98"
                 >
-                  <span>Continuar para Nome da Loja</span>
+                  <span>Continuar para Obrigações da Loja</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                 </button>
               </form>
             )}
 
-            {/* ETAPA 2: NOME DA LOJA */}
+            {/* ETAPA 2: OBRIGAÇÕES DA LOJA (NOME DO ESTABELECIMENTO + ENDEREÇO + DETALHES) */}
             {wizardStep === 2 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider block">
-                    Etapa 2 de 7
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider">
+                      Etapa 2 de 8 • Obrigações da Loja
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase">
+                      Obrigatório
+                    </span>
+                  </div>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
-                    Qual o nome da sua loja ou restaurante?
+                    Preencha os dados do seu estabelecimento
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Este nome aparecerá em destaque no seu cardápio digital para seus clientes.
+                    Antes de criar seu acesso, precisamos identificar sua loja no cardápio digital.
                   </p>
                 </div>
 
-                <div className="space-y-1.5 pt-1">
-                  <label className="block text-xs font-bold text-slate-800">
-                    Nome da Loja / Estabelecimento *
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                      <Store className="w-4 h-4" />
+                <div className="space-y-3 pt-1">
+                  {/* Nome do Estabelecimento */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Nome do Estabelecimento / Loja *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Store className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        autoFocus
+                        required
+                        value={regStoreName}
+                        onChange={(e) => {
+                          setRegStoreName(e.target.value);
+                          setRegError('');
+                        }}
+                        placeholder="Ex: Pizzaria & Forneria Bella Massa"
+                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      />
                     </div>
-                    <input
-                      type="text"
-                      autoFocus
-                      required
-                      value={regStoreName}
-                      onChange={(e) => {
-                        setRegStoreName(e.target.value);
-                        setRegError('');
-                      }}
-                      placeholder="Ex: Pizzaria & Forneria Bella Massa"
-                      className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
-                    />
+                  </div>
+
+                  {/* Endereço Completo */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Endereço Completo da Loja *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={regAddress}
+                        onChange={(e) => {
+                          setRegAddress(e.target.value);
+                          setRegError('');
+                        }}
+                        placeholder="Ex: Av. Paulista, 1250 - Centro, São Paulo"
+                        className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Slogan & Instagram (Opcionais) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Frase de Destaque (Opcional)
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </div>
+                        <input
+                          type="text"
+                          value={regTagline}
+                          onChange={(e) => setRegTagline(e.target.value)}
+                          placeholder="Ex: Sabor artesanal"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Instagram (Opcional)
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <Instagram className="w-3.5 h-3.5" />
+                        </div>
+                        <input
+                          type="text"
+                          value={regInstagram}
+                          onChange={(e) => setRegInstagram(e.target.value)}
+                          placeholder="@sualoja"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Visualizador do Link da Loja em Tempo Real */}
-                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-1">
+                <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-1">
                   <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 uppercase">
                     <span>Prévia do Link da sua Loja:</span>
                     <span className="text-amber-700 font-mono">cardapp-us/[url]</span>
@@ -757,6 +965,123 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     type="submit"
                     className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98"
                   >
+                    <span>Continuar para Foto de Perfil</span>
+                    <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* ETAPA 3: FOTO DE PERFIL DA LOJA (OBRIGATÓRIA ANTES DE CRIAR ACESSO) */}
+            {wizardStep === 3 && (
+              <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider">
+                      Etapa 3 de 8 • Identidade Visual
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-black uppercase">
+                      Obrigatório
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
+                    Envie a Foto de Perfil da sua Loja *
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    A logomarca ou foto de perfil do seu estabelecimento é obrigatória antes de gerar seu acesso e será exibida no topo do seu cardápio.
+                  </p>
+                </div>
+
+                {/* Área de Upload e Preview Circular */}
+                <div className="p-4 sm:p-5 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/40 flex flex-col items-center justify-center text-center gap-3">
+                  {regLogoBase64 ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="relative">
+                        <img
+                          src={regLogoBase64}
+                          alt="Foto de perfil da loja"
+                          className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-lg bg-white"
+                        />
+                        <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md border-2 border-white">
+                          <Check className="w-4 h-4 stroke-[3]" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-black text-emerald-800 block">
+                          Foto carregada com sucesso!
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          {regStoreName || 'Seu estabelecimento'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <label className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors">
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Trocar Foto</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProfilePhotoChange}
+                            className="hidden"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setRegLogoBase64('')}
+                          className="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-red-50 hover:text-red-700 hover:border-red-300 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="w-full py-4 flex flex-col items-center justify-center gap-2.5 cursor-pointer group">
+                      <div className="w-16 h-16 rounded-full bg-amber-400/20 group-hover:bg-amber-400/35 text-amber-800 flex items-center justify-center border-2 border-amber-400/60 transition-all">
+                        {isUploadingLogo ? (
+                          <Loader2 className="w-7 h-7 animate-spin text-amber-700" />
+                        ) : (
+                          <ImageIcon className="w-7 h-7 text-amber-800" />
+                        )}
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs sm:text-sm font-black text-slate-900 block">
+                          {isUploadingLogo ? 'Processando imagem...' : 'Toque aqui para escolher a Foto de Perfil'}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          Formatos aceitos: PNG, JPG ou WebP
+                        </span>
+                      </div>
+                      <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-950 text-amber-400 text-xs font-black uppercase tracking-wide shadow-sm group-hover:bg-slate-900 transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Selecionar Imagem</span>
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleProfilePhotoChange}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrevWizardStep}
+                    className="py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Voltar</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={!regLogoBase64 || isUploadingLogo}
+                    className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     <span>Continuar para WhatsApp</span>
                     <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                   </button>
@@ -764,18 +1089,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 3: WHATSAPP */}
-            {wizardStep === 3 && (
+            {/* ETAPA 4: WHATSAPP */}
+            {wizardStep === 4 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider block">
-                    Etapa 3 de 7
+                    Etapa 4 de 8 • Contato Oficial
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
-                    Qual o seu número de WhatsApp?
+                    Qual o número de WhatsApp da loja?
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Onde você receberá a ativação e os pedidos enviados pelos seus clientes.
+                    Onde você receberá os pedidos dos clientes e usará na confirmação de segurança.
                   </p>
                 </div>
 
@@ -823,13 +1148,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 4: E-MAIL OBRIGATÓRIO PARA RECUPERAÇÃO DE CONTA */}
-            {wizardStep === 4 && (
+            {/* ETAPA 5: E-MAIL OBRIGATÓRIO PARA RECUPERAÇÃO DE CONTA */}
+            {wizardStep === 5 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider">
-                      Etapa 4 de 7
+                      Etapa 5 de 8
                     </span>
                     <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-black uppercase">
                       Obrigatório
@@ -839,7 +1164,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     Qual o seu e-mail de acesso e recuperação? *
                   </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    <strong>O e-mail é obrigatório:</strong> será através dele que você recuperará sua conta caso esqueça a senha, além de receber faturas e confirmações oficiais.
+                    <strong>O e-mail é obrigatório:</strong> será solicitado junto ao nome da loja e usuário caso você precise recuperar a senha da conta.
                   </p>
                 </div>
 
@@ -887,18 +1212,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 5: USUÁRIO COM OBRIGAÇÕES & ATALHOS DE CARACTERES ESPECIAIS */}
-            {wizardStep === 5 && (
+            {/* ETAPA 6: USUÁRIO COM OBRIGAÇÕES (MÍNIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
+            {wizardStep === 6 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider block">
-                    Etapa 5 de 7
+                    Etapa 6 de 8 • Credencial de Acesso
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
                     Crie seu Nome de Usuário (Login)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Acompanhe os requisitos abaixo. <strong>Não é permitido usar acentos nem cedilhas.</strong>
+                    Mínimo de <strong>8 caracteres</strong>, com maiúsculas, minúsculas, número e caractere especial. <strong>Sem acentos ou cedilhas.</strong>
                   </p>
                 </div>
 
@@ -909,7 +1234,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </label>
                     {regUsername && (
                       <span className={`text-[10px] font-bold ${usernameSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {usernameSecurity.isValid ? 'Usuário Válido ✓' : 'Ajuste os requisitos'}
+                        {usernameSecurity.isValid ? 'Usuário Válido ✓' : `${regUsername.length}/8+ caracteres`}
                       </span>
                     )}
                   </div>
@@ -971,7 +1296,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Checklist de Acompanhamento do Usuário em Tempo Real */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                     <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                      Acompanhamento das Obrigações do Usuário:
+                      Obrigações do Nome de Usuário (Mesmo padrão de segurança):
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <div className={`flex items-center gap-2 transition-colors ${usernameSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -980,7 +1305,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         ) : (
                           <div className="w-3 h-3 rounded-full border border-slate-300" />
                         )}
-                        <span>Mínimo de 4 caracteres</span>
+                        <span>Mínimo de 8 caracteres</span>
                       </div>
 
                       <div className={`flex items-center gap-2 transition-colors ${usernameSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1062,18 +1387,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 6: SENHA COM OBRIGAÇÕES & ATALHOS DE CARACTERES ESPECIAIS */}
-            {wizardStep === 6 && (
+            {/* ETAPA 7: SENHA COM OBRIGAÇÕES (MÍNIMO 8 CARACTERES + MAIÚSCULA, MINÚSCULA, NÚMERO, ESPECIAL) */}
+            {wizardStep === 7 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase text-amber-700 tracking-wider block">
-                    Etapa 6 de 7
+                    Etapa 7 de 8 • Segurança da Conta
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
                     Crie sua Senha de Acesso
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Acompanhe os requisitos de segurança abaixo. <strong>Proibido o uso de acentos.</strong>
+                    Mesmas exigências: mínimo de <strong>8 caracteres</strong>, maiúscula, minúscula, número e especial. <strong>Sem acentos ou espaços.</strong>
                   </p>
                 </div>
 
@@ -1084,7 +1409,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </label>
                     {regPassword && (
                       <span className={`text-[10px] font-bold ${passwordSecurity.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        Força: {passwordSecurity.strengthLabel}
+                        Força: {passwordSecurity.strengthLabel} ({regPassword.length}/8+)
                       </span>
                     )}
                   </div>
@@ -1170,7 +1495,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Checklist de Acompanhamento da Senha em Tempo Real */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                     <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                      Acompanhamento das Obrigações da Senha:
+                      Obrigações da Senha (Mínimo 8 Caracteres):
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1179,7 +1504,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         ) : (
                           <div className="w-3 h-3 rounded-full border border-slate-300" />
                         )}
-                        <span>Mínimo 6 caracteres</span>
+                        <span>Mínimo de 8 caracteres</span>
                       </div>
 
                       <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1226,6 +1551,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         )}
                         <span>Sem acentos ou cedilhas</span>
                       </div>
+
+                      <div className={`flex items-center gap-2 transition-colors ${passwordSecurity.hasNoSpaces ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                        {passwordSecurity.hasNoSpaces ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                        ) : (
+                          <div className="w-3 h-3 rounded-full border border-slate-300" />
+                        )}
+                        <span>Sem espaços</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1252,28 +1586,36 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 7: REVISÃO & BOTÃO DIRETO PARA O WHATSAPP */}
-            {wizardStep === 7 && (
+            {/* ETAPA 8: REVISÃO FINAL & ATIVAÇÃO */}
+            {wizardStep === 8 && (
               <div className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1 text-center">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-2">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
+                  {regLogoBase64 ? (
+                    <img
+                      src={regLogoBase64}
+                      alt={regStoreName}
+                      className="w-16 h-16 rounded-full object-cover border-3 border-amber-400 shadow-md mx-auto mb-2 bg-white"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-2">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                  )}
                   <span className="text-[10px] font-bold uppercase text-emerald-700 tracking-wider block">
-                    Etapa 7 Final
+                    Etapa 8 Final
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
                     Tudo pronto! 7 Dias Grátis Liberados
                   </h3>
                   <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                    Sua conta foi criada com sucesso! Você tem <strong>7 dias grátis</strong> para cadastrar produtos, configurar e conhecer todo o sistema sem compromisso.
+                    Sua loja já possui foto de perfil, dados configurados e <strong>7 dias grátis</strong> para você testar todo o sistema sem compromisso.
                   </p>
                 </div>
 
                 {/* Resumo Limpo das Informações */}
                 <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-slate-800 space-y-2">
                   <span className="font-extrabold uppercase text-amber-900 text-[11px] block">
-                    Resumo do Cadastro:
+                    Resumo da Loja & Acesso:
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
@@ -1281,8 +1623,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <strong className="text-slate-900">{regStoreName}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[10px] block">Responsável:</span>
+                      <span className="text-slate-500 text-[10px] block">Responsável (CEO):</span>
                       <strong className="text-slate-900">{regName}</strong>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="text-slate-500 text-[10px] block">Endereço:</span>
+                      <strong className="text-slate-900">{regAddress}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 text-[10px] block">E-mail Oficial:</span>
@@ -1303,7 +1649,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     className="w-full py-4 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2.5 transition-all shadow-lg hover:shadow-emerald-200 cursor-pointer"
                   >
                     <CheckCircle2 className="w-5 h-5 text-white" />
-                    <span>Acessar Sistema (7 Dias Grátis)</span>
+                    <span>Criar Acesso e Entrar (7 Dias Grátis)</span>
                   </button>
 
                   <button
@@ -1420,27 +1766,27 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 2: CONFIRMAÇÃO DE SEGURANÇA (NOME DO ESTABELECIMENTO + 4 ÚLTIMOS DÍGITOS DO CELULAR) */}
+            {/* ETAPA 2: CONFIRMAÇÃO DE SEGURANÇA DO CEO (LOJA, USUÁRIO, RESPONSÁVEL, E-MAIL E WHATSAPP) */}
             {recoverStep === 2 && (
               <form onSubmit={handleVerifyRecoveryConfirmation} className="space-y-4 animate-in fade-in">
                 <div className="space-y-1">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider mb-1">
                     <ShieldCheck className="w-3 h-3 text-amber-700" />
-                    <span>Confirmação de Segurança</span>
+                    <span>Validação Rigorosa do CEO</span>
                   </div>
                   <h3 className="text-base font-black text-slate-950 font-display">
-                    Confirme os dados da sua loja
+                    Confirme os dados oficiais da loja e da conta
                   </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Para prosseguir com a redefinição de senha para a conta <strong>@{identifiedAccount?.username}</strong>, confirme as duas informações abaixo:
+                    Para proteger o acesso administrativo do CEO, preencha corretamente todas as informações vinculadas a esta conta antes de criar uma nova senha:
                   </p>
                 </div>
 
-                <div className="space-y-3 pt-1">
-                  {/* Nome do Estabelecimento */}
+                <div className="space-y-2.5 pt-1">
+                  {/* 1. Nome da Loja */}
                   <div className="space-y-1">
-                    <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      1. Nome do Estabelecimento / Loja *
+                    <label className="block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                      1. Nome da Loja / Estabelecimento *
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -1456,34 +1802,107 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                           setRecoverError('');
                         }}
                         placeholder="Ex: Pizzaria Bella Vista"
-                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                       />
                     </div>
                   </div>
 
-                  {/* 4 Últimos Dígitos do Celular */}
+                  {/* 2. Nome de Usuário */}
                   <div className="space-y-1">
-                    <label className="block text-xs font-black text-slate-800 uppercase tracking-wide">
-                      2. 4 Últimos Dígitos do Celular / WhatsApp *
+                    <label className="block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                      2. Nome de Usuário (Login Exato) *
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                        <Phone className="w-4 h-4" />
+                        <KeyRound className="w-4 h-4" />
                       </div>
                       <input
                         type="text"
                         required
-                        maxLength={4}
-                        value={recoverPhoneLast4Input}
+                        value={recoverUsernameInput}
                         onChange={(e) => {
-                          setRecoverPhoneLast4Input(e.target.value.replace(/\D/g, '').slice(0, 4));
+                          setRecoverUsernameInput(e.target.value);
                           setRecoverError('');
                         }}
-                        placeholder="Ex: 4321"
-                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        placeholder="Ex: Carlos_adm1#"
+                        className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                       />
                     </div>
                   </div>
+
+                  {/* 3. Nome Completo do Responsável (CEO) */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                      3. Nome Completo do Responsável (CEO) *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={recoverOwnerNameInput}
+                        onChange={(e) => {
+                          setRecoverOwnerNameInput(e.target.value);
+                          setRecoverError('');
+                        }}
+                        placeholder="Ex: Carlos Eduardo Silva"
+                        className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4. E-mail Oficial Cadastrado */}
+                  {identifiedAccount?.email && (
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                        4. E-mail Oficial Cadastrado *
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Mail className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="email"
+                          required
+                          value={recoverEmailInput}
+                          onChange={(e) => {
+                            setRecoverEmailInput(e.target.value);
+                            setRecoverError('');
+                          }}
+                          placeholder="Ex: seunome@gmail.com"
+                          className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. 4 Últimos Dígitos do Celular / WhatsApp */}
+                  {identifiedAccount?.phoneWhatsapp && (
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                        {identifiedAccount?.email ? '5.' : '4.'} 4 Últimos Dígitos do WhatsApp *
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Phone className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          maxLength={4}
+                          value={recoverPhoneLast4Input}
+                          onChange={(e) => {
+                            setRecoverPhoneLast4Input(e.target.value.replace(/\D/g, '').slice(0, 4));
+                            setRecoverError('');
+                          }}
+                          placeholder="Ex: 4321"
+                          className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2 pt-2">
@@ -1501,10 +1920,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                   <button
                     type="submit"
-                    disabled={!recoverStoreNameInput.trim() || recoverPhoneLast4Input.length < 4}
+                    disabled={
+                      !recoverStoreNameInput.trim() ||
+                      !recoverUsernameInput.trim() ||
+                      !recoverOwnerNameInput.trim() ||
+                      (Boolean(identifiedAccount?.email) && !recoverEmailInput.trim()) ||
+                      (Boolean(identifiedAccount?.phoneWhatsapp) && recoverPhoneLast4Input.length < 4)
+                    }
                     className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
                   >
-                    <span>Confirmar e Criar Nova Senha</span>
+                    <span>Validar Dados e Redefinir</span>
                     <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                   </button>
                 </div>
@@ -1662,7 +2087,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 {/* Checklist de Validação das Obrigações de Segurança */}
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                   <span className="text-[11px] uppercase font-bold text-slate-600 block">
-                    Acompanhamento das Obrigações da Senha:
+                    Obrigações da Nova Senha (Mínimo 8 Caracteres):
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasMinLength ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1671,7 +2096,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       ) : (
                         <div className="w-3 h-3 rounded-full border border-slate-300" />
                       )}
-                      <span>Mínimo 6 caracteres</span>
+                      <span>Mínimo de 8 caracteres</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasUppercase ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
@@ -1708,6 +2133,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         <div className="w-3 h-3 rounded-full border border-slate-300" />
                       )}
                       <span>Caractere especial (@, #...)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasNoAccents ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold'}`}>
+                      {recoverPasswordSecurity.hasNoAccents ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <X className="w-3.5 h-3.5 text-red-600 stroke-[3]" />
+                      )}
+                      <span>Sem acentos ou cedilhas</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 transition-colors ${recoverPasswordSecurity.hasNoSpaces ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                      {recoverPasswordSecurity.hasNoSpaces ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-slate-300" />
+                      )}
+                      <span>Sem espaços</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-colors ${passwordsMatch ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
