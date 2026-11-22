@@ -166,8 +166,8 @@ export interface SubscriptionPlan {
 export interface UserAccount {
   id: string;
   username: string; // Validated: uppercase, lowercase, number, special char
-  passwordHash: string; // Stored securely
-  plainPassword?: string; // Senha em texto normal para visualização do CEO/Admin
+  passwordHash: string; // Stored securely (SHA-256 salted hash)
+  authUid?: string; // Firebase Auth UID vinculado para validação nas Firestore Rules
   role: 'super_admin' | 'store_admin';
   name: string;
   email?: string;

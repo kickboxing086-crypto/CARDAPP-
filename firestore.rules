@@ -2,67 +2,266 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Default-deny catch-all
+    // ===============================================================
+    // Funções Auxiliares de Segurança (CARDAPP)
+    // ===============================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 140
+        && !id.matches('.*(/|\\.\\.).*');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'kickboxing086@gmail.com'
+          && request.auth.token.email_verified == true)
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isStoreOwner(storeId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/stores/$(storeId))
+        && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isValidEncryptedDoc(data, maxPayloadSize) {
+      return data.keys().hasAll(['_encrypted', 'payload'])
+        && data.keys().hasOnly(['id', 'storeId', '_encrypted', '_securityVersion', '_timestamp', 'payload'])
+        && data._encrypted == true
+        && data.payload is string
+        && data.payload.size() > 0
+        && data.payload.size() <= maxPayloadSize
+        && (!('id' in data) || (data.id is string && data.id.size() <= 140))
+        && (!('storeId' in data) || (data.storeId is string && data.storeId.size() <= 140))
+        && (!('_securityVersion' in data) || (data._securityVersion is string && data._securityVersion.size() <= 80))
+        && (!('_timestamp' in data) || (data._timestamp is string && data._timestamp.size() <= 60));
+    }
+
+    function isValidEncryptedAccount(data) {
+      return data.keys().hasAll(['id', 'username', 'role', 'storeId', '_encrypted', 'payload'])
+        && data.keys().hasOnly([
+          'id', 'username', 'role', 'storeId', 'authUid',
+          '_encrypted', '_securityVersion', '_updatedAt', 'payload'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 140
+        && data.username is string && data.username.size() >= 3 && data.username.size() <= 80
+        && data.role in ['super_admin', 'store_admin']
+        && data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 140
+        && (!('authUid' in data) || (data.authUid is string && data.authUid.size() <= 140))
+        && data._encrypted == true
+        && data.payload is string
+        && data.payload.size() > 0
+        && data.payload.size() <= 200000
+        && (!('_securityVersion' in data) || (data._securityVersion is string && data._securityVersion.size() <= 80))
+        && (!('_updatedAt' in data) || (data._updatedAt is string && data._updatedAt.size() <= 60));
+    }
+
+    function isValidOrderStatusDoc(data) {
+      return data.keys().hasAll(['id', 'displayId', 'status', 'statusHistory', 'deliveryType', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'displayId', 'status', 'statusHistory', 'deliveryType', 'updatedAt'])
+        && data.id is string && data.id.size() >= 10 && data.id.size() <= 140
+        && data.displayId is string && data.displayId.size() >= 2 && data.displayId.size() <= 32
+        && data.status in ['recebido', 'em_producao', 'em_rota', 'finalizado']
+        && data.deliveryType in ['delivery', 'retirada', 'mesa']
+        && data.statusHistory is list && data.statusHistory.size() <= 25
+        && data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidEmailVerificationDoc(data) {
+      return isValidEncryptedDoc(data, 16000)
+        || (
+          data.keys().hasAll(['verified', 'verifiedAt'])
+          && data.keys().hasOnly(['verified', 'verifiedAt', 'id', 'storeId', '_encrypted', '_securityVersion', '_timestamp', 'payload'])
+          && data.verified is bool
+          && data.verifiedAt is string && data.verifiedAt.size() <= 60
+        );
+    }
+
+    // ===============================================================
+    // Bloqueio Global Padrão (Default-Deny)
+    // ===============================================================
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Connection testing
+    // Teste de conectividade do SDK
     match /test/connection {
-      allow read: if true;
+      allow get: if true;
+      allow list: if false;
     }
 
-    // Verificações de E-mail No-Reply com Código de 6 Dígitos
-    match /email_verifications/{verificationId} {
-      allow read: if true;
-      allow write: if true;
+    // Registros de Administradores Gerais verificados
+    match /admins/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+      allow list: if false;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email == 'kickboxing086@gmail.com'
+        && request.auth.token.email_verified == true
+        && request.resource.data.keys().hasAll(['uid', 'email', 'role'])
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'role', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'super_admin';
+      allow delete: if false;
     }
 
-    // Contas de Administrador e Lojistas
+    // Contas de Lojistas e Admin Geral (sem senhas em texto claro)
     match /accounts/{accountId} {
-      allow read: if true;
-      allow write: if true;
-    }
-    
-    match /accessRequests/{requestId} {
-      allow read: if true;
-      allow write: if true;
+      allow get: if isValidId(accountId)
+        && (isAdmin() || (isSignedIn() && resource.data.authUid == request.auth.uid));
+      allow list: if isAdmin();
+      allow create: if isValidId(accountId)
+        && isValidEncryptedAccount(request.resource.data)
+        && (isAdmin() || (
+          isSignedIn()
+          && request.resource.data.role == 'store_admin'
+          && request.resource.data.authUid == request.auth.uid
+        ));
+      allow update: if isValidId(accountId)
+        && isValidEncryptedAccount(request.resource.data)
+        && (isAdmin() || (
+          isSignedIn()
+          && resource.data.authUid == request.auth.uid
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.storeId == resource.data.storeId
+        ));
+      allow delete: if isAdmin();
     }
 
-    match /passwordResets/{email} {
-      allow read: if true;
-      allow write: if true;
-    }
-
+    // Configurações do Sistema (Chave Pix da Gateway e Planos)
     match /systemConfig/{configId} {
-      allow read: if true;
-      allow write: if true;
+      allow get: if configId == 'subscriptionPlans' || isSignedIn();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Configurações, Cardápio e Pedidos por Loja
+    // Solicitações de Acesso (PII restrita exclusivamente ao Admin)
+    match /accessRequests/{requestId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(requestId)
+        && isValidEncryptedDoc(request.resource.data, 16000);
+      allow update, delete: if isAdmin();
+    }
+
+    // Verificações de E-mail (acesso pontual por ID, listagem proibida)
+    match /email_verifications/{verificationId} {
+      allow get: if isValidId(verificationId);
+      allow list: if false;
+      allow create, update: if isValidId(verificationId)
+        && isValidEmailVerificationDoc(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Tokens de Recuperação de Senha (leitura e listagem bloqueadas ao público)
+    match /passwordResets/{emailKey} {
+      allow get: if isAdmin();
+      allow list: if false;
+      allow create: if isValidId(emailKey)
+        && isValidEncryptedDoc(request.resource.data, 8000);
+      allow update, delete: if isAdmin();
+    }
+
+    // Pagamentos Gateway & Pedidos legados gravados somente via servidor (Admin SDK)
+    match /mp_payments/{paymentId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Lojas, Cardápio e Pedidos Segregados por Propriedade
     match /stores/{storeId} {
-      allow read: if true;
-      allow write: if true;
+      allow get: if isValidId(storeId);
+      allow list: if isAdmin();
+      allow create: if isValidId(storeId)
+        && isSignedIn()
+        && request.resource.data.keys().hasAll(['id', 'storeName'])
+        && request.resource.data.keys().hasOnly(['id', 'storeName', 'ownerUid', 'updatedAt'])
+        && request.resource.data.id == storeId
+        && (isAdmin() || request.resource.data.ownerUid == request.auth.uid);
+      allow update: if isValidId(storeId)
+        && isSignedIn()
+        && request.resource.data.keys().hasAll(['id', 'storeName'])
+        && request.resource.data.keys().hasOnly(['id', 'storeName', 'ownerUid', 'updatedAt'])
+        && request.resource.data.id == storeId
+        && (isAdmin() || (
+          resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+        ));
+      allow delete: if isAdmin();
 
+      // Configurações da loja (público lê para exibir cardápio; somente dono/admin altera)
       match /settings/{docId} {
-        allow read: if true;
-        allow write: if true;
+        allow get: if isValidId(storeId) && isValidId(docId);
+        allow list: if false;
+        allow create, update: if isValidId(storeId)
+          && isValidId(docId)
+          && (isAdmin() || isStoreOwner(storeId))
+          && isValidEncryptedDoc(request.resource.data, 350000);
+        allow delete: if isAdmin();
       }
 
+      // Categorias do cardápio
       match /categories/{categoryId} {
-        allow read: if true;
-        allow write: if true;
+        allow get, list: if isValidId(storeId);
+        allow create, update: if isValidId(storeId)
+          && isValidId(categoryId)
+          && (isAdmin() || isStoreOwner(storeId))
+          && isValidEncryptedDoc(request.resource.data, 16000);
+        allow delete: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
       }
 
+      // Produtos do cardápio
       match /products/{productId} {
-        allow read: if true;
-        allow write: if true;
+        allow get, list: if isValidId(storeId);
+        allow create, update: if isValidId(storeId)
+          && isValidId(productId)
+          && (isAdmin() || isStoreOwner(storeId))
+          && isValidEncryptedDoc(request.resource.data, 500000);
+        allow delete: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
       }
 
+      // Pedidos completos com PII de clientes (nome, telefone, endereço):
+      // LEITURA / LISTAGEM / EDIÇÃO / EXCLUSÃO RESTRITAS AO DONO DA LOJA E ADMIN
       match /orders/{orderId} {
-        allow read: if true;
-        allow create: if true;
-        allow update, delete: if true;
+        allow get, list: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
+        allow create: if isValidId(storeId)
+          && isValidId(orderId)
+          && orderId.size() >= 10
+          && isValidEncryptedDoc(request.resource.data, 200000);
+        allow update: if isValidId(storeId)
+          && isValidId(orderId)
+          && (isAdmin() || isStoreOwner(storeId))
+          && isValidEncryptedDoc(request.resource.data, 200000);
+        allow delete: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
+      }
+
+      // Espelho público de status de entrega (SEM PII — apenas id, displayId, status e histórico)
+      match /orderStatus/{orderId} {
+        allow get: if isValidId(storeId) && isValidId(orderId);
+        allow list: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
+        allow create: if isValidId(storeId)
+          && isValidId(orderId)
+          && orderId.size() >= 10
+          && isValidOrderStatusDoc(request.resource.data)
+          && request.resource.data.id == orderId
+          && request.resource.data.status == 'recebido';
+        allow update: if isValidId(storeId)
+          && isValidId(orderId)
+          && (isAdmin() || isStoreOwner(storeId))
+          && isValidOrderStatusDoc(request.resource.data)
+          && request.resource.data.id == orderId;
+        allow delete: if isValidId(storeId) && (isAdmin() || isStoreOwner(storeId));
       }
     }
   }

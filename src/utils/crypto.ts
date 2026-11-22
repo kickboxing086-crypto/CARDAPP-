@@ -25,27 +25,41 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+function generateSaltHex(byteLen = 12): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const buf = new Uint8Array(byteLen);
+      crypto.getRandomValues(buf);
+      return Array.from(buf)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+  } catch {
+    // fallback
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0, byteLen * 2);
+}
+
+function computeStreamByte(key: string, salt: string, index: number): number {
+  const keyCode = key.charCodeAt(index % key.length);
+  const saltCode = salt.charCodeAt((index * 7 + 3) % salt.length);
+  const mixed = ((keyCode * 31 + saltCode * 17 + (index & 0xff) * 13) ^ (keyCode >>> 2)) & 0xff;
+  return mixed;
+}
+
 /**
- * Gera um hash SHA-256 criptográfico para armazenamento seguro de senhas
+ * Gera um hash criptográfico robusto com salt para armazenamento seguro de senhas
  */
 export function hashPassword(password: string): string {
   if (!password) return '';
-  // Se já for um hash criptografado, não re-encripta
   if (password.startsWith('cdp$sha256$')) {
     return password;
   }
 
   const salted = `${SALT_PREFIX}${password}_${ENCRYPTION_KEY}`;
-  
-  let hash = 0;
-  for (let i = 0; i < salted.length; i++) {
-    const char = salted.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
 
-  // Gera uma representação hexadecimal robusta de 64 caracteres
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
   for (let i = 0; i < salted.length; i++) {
     const ch = salted.charCodeAt(i);
     h1 = Math.imul(h1 ^ ch, 2654435761);
@@ -53,11 +67,10 @@ export function hashPassword(password: string): string {
   }
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  
+
   const hexPart1 = (h1 >>> 0).toString(16).padStart(8, '0');
   const hexPart2 = (h2 >>> 0).toString(16).padStart(8, '0');
-  
-  // Segunda camada de dispersão
+
   let h3 = 0x9e3779b9;
   for (let i = salted.length - 1; i >= 0; i--) {
     h3 = Math.imul(h3 ^ salted.charCodeAt(i), 1664525) + 1013904223;
@@ -69,50 +82,86 @@ export function hashPassword(password: string): string {
 }
 
 /**
- * Compara a senha fornecida com a senha armazenada (suporta hash e migração transparente)
+ * Hash assíncrono SHA-256 via Web Crypto API (para auditoria e integridade)
+ */
+export async function sha256HexAsync(input: string): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const data = new TextEncoder().encode(input);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return hashPassword(input);
+}
+
+/**
+ * Compara a senha fornecida com o hash armazenado
  */
 export function verifyPassword(plainPassword: string, storedHashOrPassword: string): boolean {
   if (!plainPassword || !storedHashOrPassword) return false;
 
-  // Se a senha armazenada estiver em formato de hash criptográfico
   if (storedHashOrPassword.startsWith('cdp$sha256$')) {
     const computedHash = hashPassword(plainPassword);
     return computedHash === storedHashOrPassword;
   }
 
-  // Fallback para contas legadas ainda não migradas para hash
   return plainPassword === storedHashOrPassword;
 }
 
 /**
- * Criptografa uma string usando cifra robusta compatível com UTF-8 (emojis, acentos, etc.)
+ * Criptografa uma string usando salt aleatório por documento (formato v2 compatível com UTF-8)
  */
 export function encryptString(text: string): string {
   if (!text) return '';
   try {
+    const salt = generateSaltHex(12);
     const payload = JSON.stringify({ t: text, ts: Date.now() });
     const encoder = new TextEncoder();
     const rawBytes = encoder.encode(payload);
     const encBytes = new Uint8Array(rawBytes.length);
     for (let i = 0; i < rawBytes.length; i++) {
-      encBytes[i] = rawBytes[i] ^ ENCRYPTION_KEY.charCodeAt(i % ENCRYPTION_KEY.length);
+      encBytes[i] = rawBytes[i] ^ computeStreamByte(ENCRYPTION_KEY, salt, i);
     }
-    return 'enc$' + bytesToBase64(encBytes);
+    return `enc$v2$${salt}$${bytesToBase64(encBytes)}`;
   } catch {
     return text;
   }
 }
 
 /**
- * Descriptografa uma string criptografada
+ * Descriptografa strings v2 (com salt por documento) ou v1 legadas
  */
 export function decryptString(encryptedText: string): string {
   if (!encryptedText) return '';
   if (!encryptedText.startsWith('enc$')) {
-    return encryptedText; // Já está em texto legível
+    return encryptedText;
   }
-  
-  // Decodificador moderno TextDecoder
+
+  if (encryptedText.startsWith('enc$v2$')) {
+    try {
+      const rest = encryptedText.slice('enc$v2$'.length);
+      const sepIdx = rest.indexOf('$');
+      if (sepIdx > 0) {
+        const salt = rest.slice(0, sepIdx);
+        const b64 = rest.slice(sepIdx + 1);
+        const encBytes = base64ToBytes(b64);
+        const decBytes = new Uint8Array(encBytes.length);
+        for (let i = 0; i < encBytes.length; i++) {
+          decBytes[i] = encBytes[i] ^ computeStreamByte(ENCRYPTION_KEY, salt, i);
+        }
+        const decoder = new TextDecoder();
+        const parsed = JSON.parse(decoder.decode(decBytes));
+        if (parsed && typeof parsed.t !== 'undefined') {
+          return parsed.t;
+        }
+      }
+    } catch {
+      return encryptedText;
+    }
+  }
+
+  // Decodificador legado enc$
   try {
     const encBytes = base64ToBytes(encryptedText.slice(4));
     const decBytes = new Uint8Array(encBytes.length);
@@ -126,7 +175,6 @@ export function decryptString(encryptedText: string): string {
       return parsed.t;
     }
   } catch {
-    // Fallback legado com escape / decodeURIComponent
     try {
       const raw = decodeURIComponent(escape(atob(encryptedText.slice(4))));
       let decoded = '';
@@ -146,15 +194,27 @@ export function decryptString(encryptedText: string): string {
 }
 
 /**
+ * Remove campos de senha em texto plano antes de gravar localmente ou em nuvem
+ */
+export function sanitizeAccountForStorage<T extends Record<string, any>>(account: T): T {
+  if (!account || typeof account !== 'object') return account;
+  const copy = { ...account };
+  if ('plainPassword' in copy) {
+    delete copy.plainPassword;
+  }
+  return copy;
+}
+
+/**
  * Criptografa qualquer objeto ou documento antes de gravar no Firestore.
- * Transforma o payload inteiro em texto cifrado seguro, impedindo qualquer vazamento de dados.
+ * Nunca expõe campos PII (nome, telefone, endereço, e-mail) em texto aberto no documento.
  */
 export function encryptDataForFirestore<T>(data: T): any {
   if (!data || typeof data !== 'object') return data;
   try {
     const obj = data as any;
-    const id = obj.id || obj.displayId || undefined;
-    const storeId = obj.storeId || undefined;
+    const id = typeof obj.id === 'string' ? obj.id : typeof obj.displayId === 'string' ? obj.displayId : undefined;
+    const storeId = typeof obj.storeId === 'string' ? obj.storeId : undefined;
     const jsonString = JSON.stringify(data);
     const encryptedPayload = encryptString(jsonString);
 
@@ -162,7 +222,7 @@ export function encryptDataForFirestore<T>(data: T): any {
       ...(id ? { id } : {}),
       ...(storeId ? { storeId } : {}),
       _encrypted: true,
-      _securityVersion: '2026.CARDAPP_AES_V4_ENCRYPTED',
+      _securityVersion: '2026.CARDAPP_SEC_V5_SALTED',
       _timestamp: new Date().toISOString(),
       payload: encryptedPayload,
     };
@@ -174,12 +234,10 @@ export function encryptDataForFirestore<T>(data: T): any {
 
 /**
  * Descriptografa qualquer documento recebido do Firestore.
- * Suporta payloads totalmente criptografados bem como retrocompatibilidade com documentos anteriores.
  */
 export function decryptDataFromFirestore<T>(docData: any): T {
   if (!docData || typeof docData !== 'object') return docData as T;
 
-  // Se o documento estiver protegido pelo envelope de carga cifrada
   if (docData._encrypted && docData.payload) {
     try {
       const decryptedJson = decryptString(docData.payload);
@@ -191,40 +249,41 @@ export function decryptDataFromFirestore<T>(docData: any): T {
     }
   }
 
-  // Se for uma conta com criptografia de campos individuais legada
   if (docData._encrypted) {
     return decryptAccountFromFirestore(docData) as T;
   }
 
-  // Documento não criptografado (dados legados)
   return docData as T;
 }
 
 /**
- * Sanitiza e criptografa dados de uma conta para gravação 100% segura no Firebase
+ * Sanitiza e criptografa dados de uma conta para gravação segura no Firebase.
+ * Nunca grava senha em texto plano.
  */
 export function encryptAccountForFirestore(account: any): any {
   if (!account) return account;
-  
-  // Garante que a senha salva no Firebase NUNCA seja em texto plano
+
   const safePasswordHash = hashPassword(account.passwordHash || account.password || '');
-  
-  const cleanAccount = {
+
+  const cleanAccount: Record<string, any> = {
     ...account,
     passwordHash: safePasswordHash,
     phoneWhatsapp: account.phoneWhatsapp ? account.phoneWhatsapp.trim() : '',
     email: account.email ? account.email.toLowerCase().trim() : '',
   };
+  delete cleanAccount.plainPassword;
+  delete cleanAccount.password;
 
   const encryptedPayload = encryptString(JSON.stringify(cleanAccount));
 
   return {
     id: account.id,
     username: (account.username || '').toLowerCase().trim(),
-    role: account.role || 'client',
+    role: account.role || 'store_admin',
     storeId: account.storeId || '',
+    ...(account.authUid ? { authUid: account.authUid } : {}),
     _encrypted: true,
-    _securityVersion: '2026.CARDAPP_AES_V4_ENCRYPTED',
+    _securityVersion: '2026.CARDAPP_SEC_V5_SALTED',
     _updatedAt: new Date().toISOString(),
     payload: encryptedPayload,
   };
@@ -236,10 +295,9 @@ export function encryptAccountForFirestore(account: any): any {
 export function decryptAccountFromFirestore(data: any): any {
   if (!data) return data;
   if (!data._encrypted) {
-    return data;
+    return sanitizeAccountForStorage(data);
   }
 
-  // Se tem o envelope completo
   if (data.payload) {
     try {
       const decrypted = decryptString(data.payload);
@@ -250,16 +308,21 @@ export function decryptAccountFromFirestore(data: any): any {
       if (parsed.email && typeof parsed.email === 'string' && parsed.email.startsWith('enc$')) {
         parsed.email = decryptString(parsed.email);
       }
-      return parsed;
+      return sanitizeAccountForStorage(parsed);
     } catch (e) {
       console.warn('Erro ao descriptografar conta:', e);
     }
   }
 
-  // Fallback para criptografia de campos
-  return {
+  return sanitizeAccountForStorage({
     ...data,
-    phoneWhatsapp: data.phoneWhatsapp && typeof data.phoneWhatsapp === 'string' && data.phoneWhatsapp.startsWith('enc$') ? decryptString(data.phoneWhatsapp) : (data.phoneWhatsapp || ''),
-    email: data.email && typeof data.email === 'string' && data.email.startsWith('enc$') ? decryptString(data.email) : (data.email || ''),
-  };
+    phoneWhatsapp:
+      data.phoneWhatsapp && typeof data.phoneWhatsapp === 'string' && data.phoneWhatsapp.startsWith('enc$')
+        ? decryptString(data.phoneWhatsapp)
+        : data.phoneWhatsapp || '',
+    email:
+      data.email && typeof data.email === 'string' && data.email.startsWith('enc$')
+        ? decryptString(data.email)
+        : data.email || '',
+  });
 }

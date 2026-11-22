@@ -15,10 +15,13 @@ import {
   UtensilsCrossed,
   Bell,
   BellRing,
+  QrCode,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { Order, OrderStatus, StoreSettings } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { getOrderWhatsAppUrl } from '../utils/comandaFormatter';
+import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
 import { requestPushPermission, playNotificationSound } from '../utils/notificationService';
 
 interface OrderTrackingStepProps {
@@ -38,9 +41,60 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
   onNewOrder,
 }) => {
   const [copiedId, setCopiedId] = useState(false);
+  const [copiedPixCode, setCopiedPixCode] = useState(false);
+  const [orderPixQrUrl, setOrderPixQrUrl] = useState('');
   const [notificationsActive, setNotificationsActive] = useState<boolean>(() => {
     return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
   });
+
+  const cleanStorePixKey = React.useMemo(
+    () => extractCleanPixKey(settings.pixKey || ''),
+    [settings.pixKey]
+  );
+
+  const orderPixPayload = React.useMemo(() => {
+    if (!order || order.customer.paymentMethod !== 'pix' || !cleanStorePixKey || order.total <= 0) {
+      return '';
+    }
+    return generatePixPayload({
+      pixKey: cleanStorePixKey,
+      amount: order.total,
+      merchantName: settings.storeName || 'CARDAPP',
+      merchantCity: order.customer.address?.city || 'BRASIL',
+      transactionId: order.displayId.replace(/[^a-zA-Z0-9]/g, ''),
+    });
+  }, [order, cleanStorePixKey, settings.storeName]);
+
+  React.useEffect(() => {
+    let active = true;
+    if (orderPixPayload) {
+      QRCode.toDataURL(orderPixPayload, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#022c22', light: '#ffffff' },
+      })
+        .then((url) => {
+          if (active) setOrderPixQrUrl(url);
+        })
+        .catch(() => {
+          if (active) setOrderPixQrUrl('');
+        });
+    } else {
+      setOrderPixQrUrl('');
+    }
+    return () => {
+      active = false;
+    };
+  }, [orderPixPayload]);
+
+  const handleCopyOrderPix = async () => {
+    if (!orderPixPayload) return;
+    try {
+      await navigator.clipboard.writeText(orderPixPayload);
+      setCopiedPixCode(true);
+      setTimeout(() => setCopiedPixCode(false), 2500);
+    } catch {}
+  };
 
   const handleEnableNotifications = async () => {
     const perm = await requestPushPermission();
@@ -315,6 +369,79 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           <span>Enviar no WhatsApp da Loja</span>
         </button>
       </div>
+
+      {/* CARTÃO EM DESTAQUE: PAGAMENTO VIA PIX DO PEDIDO */}
+      {order.customer.paymentMethod === 'pix' && (
+        <div className="mb-6 p-5 rounded-3xl bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-2 border-emerald-500 shadow-lg space-y-4 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-emerald-200">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <QrCode className="w-5 h-5 stroke-[2.4]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 block">
+                  Pagamento Instantâneo • br.gov.bcb.pix
+                </span>
+                <h3 className="text-sm sm:text-base font-black text-slate-950">
+                  Pagamento via Pix • Pedido {order.displayId}
+                </h3>
+              </div>
+            </div>
+            <span className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-emerald-300 font-mono font-black text-sm self-start sm:self-auto">
+              {formatCurrency(order.total)}
+            </span>
+          </div>
+
+          {orderPixPayload ? (
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              {orderPixQrUrl && (
+                <div className="p-2.5 rounded-2xl bg-white border-2 border-emerald-400 shadow-sm shrink-0">
+                  <img
+                    src={orderPixQrUrl}
+                    alt="QR Code Pix do Pedido"
+                    className="w-36 h-36 object-contain"
+                  />
+                </div>
+              )}
+              <div className="flex-1 w-full space-y-2.5">
+                <p className="text-xs text-emerald-950 font-semibold">
+                  Escaneie o QR Code ou copie o código Pix abaixo para concluir o pagamento e envie o comprovante no WhatsApp da loja.
+                </p>
+                <div className="p-2.5 rounded-xl bg-white border border-emerald-300">
+                  <code className="text-[11px] font-mono font-bold text-slate-800 block truncate select-all">
+                    {orderPixPayload}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyOrderPix}
+                  className={`w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm ${
+                    copiedPixCode
+                      ? 'bg-slate-950 text-emerald-300'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  }`}
+                >
+                  {copiedPixCode ? (
+                    <>
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Código Pix Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>Copiar Pix Copia e Cola</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-emerald-950 font-semibold">
+              Pagamento selecionado via <strong>Pix ({formatCurrency(order.total)})</strong>. Solicite ou confirme a chave Pix diretamente no botão de WhatsApp acima para agilizar seu pedido.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Header Card */}
       <div className="bg-white rounded-3xl border border-amber-200 p-6 sm:p-8 shadow-sm mb-6">

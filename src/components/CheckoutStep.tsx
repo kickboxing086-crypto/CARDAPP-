@@ -17,8 +17,10 @@ import {
   Search,
   Loader2,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { CartItem, StoreSettings, OrderCustomer } from '../types';
 import { formatCurrency } from '../utils/formatters';
+import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
 import {
   fetchAddressByCep,
   fetchAddressByCoordinates,
@@ -108,6 +110,57 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   // Auto calculate change
   const cashGivenNumber = parseFloat(cashGivenInput.replace(',', '.')) || 0;
   const changeAmount = cashGivenNumber > 0 ? cashGivenNumber - total : 0;
+
+  // Pix live QR Code for store's own configured Pix key
+  const [pixQrDataUrl, setPixQrDataUrl] = useState<string>('');
+  const [copiedStorePix, setCopiedStorePix] = useState(false);
+
+  const cleanStorePixKey = useMemo(
+    () => extractCleanPixKey(settings.pixKey || ''),
+    [settings.pixKey]
+  );
+
+  const storePixCopiaECola = useMemo(() => {
+    if (!cleanStorePixKey || total <= 0) return '';
+    return generatePixPayload({
+      pixKey: cleanStorePixKey,
+      amount: total,
+      merchantName: settings.storeName || 'CARDAPP',
+      merchantCity: city || 'BRASIL',
+      transactionId: `PED${Date.now().toString(36).toUpperCase().slice(-6)}`,
+    });
+  }, [cleanStorePixKey, total, settings.storeName, city]);
+
+  useEffect(() => {
+    let active = true;
+    if (paymentMethod === 'pix' && storePixCopiaECola) {
+      QRCode.toDataURL(storePixCopiaECola, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#022c22', light: '#ffffff' },
+      })
+        .then((url) => {
+          if (active) setPixQrDataUrl(url);
+        })
+        .catch(() => {
+          if (active) setPixQrDataUrl('');
+        });
+    } else {
+      setPixQrDataUrl('');
+    }
+    return () => {
+      active = false;
+    };
+  }, [paymentMethod, storePixCopiaECola]);
+
+  const handleCopyStorePix = async () => {
+    if (!storePixCopiaECola) return;
+    try {
+      await navigator.clipboard.writeText(storePixCopiaECola);
+      setCopiedStorePix(true);
+      setTimeout(() => setCopiedStorePix(false), 2500);
+    } catch {}
+  };
 
   // Sync if settings change
   useEffect(() => {
@@ -687,14 +740,17 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
               <button
                 type="button"
                 onClick={() => setPaymentMethod('pix')}
-                className={`p-3.5 rounded-2xl border text-center flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`relative p-3.5 rounded-2xl border-2 text-center flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   paymentMethod === 'pix'
-                    ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-300 font-bold'
-                    : 'border-slate-200 hover:border-amber-300'
+                    ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-300 font-black shadow-md'
+                    : 'border-emerald-200 bg-emerald-50/40 hover:border-emerald-400'
                 }`}
               >
-                <QrCode className="w-6 h-6 text-amber-600" />
-                <span className="text-xs text-slate-900">Pix</span>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                  Instantâneo
+                </span>
+                <QrCode className="w-6 h-6 text-emerald-700 stroke-[2.4]" />
+                <span className="text-xs font-black text-emerald-950">Pix</span>
               </button>
             )}
 
@@ -744,13 +800,83 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
             )}
           </div>
 
-          {/* Pix instruction box (smooth & clean without pixKey input) */}
+          {/* Card em Destaque para Pagamento via Pix */}
           {paymentMethod === 'pix' && (
-            <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-950 font-semibold flex items-center gap-2.5 animate-in fade-in duration-200">
-              <QrCode className="w-5 h-5 text-amber-700 shrink-0" />
-              <span>
-                A chave Pix da loja será informada diretamente no WhatsApp junto com o resumo do seu pedido.
-              </span>
+            <div className="rounded-3xl border-2 border-emerald-500 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4 sm:p-5 space-y-4 shadow-md animate-in fade-in duration-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-emerald-200">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <QrCode className="w-5 h-5 stroke-[2.4]" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 block">
+                      Pagamento Rápido e Seguro • br.gov.bcb.pix
+                    </span>
+                    <h3 className="text-sm font-black text-slate-950">
+                      Pix Selecionado • Confirmação Ágil
+                    </h3>
+                  </div>
+                </div>
+                <div className="px-3 py-1.5 rounded-xl bg-slate-950 text-emerald-300 font-mono font-black text-sm shrink-0 self-start sm:self-auto">
+                  {formatCurrency(total)}
+                </div>
+              </div>
+
+              {storePixCopiaECola ? (
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {pixQrDataUrl && (
+                    <div className="p-2.5 rounded-2xl bg-white border-2 border-emerald-400 shadow-sm shrink-0">
+                      <img
+                        src={pixQrDataUrl}
+                        alt="QR Code Pix do Pedido"
+                        className="w-36 h-36 object-contain"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex-1 w-full space-y-2.5 text-left">
+                    <p className="text-xs text-emerald-950 font-semibold leading-relaxed">
+                      Você já pode pagar agora pelo QR Code ou copiando o código Pix abaixo, e em seguida clicar em <strong>Confirmar Pedido</strong>.
+                    </p>
+
+                    <div className="p-2.5 rounded-xl bg-white border border-emerald-300">
+                      <code className="text-[11px] font-mono font-bold text-slate-800 block truncate select-all">
+                        {storePixCopiaECola}
+                      </code>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyStorePix}
+                      className={`w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm ${
+                        copiedStorePix
+                          ? 'bg-slate-950 text-emerald-300'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                    >
+                      {copiedStorePix ? (
+                        <>
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>Código Pix Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Copiar Pix Copia e Cola</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2.5 text-xs text-emerald-950 font-semibold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    Ao confirmar o pedido, você receberá as instruções e a chave Pix da loja diretamente no resumo e no WhatsApp para agilizar o pagamento de{' '}
+                    <strong>{formatCurrency(total)}</strong>.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

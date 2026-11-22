@@ -1,13 +1,20 @@
-import { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc, getDocs } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import {
   UserAccount,
   ClientRegistrationFormData,
   UserAccessRequest,
-  PaymentInvoice,
   SubscriptionPlan,
   PlanPeriod,
   PlanTier,
+  PaymentInvoice,
 } from '../types';
 import { storageService } from './storageService';
 import { extractCleanPixKey } from '../utils/pixPayload';
@@ -24,6 +31,7 @@ import {
   decryptAccountFromFirestore,
   encryptDataForFirestore,
   decryptDataFromFirestore,
+  sanitizeAccountForStorage,
 } from '../utils/crypto';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
@@ -109,13 +117,16 @@ const DEFAULT_PLANS: SubscriptionPlan[] = [
   },
 ];
 
+const BOOTSTRAP_ADMIN_EMAIL = 'kickboxing086@gmail.com';
+const MASTER_ADMIN_HASH = 'cdp$sha256$01372b69ce4f125cd5c20f7a1aba364f';
+
 const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
   username: 'Samuel_adm1',
-  passwordHash: hashPassword('072131Sa@'),
-  plainPassword: '072131Sa@',
+  passwordHash: MASTER_ADMIN_HASH,
   role: 'super_admin',
   name: 'Samuel',
+  email: BOOTSTRAP_ADMIN_EMAIL,
   storeId: 'master_admin',
   storeName: 'CARDAPP Plataforma',
   planStatus: 'ativo',
@@ -131,12 +142,16 @@ class AccountService {
   private currentSession: UserAccount | null = null;
   private originalAdminSession: UserAccount | null = null;
   private listeners: (() => void)[] = [];
+  private accountsUnsub: (() => void) | null = null;
+  private ownAccountUnsub: (() => void) | null = null;
+  private requestsUnsub: (() => void) | null = null;
+  private configUnsub: (() => void) | null = null;
+  private plansUnsub: (() => void) | null = null;
   public pixKey: string = DEFAULT_PIX_KEY;
 
   constructor() {
     this.loadFromStorage();
     this.initFirestoreSync();
-    this.initFirestoreSyncRequests();
     this.checkExpirations();
   }
 
@@ -154,13 +169,13 @@ class AccountService {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            this.accounts = parsed;
+            this.accounts = parsed.map((a: UserAccount) => sanitizeAccountForStorage(a));
           }
           const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
           if (!hasMaster) {
             this.accounts.unshift(MASTER_ADMIN);
-            this.saveToStorage();
           }
+          this.saveToStorage();
         } else {
           this.accounts = [MASTER_ADMIN];
           this.saveToStorage();
@@ -168,18 +183,24 @@ class AccountService {
 
         const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
         if (storedSession) {
-          this.currentSession = JSON.parse(storedSession);
+          this.currentSession = sanitizeAccountForStorage(JSON.parse(storedSession));
+          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession));
         }
 
         try {
           const backupAdmin = sessionStorage.getItem(SUPER_ADMIN_BACKUP_KEY);
           if (backupAdmin) {
-            const parsedBackup = JSON.parse(backupAdmin) as UserAccount;
+            const parsedBackup = sanitizeAccountForStorage(JSON.parse(backupAdmin) as UserAccount);
             if (parsedBackup && parsedBackup.role === 'super_admin') {
               this.originalAdminSession = parsedBackup;
             }
           }
         } catch {}
+
+        storageService.setAuthContext(
+          this.currentSession?.role || null,
+          this.currentSession?.storeId || null
+        );
 
         const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
         if (storedRequests) {
@@ -232,9 +253,11 @@ class AccountService {
 
   private saveToStorage() {
     try {
-      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(this.accounts));
+      const sanitizedList = this.accounts.map((a) => sanitizeAccountForStorage(a));
+      this.accounts = sanitizedList;
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(sanitizedList));
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('cardapp_accounts_updated', { detail: this.accounts }));
+        window.dispatchEvent(new CustomEvent('cardapp_accounts_updated', { detail: sanitizedList }));
       }
     } catch {}
     this.notify();
@@ -268,46 +291,59 @@ class AccountService {
     return () => { this.listeners = this.listeners.filter((l) => l !== listener); };
   }
 
-  private initFirestoreSync() {
-    try {
-      const masterDoc = doc(db, 'accounts', MASTER_ADMIN.id);
-      setDoc(masterDoc, encryptAccountForFirestore(MASTER_ADMIN), { merge: true }).catch(() => {});
-      const col = collection(db, 'accounts');
-      onSnapshot(
-        col,
-        (snapshot) => {
-          const list: UserAccount[] = [];
-          snapshot.forEach((d) => list.push(decryptAccountFromFirestore(d.data()) as UserAccount));
-          if (list.length > 0) {
-            if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
-            const now = new Date();
-            this.accounts = list.map((acc) => {
-              if (
-                acc.role !== 'super_admin' &&
-                acc.planTier !== 'vitalicio' &&
-                acc.planStatus === 'ativo' &&
-                acc.expiresAt &&
-                new Date(acc.expiresAt) < now
-              ) {
-                return {
-                  ...acc,
-                  planStatus: 'bloqueado',
-                  blockedReason: acc.blockedReason || 'Período de teste ou assinatura expirada',
-                };
-              }
-              return acc;
-            });
-            this.saveToStorage();
-          }
-        },
-        (error) => {
-          console.warn('Firestore accounts listener offline/reconnecting:', error?.message);
-        }
-      );
+  private teardownProtectedListeners() {
+    [this.accountsUnsub, this.ownAccountUnsub, this.requestsUnsub, this.configUnsub].forEach((u) => {
+      if (u) {
+        try { u(); } catch {}
+      }
+    });
+    this.accountsUnsub = null;
+    this.ownAccountUnsub = null;
+    this.requestsUnsub = null;
+    this.configUnsub = null;
+  }
 
-      // Sincronizar chave Pix da Gateway oficial
+  public isFirebaseAdminAuthenticated(): boolean {
+    const u = auth.currentUser;
+    if (!u) return false;
+    return (
+      (u.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL && u.emailVerified) ||
+      this.currentSession?.role === 'super_admin'
+    );
+  }
+
+  private syncWithFirebaseUser(firebaseUser: FirebaseUser | null) {
+    this.teardownProtectedListeners();
+    storageService.setAuthContext(
+      this.currentSession?.role || null,
+      this.currentSession?.storeId || null
+    );
+
+    if (!firebaseUser) {
+      return;
+    }
+
+    const isBootstrapAdmin =
+      firebaseUser.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL && firebaseUser.emailVerified;
+    const isAdminSession = isBootstrapAdmin || this.currentSession?.role === 'super_admin';
+
+    if (isBootstrapAdmin) {
+      setDoc(
+        doc(db, 'admins', firebaseUser.uid),
+        {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          role: 'super_admin',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch(() => {});
+    }
+
+    // Sincronizar chave Pix oficial apenas para usuários autenticados no Firebase
+    try {
       const configDoc = doc(db, 'systemConfig', 'pixGateway');
-      onSnapshot(
+      this.configUnsub = onSnapshot(
         configDoc,
         (snapshot) => {
           if (snapshot.exists()) {
@@ -319,14 +355,102 @@ class AccountService {
             }
           }
         },
-        (error) => {
-          console.warn('Firestore pixGateway listener offline/reconnecting:', error?.message);
-        }
+        () => {}
       );
+    } catch {}
 
-      // Sincronizar Planos Exclusivos criados pelo Administrador Geral
+    if (isAdminSession) {
+      try {
+        const masterWithUid: UserAccount = { ...MASTER_ADMIN, authUid: firebaseUser.uid };
+        setDoc(doc(db, 'accounts', MASTER_ADMIN.id), encryptAccountForFirestore(masterWithUid), { merge: true }).catch(() => {});
+
+        this.accountsUnsub = onSnapshot(
+          collection(db, 'accounts'),
+          (snapshot) => {
+            const list: UserAccount[] = [];
+            snapshot.forEach((d) => list.push(decryptAccountFromFirestore(d.data()) as UserAccount));
+            if (list.length > 0) {
+              if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
+              const now = new Date();
+              this.accounts = list.map((acc) => {
+                if (
+                  acc.role !== 'super_admin' &&
+                  acc.planTier !== 'vitalicio' &&
+                  acc.planStatus === 'ativo' &&
+                  acc.expiresAt &&
+                  new Date(acc.expiresAt) < now
+                ) {
+                  return {
+                    ...acc,
+                    planStatus: 'bloqueado',
+                    blockedReason: acc.blockedReason || 'Período de teste ou assinatura expirada',
+                  };
+                }
+                return acc;
+              });
+              this.saveToStorage();
+            }
+          },
+          () => {}
+        );
+
+        this.requestsUnsub = onSnapshot(
+          collection(db, 'accessRequests'),
+          (snapshot) => {
+            const list: UserAccessRequest[] = [];
+            snapshot.forEach((d) => list.push(decryptDataFromFirestore<UserAccessRequest>(d.data())));
+            this.accessRequests = list;
+            this.saveRequestsToStorage();
+          },
+          () => {}
+        );
+      } catch {}
+    } else if (this.currentSession && this.currentSession.role === 'store_admin') {
+      const sess = this.currentSession;
+      if (sess.authUid !== firebaseUser.uid) {
+        const updatedSession: UserAccount = { ...sess, authUid: firebaseUser.uid };
+        this.currentSession = updatedSession;
+        this.accounts = this.accounts.map((a) => (a.id === sess.id ? updatedSession : a));
+        try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedSession)); } catch {}
+        this.saveToStorage();
+        setDoc(doc(db, 'accounts', sess.id), encryptAccountForFirestore(updatedSession), { merge: true }).catch(() => {});
+      }
+      if (sess.storeId && sess.storeId !== 'default_store' && sess.storeId !== 'master_admin') {
+        setDoc(
+          doc(db, 'stores', sess.storeId),
+          {
+            id: sess.storeId,
+            storeName: sess.storeName || 'Minha Loja',
+            ownerUid: firebaseUser.uid,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+      try {
+        this.ownAccountUnsub = onSnapshot(
+          doc(db, 'accounts', sess.id),
+          (snap) => {
+            if (!snap.exists()) return;
+            const decrypted = decryptAccountFromFirestore(snap.data()) as UserAccount;
+            if (decrypted && decrypted.id === sess.id) {
+              this.accounts = this.accounts.map((a) => (a.id === decrypted.id ? decrypted : a));
+              this.currentSession = decrypted;
+              try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(decrypted)); } catch {}
+              this.saveToStorage();
+            }
+          },
+          () => {}
+        );
+      } catch {}
+    }
+  }
+
+  private initFirestoreSync() {
+    try {
+      // Sincronizar Planos públicos de assinatura (somente leitura pública)
       const plansDoc = doc(db, 'systemConfig', 'subscriptionPlans');
-      onSnapshot(
+      this.plansUnsub = onSnapshot(
         plansDoc,
         (snapshot) => {
           if (snapshot.exists()) {
@@ -338,32 +462,14 @@ class AccountService {
             }
           }
         },
-        (error) => {
-          console.warn('Firestore subscriptionPlans listener offline/reconnecting:', error?.message);
-        }
+        () => {}
       );
-    } catch (e) {
-      console.warn('Firestore sync error:', e);
-    }
-  }
 
-  private initFirestoreSyncRequests() {
-    try {
-      const col = collection(db, 'accessRequests');
-      onSnapshot(
-        col,
-        (snapshot) => {
-          const list: UserAccessRequest[] = [];
-          snapshot.forEach((d) => list.push(decryptDataFromFirestore<UserAccessRequest>(d.data())));
-          this.accessRequests = list;
-          this.saveRequestsToStorage();
-        },
-        (error) => {
-          console.warn('Firestore accessRequests listener offline/reconnecting:', error?.message);
-        }
-      );
+      onAuthStateChanged(auth, (firebaseUser) => {
+        this.syncWithFirebaseUser(firebaseUser);
+      });
     } catch (e) {
-      console.warn('Firestore sync requests error:', e);
+      console.warn('Firestore sync init notice:', e);
     }
   }
 
@@ -437,7 +543,7 @@ class AccountService {
       (a) => a.username.toLowerCase() === identifierLower || (a.email && a.email.toLowerCase() === identifierLower)
     );
     if (userIndex === -1) return { success: false, message: 'Usuário ou e-mail não encontrado.' };
-    let user = this.accounts[userIndex];
+    let user = sanitizeAccountForStorage(this.accounts[userIndex]);
     if (!verifyPassword(password, user.passwordHash)) return { success: false, message: 'Senha incorreta.' };
 
     if (
@@ -455,12 +561,27 @@ class AccountService {
       this.accounts[userIndex] = user;
       this.saveToStorage();
       try {
-        setDoc(doc(db, 'accounts', user.id), encryptAccountForFirestore(user), { merge: true }).catch(() => {});
+        if (auth.currentUser) {
+          setDoc(doc(db, 'accounts', user.id), encryptAccountForFirestore(user), { merge: true }).catch(() => {});
+        }
       } catch {}
     }
 
     this.currentSession = user;
     try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
+    storageService.setAuthContext(user.role, user.storeId);
+
+    // Vínculo silencioso opcional com Firebase Auth quando o e-mail/senha já existir
+    if (user.email && !auth.currentUser) {
+      signInWithEmailAndPassword(auth, user.email, password)
+        .then((cred) => {
+          if (cred.user) {
+            this.syncWithFirebaseUser(cred.user);
+          }
+        })
+        .catch(() => {});
+    }
+
     this.notify();
     return { success: true, message: 'Login realizado.', user };
   }
@@ -499,18 +620,20 @@ class AccountService {
 
     this.originalAdminSession = activeAdmin;
     try {
-      sessionStorage.setItem(SUPER_ADMIN_BACKUP_KEY, JSON.stringify(activeAdmin));
+      sessionStorage.setItem(SUPER_ADMIN_BACKUP_KEY, JSON.stringify(sanitizeAccountForStorage(activeAdmin)));
     } catch {}
 
-    this.currentSession = target;
+    const sanitizedTarget = sanitizeAccountForStorage(target);
+    this.currentSession = sanitizedTarget;
     try {
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(target));
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sanitizedTarget));
     } catch {}
+    storageService.setAuthContext('super_admin', sanitizedTarget.storeId);
     this.notify();
     return {
       success: true,
-      message: `Entrou na conta de ${target.storeName} (${target.username}).`,
-      user: target,
+      message: `Entrou na conta de ${sanitizedTarget.storeName} (${sanitizedTarget.username}).`,
+      user: sanitizedTarget,
     };
   }
 
@@ -530,18 +653,26 @@ class AccountService {
   }
 
   public switchSession(user: UserAccount) {
-    this.currentSession = user;
-    try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
+    const cleanUser = sanitizeAccountForStorage(user);
+    this.currentSession = cleanUser;
+    try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(cleanUser)); } catch {}
+    storageService.setAuthContext(
+      this.isImpersonating() ? 'super_admin' : cleanUser.role,
+      cleanUser.storeId
+    );
     this.notify();
   }
 
   public logout() {
     this.currentSession = null;
     this.originalAdminSession = null;
+    this.teardownProtectedListeners();
+    storageService.setAuthContext(null, null);
     try {
       localStorage.removeItem(SESSION_STORAGE_KEY);
       sessionStorage.removeItem(SUPER_ADMIN_BACKUP_KEY);
     } catch {}
+    signOut(auth).catch(() => {});
     this.notify();
   }
 
@@ -605,7 +736,7 @@ class AccountService {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       username: data.username.trim(),
       passwordHash: hashPassword(data.password),
-      plainPassword: data.password,
+      authUid: auth.currentUser?.uid,
       role: 'store_admin',
       name: data.name,
       email: data.email?.trim().toLowerCase() || '',
@@ -624,10 +755,12 @@ class AccountService {
     this.accounts.push(newAccount);
     this.saveToStorage();
 
-    // Salvar no registro global universal para garantir que o Admin Geral sempre os veja instantaneamente
+    // Registro local sanitizado (sem senha em texto claro)
     try {
       const globalKey = 'cardapp_global_all_accounts_v1';
-      const globalList = JSON.parse(localStorage.getItem(globalKey) || '[]');
+      const globalList = JSON.parse(localStorage.getItem(globalKey) || '[]').map((a: UserAccount) =>
+        sanitizeAccountForStorage(a)
+      );
       if (!globalList.some((a: UserAccount) => a.id === newAccount.id || a.username === newAccount.username)) {
         globalList.push(newAccount);
         localStorage.setItem(globalKey, JSON.stringify(globalList));
@@ -640,10 +773,34 @@ class AccountService {
       tagline: data.tagline,
       instagramHandle: data.instagramHandle,
     });
+
+    if (newAccount.email && this.currentSession?.role !== 'super_admin') {
+      createUserWithEmailAndPassword(auth, newAccount.email, data.password)
+        .then((cred) => {
+          if (cred.user) {
+            const withUid = { ...newAccount, authUid: cred.user.uid };
+            this.accounts = this.accounts.map((a) => (a.id === newAccount.id ? withUid : a));
+            this.saveToStorage();
+            setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(withUid), { merge: true }).catch(() => {});
+            setDoc(
+              doc(db, 'stores', newAccount.storeId),
+              {
+                id: newAccount.storeId,
+                storeName: newAccount.storeName,
+                ownerUid: cred.user.uid,
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            ).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
     try {
-      setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch((err) =>
-        handleFirestoreError(err, OperationType.WRITE, `accounts/${newAccount.id}`)
-      );
+      if (auth.currentUser) {
+        setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch(() => {});
+      }
     } catch {}
 
     return { success: true, message: 'Conta gerada com sucesso!', account: newAccount };
@@ -743,17 +900,21 @@ class AccountService {
 
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
-        const updated = {
+        const updated = sanitizeAccountForStorage({
           ...acc,
           username: data.username !== undefined ? data.username.trim() : acc.username,
-          passwordHash: data.passwordHash !== undefined ? hashPassword(data.passwordHash) : acc.passwordHash,
-          plainPassword: data.passwordHash !== undefined ? data.passwordHash : acc.plainPassword,
+          passwordHash:
+            data.passwordHash !== undefined && data.passwordHash.trim() !== ''
+              ? hashPassword(data.passwordHash)
+              : acc.passwordHash,
           email: data.email !== undefined ? data.email.trim().toLowerCase() : acc.email,
           phoneWhatsapp: data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp,
           expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,
-        };
+        });
         try {
-          setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          if (auth.currentUser) {
+            setDoc(doc(db, 'accounts', accountId), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          }
         } catch {}
         return updated;
       }
@@ -1071,22 +1232,24 @@ class AccountService {
     if (!clean) return undefined;
 
     try {
-      const snap = await getDocs(collection(db, 'accounts'));
-      for (const d of snap.docs) {
-        const decrypted = decryptAccountFromFirestore(d.data()) as UserAccount;
-        if (
-          (decrypted.username && decrypted.username.toLowerCase().trim() === clean) ||
-          (decrypted.email && decrypted.email.toLowerCase().trim() === clean)
-        ) {
-          if (!this.accounts.find((a) => a.id === decrypted.id)) {
-            this.accounts.push(decrypted);
-            this.saveToStorage();
+      if (this.isFirebaseAdminAuthenticated()) {
+        const snap = await getDocs(collection(db, 'accounts'));
+        for (const d of snap.docs) {
+          const decrypted = decryptAccountFromFirestore(d.data()) as UserAccount;
+          if (
+            (decrypted.username && decrypted.username.toLowerCase().trim() === clean) ||
+            (decrypted.email && decrypted.email.toLowerCase().trim() === clean)
+          ) {
+            if (!this.accounts.find((a) => a.id === decrypted.id)) {
+              this.accounts.push(decrypted);
+              this.saveToStorage();
+            }
+            return decrypted;
           }
-          return decrypted;
         }
       }
     } catch (e) {
-      console.warn('Erro ao consultar Firestore diretamente para recuperação:', e);
+      console.warn('Erro ao consultar Firestore para recuperação:', e);
     }
 
     return undefined;
@@ -1094,7 +1257,7 @@ class AccountService {
 
   /**
    * Redefine a senha de acesso diretamente para o usuário ou e-mail identificado,
-   * criptografando a nova credencial no Firebase com SHA-256 e payload criptografado
+   * criptografando a nova credencial com hash SHA-256 e payload criptografado
    */
   public async resetPasswordDirectly(
     identifier: string,
@@ -1119,9 +1282,11 @@ class AccountService {
 
     this.accounts = this.accounts.map((a) => {
       if (a.id === account!.id) {
-        const updated = { ...a, passwordHash: newHashedPassword, plainPassword: newPassword };
+        const updated = sanitizeAccountForStorage({ ...a, passwordHash: newHashedPassword });
         try {
-          setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          if (auth.currentUser) {
+            setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          }
         } catch {}
         return updated;
       }
@@ -1277,9 +1442,11 @@ class AccountService {
     const safeHash = hashPassword(newPassword);
     this.accounts = this.accounts.map((a) => {
       if (a.id === account.id) {
-        const updated = { ...a, passwordHash: safeHash, plainPassword: newPassword };
+        const updated = sanitizeAccountForStorage({ ...a, passwordHash: safeHash });
         try {
-          setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          if (auth.currentUser) {
+            setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          }
         } catch {}
         return updated;
       }

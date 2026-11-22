@@ -1156,15 +1156,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               onClick={() => handleNavigateTab('status')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'status'
-                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-md ring-2 ring-emerald-300'
                   : currentSession?.planStatus === 'bloqueado'
                   ? 'bg-red-100 text-red-950 shadow-sm border border-red-300 animate-pulse'
-                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
+                  : 'bg-emerald-50/90 text-emerald-950 border border-emerald-300 hover:bg-emerald-100'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 stroke-[2.4]" />
-                <span>Status da Conta</span>
+                <QrCode className={`w-4 h-4 stroke-[2.5] ${activeTab === 'status' ? 'text-white' : 'text-emerald-700'}`} />
+                <span>Pagamento Pix • Plano</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -1172,9 +1172,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   Bloqueado
                 </span>
               ) : (
-                <span className="text-[10px] uppercase font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <QrCode className="w-3 h-3" />
-                  R$ 29,99/mês
+                <span
+                  className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                    activeTab === 'status'
+                      ? 'bg-slate-950 text-amber-300'
+                      : 'bg-emerald-600 text-white'
+                  }`}
+                >
+                  PIX R$ 29,99
                 </span>
               )}
             </button>
@@ -1275,25 +1280,52 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* Alerta Automático de Vencimento em 5 Dias */}
-          {currentSession && currentSession.role !== 'super_admin' && daysUntilExpiry <= 5 && daysUntilExpiry >= 0 && (
-            <div className="bg-amber-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-5 h-5 shrink-0" />
-                <span>
-                  <strong>Atenção:</strong> O plano da sua loja expira em <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Renove sua assinatura (R$ 29,99/mês) pelo Gateway Pix.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('status')}
-                className="px-3.5 py-2 bg-slate-950 text-amber-400 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-900 flex items-center gap-1.5"
-              >
-                <QrCode className="w-4 h-4 text-amber-400" />
-                <span>Renovar Agora</span>
-              </button>
-            </div>
-          )}
+          {/* Faixa Superior em Destaque para Pagamento Pix da Assinatura */}
+          {currentSession &&
+            currentSession.role !== 'super_admin' &&
+            currentSession.planTier !== 'vitalicio' && (
+              daysUntilExpiry <= 5 && daysUntilExpiry >= 0 ? (
+                <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-slate-950 text-emerald-400 flex items-center justify-center shrink-0">
+                      <QrCode className="w-4 h-4 stroke-[2.5]" />
+                    </div>
+                    <span>
+                      <strong>{currentSession.planName || 'Teste Grátis'}:</strong> Restam{' '}
+                      <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Pague via{' '}
+                      <strong>Pix (R$ 29,99/mês)</strong> com liberação imediata.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('status')}
+                    className="px-4 py-2 bg-slate-950 text-emerald-300 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-sm hover:bg-slate-900 flex items-center gap-1.5"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Pagar via Pix</span>
+                  </button>
+                </div>
+              ) : activeTab !== 'status' ? (
+                <div className="bg-slate-950 text-white px-4 py-2 border-b border-emerald-500/30 flex items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2 text-xs min-w-0">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-black text-[10px] uppercase shrink-0">
+                      PIX ATIVO
+                    </span>
+                    <span className="text-slate-200 font-semibold truncate">
+                      Renovação rápida via <strong>Gateway Pix (br.gov.bcb.pix)</strong> • R$ 29,99/mês
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('status')}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wide flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>Pagar / Renovar Pix</span>
+                  </button>
+                </div>
+              ) : null
+            )}
           {/* Top Bar of Active Tab */}
           <div className="bg-white border-b border-amber-200 px-4 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -2858,6 +2890,68 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       <span>Dinheiro</span>
                     </label>
                   </div>
+
+                  {localSettings.paymentMethods.allowPix && (
+                    <div className="mt-4 p-4 rounded-2xl bg-emerald-50/90 border-2 border-emerald-300 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <QrCode className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-black text-emerald-950 uppercase tracking-wide block">
+                              Chave Pix da Sua Loja (QR Code nos Pedidos)
+                            </span>
+                            <span className="text-[11px] text-emerald-800 block">
+                              Opcional: se preenchida, seus clientes já veem o QR Code e Copia e Cola direto na finalização do pedido.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-emerald-900 mb-1">
+                            Tipo de Chave
+                          </label>
+                          <select
+                            value={localSettings.pixKeyType || 'aleatoria'}
+                            onChange={(e) =>
+                              setLocalSettings({
+                                ...localSettings,
+                                pixKeyType: e.target.value as StoreSettings['pixKeyType'],
+                              })
+                            }
+                            className="w-full p-2.5 rounded-xl bg-white border border-emerald-300 text-xs font-bold text-slate-900 outline-none focus:border-emerald-600"
+                          >
+                            <option value="aleatoria">Chave Aleatória (EVP)</option>
+                            <option value="telefone">Telefone / Celular</option>
+                            <option value="cpf">CPF</option>
+                            <option value="cnpj">CNPJ</option>
+                            <option value="email">E-mail</option>
+                          </select>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-black uppercase text-emerald-900 mb-1">
+                            Chave Pix do Estabelecimento
+                          </label>
+                          <input
+                            type="text"
+                            value={localSettings.pixKey || ''}
+                            onChange={(e) =>
+                              setLocalSettings({
+                                ...localSettings,
+                                pixKey: e.target.value,
+                              })
+                            }
+                            placeholder="Ex: seuemail@loja.com, CNPJ, telefone ou chave aleatória"
+                            className="w-full p-2.5 rounded-xl bg-white border border-emerald-300 text-xs font-mono font-bold text-slate-900 outline-none focus:border-emerald-600"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* GERENCIAMENTO DE MESAS COM GUIA DIDÁTICO PARA O CEO */}
@@ -3272,27 +3366,37 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </p>
               </div>
 
-              {/* CARD PRINCIPAL: GATEWAY PIX (BCB.PIX) R$ 29,99/MÊS */}
-              <div className="bg-white rounded-3xl border-2 border-slate-900 shadow-xl overflow-hidden">
-                {/* Banner Obsidian & Champagne Gold */}
-                <div className="bg-slate-950 text-white p-4 sm:p-5 flex items-center justify-between gap-3 border-b border-amber-400/30">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-400/15 border border-amber-400/40 flex items-center justify-center shrink-0">
-                      <QrCode className="w-5 h-5 text-amber-300" />
+              {/* CARD PRINCIPAL EM DESTAQUE: GATEWAY PIX (BR.GOV.BCB.PIX) R$ 29,99/MÊS */}
+              <div className="bg-white rounded-3xl border-2 border-emerald-500 shadow-2xl shadow-emerald-900/10 overflow-hidden">
+                {/* Banner Obsidian + Emerald + Champagne Gold */}
+                <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-400/30">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/30">
+                      <QrCode className="w-6 h-6 stroke-[2.5]" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
-                        Gateway Oficial • br.gov.bcb.pix
-                      </span>
-                      <h4 className="text-sm sm:text-base font-black">
-                        Pagamento Pix Instantâneo
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                          Gateway Oficial • br.gov.bcb.pix
+                        </span>
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950">
+                          Liberação Instantânea
+                        </span>
+                      </div>
+                      <h4 className="text-base sm:text-lg font-black mt-1">
+                        Pagamento Pix em Destaque • R$ 29,99/mês
                       </h4>
                     </div>
                   </div>
 
-                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-amber-400/20 text-amber-300 border border-amber-400/40 shrink-0">
-                    Prazo: 5 min
-                  </span>
+                  <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-emerald-400/40 text-left sm:text-right shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 block">
+                      Prazo por Código
+                    </span>
+                    <span className="text-sm font-black font-mono text-white">
+                      Até 5 minutos
+                    </span>
+                  </div>
                 </div>
 
                 <div className="p-5 sm:p-6 space-y-5">
@@ -3301,7 +3405,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
                       <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                       <span>
-                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Realize o pagamento de R$ 29,99 abaixo para reativar seu painel.
+                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Realize o pagamento Pix de R$ 29,99 abaixo para reativar seu painel.
                       </span>
                     </div>
                   ) : currentSession?.planTier === 'vitalicio' ? (
@@ -3312,17 +3416,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </span>
                     </div>
                   ) : (
-                    <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
+                    <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold text-xs flex items-center gap-2 text-left">
                       <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
                       <span>
-                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Você pode renovar a qualquer momento pelo Gateway Pix.
+                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Gere seu código Pix abaixo para renovar por 30 dias.
                       </span>
                     </div>
                   )}
 
                   {/* Feedback de Sucesso */}
                   {paymentSuccessFeedback && (
-                    <div className="w-full p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
+                    <div className="w-full p-4 rounded-2xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
                       <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
                       <span>{paymentSuccessFeedback}</span>
                     </div>
@@ -3336,11 +3440,30 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
                   )}
 
+                  {/* Fluxo Visual em 3 Etapas + Valor Fixo */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-left">
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 1</span>
+                      <span className="text-xs font-black text-slate-900">Gere o Gateway Pix</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">QR Code e código Copia e Cola br.gov.bcb.pix</p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 2</span>
+                      <span className="text-xs font-black text-slate-900">Pague em até 5 min</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Direto no aplicativo do seu banco via Pix</p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 3</span>
+                      <span className="text-xs font-black text-slate-900">Acesso Liberado</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Confirmação rápida + 30 dias ativos</p>
+                    </div>
+                  </div>
+
                   {/* RESUMO DO PLANO ÚNICO (SOMENTE R$ 29,99/MÊS) */}
-                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 text-white border border-amber-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left shadow-sm">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 text-white border-2 border-emerald-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left shadow-md">
                     <div className="space-y-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
-                        Assinatura Mensal CARDAPP
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
+                        Assinatura Mensal CARDAPP • Pagamento Pix
                       </span>
                       <h5 className="text-sm sm:text-base font-black text-white">
                         Renovação de 30 Dias • Acesso Completo
@@ -3350,62 +3473,62 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </p>
                     </div>
                     <div className="sm:text-right shrink-0">
-                      <span className="text-2xl sm:text-3xl font-black text-amber-400 font-display block leading-none">
+                      <span className="text-3xl font-black text-emerald-400 font-display block leading-none">
                         R$ 29,99
                       </span>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        por mês
+                      <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                        valor único mensal
                       </span>
                     </div>
                   </div>
 
-                  {/* BOTÃO PARA GERAR GATEWAY PIX (BCB.PIX) COM PRAZO DE 5 MINUTOS */}
+                  {/* BOTÃO PRINCIPAL EM DESTAQUE PARA GERAR GATEWAY PIX */}
                   {!gatewayPixPayment && (
                     <div className="space-y-2.5">
                       <button
                         type="button"
                         onClick={handleGenerateGatewayPix}
                         disabled={isGeneratingPix}
-                        className="w-full py-4 px-5 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-60 transition-all active:scale-98"
+                        className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-3 cursor-pointer shadow-xl shadow-emerald-600/30 disabled:opacity-60 transition-all active:scale-98 ring-2 ring-emerald-300"
                       >
                         {isGeneratingPix ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
                         ) : (
-                          <QrCode className="w-5 h-5 stroke-[2.5]" />
+                          <QrCode className="w-6 h-6 stroke-[2.5]" />
                         )}
                         <span>
                           {isGeneratingPix
                             ? 'Gerando Gateway Pix (bcb.pix)...'
-                            : 'Gerar Gateway Pix (R$ 29,99 • 5 min)'}
+                            : 'Gerar Pagamento Pix Agora • R$ 29,99'}
                         </span>
                       </button>
-                      <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
-                        <Timer className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Após gerar o código Gateway, você terá até <strong>5 minutos</strong> para concluir o pagamento.</span>
+                      <p className="text-[11px] text-slate-600 text-center flex items-center justify-center gap-1.5 font-semibold">
+                        <Timer className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Prazo de validade de <strong>5 minutos</strong> por código gerado (br.gov.bcb.pix).</span>
                       </p>
                     </div>
                   )}
 
-                  {/* EXIBIÇÃO DA GATEWAY PIX GERADA (BCB.PIX) COM CONTAGEM REGRESSIVA DE 5 MINUTOS */}
+                  {/* EXIBIÇÃO DA GATEWAY PIX GERADA (BR.GOV.BCB.PIX) COM DESTAQUE MÁXIMO */}
                   {gatewayPixPayment && (
-                    <div className={`p-5 rounded-3xl border-2 space-y-4 text-center animate-in fade-in ${
+                    <div className={`p-5 sm:p-6 rounded-3xl border-2 space-y-5 text-center animate-in fade-in shadow-inner ${
                       remainingSeconds <= 0 || gatewayPixPayment.status === 'expired'
-                        ? 'bg-red-50/70 border-red-300'
-                        : 'bg-slate-50 border-slate-900'
+                        ? 'bg-red-50/80 border-red-400'
+                        : 'bg-gradient-to-b from-emerald-50/90 to-white border-emerald-500'
                     }`}>
                       {/* Barra de Status e Cronômetro de 5 Minutos */}
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-black text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-                            <QrCode className="w-4 h-4 text-amber-600" />
+                          <span className="font-black text-emerald-950 uppercase tracking-wide flex items-center gap-1.5">
+                            <QrCode className="w-4 h-4 text-emerald-600" />
                             <span>Gateway br.gov.bcb.pix</span>
                           </span>
-                          <span className={`px-3 py-1 rounded-full font-mono font-black text-xs flex items-center gap-1.5 ${
+                          <span className={`px-3.5 py-1.5 rounded-full font-mono font-black text-xs flex items-center gap-1.5 shadow-xs ${
                             remainingSeconds <= 0 || gatewayPixPayment.status === 'expired'
                               ? 'bg-red-600 text-white'
                               : remainingSeconds <= 60
-                              ? 'bg-red-100 text-red-800 border border-red-300 animate-pulse'
-                              : 'bg-slate-950 text-amber-400'
+                              ? 'bg-red-600 text-white animate-pulse'
+                              : 'bg-slate-950 text-emerald-300'
                           }`}>
                             <Timer className="w-3.5 h-3.5" />
                             <span>
@@ -3417,10 +3540,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </div>
 
                         {/* Barra de Progresso do Prazo de 5 Minutos */}
-                        <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                        <div className="w-full h-2.5 rounded-full bg-slate-200 overflow-hidden">
                           <div
                             className={`h-full transition-all duration-1000 ${
-                              remainingSeconds <= 60 ? 'bg-red-500' : 'bg-amber-500'
+                              remainingSeconds <= 60 ? 'bg-red-500' : 'bg-emerald-500'
                             }`}
                             style={{
                               width: `${Math.max(0, Math.min(100, (remainingSeconds / GATEWAY_PIX_TIMEOUT_SECONDS) * 100))}%`,
@@ -3442,7 +3565,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             type="button"
                             onClick={handleGenerateGatewayPix}
                             disabled={isGeneratingPix}
-                            className="w-full py-3.5 px-5 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                            className="w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md"
                           >
                             {isGeneratingPix ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -3454,39 +3577,41 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </div>
                       ) : (
                         <>
-                          {/* QR Code Oficial da Gateway */}
-                          <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 inline-flex flex-col items-center shadow-sm">
+                          {/* QR Code Spotlight */}
+                          <div className="bg-white p-5 rounded-3xl border-2 border-emerald-500 inline-flex flex-col items-center shadow-lg">
                             {gatewayPixPayment.qrCodeBase64 ? (
                               <img
                                 src={`data:image/png;base64,${gatewayPixPayment.qrCodeBase64}`}
                                 alt="QR Code Gateway Pix R$ 29,99"
-                                className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+                                className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
                               />
                             ) : gatewayPixPayment.qrDataUrl ? (
                               <img
                                 src={gatewayPixPayment.qrDataUrl}
                                 alt="QR Code Gateway Pix R$ 29,99"
-                                className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+                                className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
                               />
                             ) : (
-                              <div className="w-48 h-48 flex items-center justify-center text-slate-400">
+                              <div className="w-52 h-52 flex items-center justify-center text-slate-400">
                                 <QrCode className="w-16 h-16" />
                               </div>
                             )}
-                            <span className="mt-2 text-lg font-black text-slate-950">
-                              R$ 29,99
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-semibold">
-                              Escaneie o QR Code no app do seu banco
+                            <div className="mt-3 px-4 py-1.5 rounded-full bg-emerald-50 border border-emerald-200">
+                              <span className="text-xl font-black text-emerald-800 font-mono">
+                                R$ 29,99
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-600 font-bold mt-1.5">
+                              Aponte a câmera do app do seu banco para pagar via Pix
                             </span>
                           </div>
 
                           {/* Código Gateway (bcb.pix Copia e Cola) sem expor chave Pix avulsa */}
                           <div className="space-y-1.5 text-left">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
-                              Código Gateway Pix (Copia e Cola • br.gov.bcb.pix):
+                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 block">
+                              Código Pix Copia e Cola (Gateway br.gov.bcb.pix):
                             </span>
-                            <div className="p-3 rounded-xl bg-white border border-slate-300 flex items-center justify-between gap-2">
+                            <div className="p-3.5 rounded-2xl bg-white border-2 border-emerald-200 flex items-center justify-between gap-2">
                               <code className="text-[11px] font-mono font-bold text-slate-800 truncate select-all">
                                 {gatewayPixPayment.gatewayCode}
                               </code>
@@ -3496,21 +3621,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           <button
                             type="button"
                             onClick={handleCopyGatewayCode}
-                            className={`w-full py-3.5 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all border ${
+                            className={`w-full py-4 px-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg ${
                               copiedPixPayload
-                                ? 'bg-emerald-600 text-white border-emerald-600'
-                                : 'bg-white hover:bg-amber-50 text-slate-950 border-slate-900 shadow-xs'
+                                ? 'bg-slate-950 text-emerald-300 border-2 border-emerald-400'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25'
                             }`}
                           >
                             {copiedPixPayload ? (
                               <>
-                                <Check className="w-4 h-4 stroke-[3]" />
-                                <span>Código Gateway Copiado!</span>
+                                <Check className="w-5 h-5 stroke-[3]" />
+                                <span>Código Pix Copiado! Abra o app do banco</span>
                               </>
                             ) : (
                               <>
-                                <Copy className="w-4 h-4" />
-                                <span>Copiar Código Gateway (Copia e Cola)</span>
+                                <Copy className="w-5 h-5" />
+                                <span>Copiar Código Pix (Copia e Cola)</span>
                               </>
                             )}
                           </button>
@@ -3535,7 +3660,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             <button
                               type="button"
                               onClick={handleOpenManualRenewalWhatsApp}
-                              className={`w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md ${
+                              className={`w-full py-3.5 px-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md ${
                                 gatewayPixPayment.mode !== 'api' ? 'sm:col-span-2' : ''
                               }`}
                             >
@@ -3544,7 +3669,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                             </button>
                           </div>
 
-                          <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500">
+                          <div className="flex items-center justify-between pt-1 text-[11px] text-slate-600 font-semibold">
                             <span>
                               {gatewayPixPayment.mode === 'api'
                                 ? 'Verificação automática ativa a cada 5 segundos.'
@@ -3554,7 +3679,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                               type="button"
                               onClick={handleGenerateGatewayPix}
                               disabled={isGeneratingPix}
-                              className="font-bold text-slate-700 hover:text-slate-950 underline cursor-pointer shrink-0 ml-2"
+                              className="font-black text-emerald-800 hover:text-emerald-950 underline cursor-pointer shrink-0 ml-2"
                             >
                               Gerar novo código
                             </button>

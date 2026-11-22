@@ -311,6 +311,10 @@ export default function App() {
   useEffect(() => {
     testFirestoreConnection();
     const initialSession = accountService.getCurrentSession();
+    storageService.setAuthContext(
+      accountService.isImpersonating() ? 'super_admin' : (initialSession?.role || null),
+      initialSession?.storeId || null
+    );
     if (initialSession && initialSession.storeId) {
       storageService.setStoreId(initialSession.storeId, initialSession.storeName, initialSession.phoneWhatsapp);
     }
@@ -335,6 +339,10 @@ export default function App() {
     const unsubscribeAuth = accountService.subscribe(() => {
       const sess = accountService.getCurrentSession();
       setCurrentUser(sess);
+      storageService.setAuthContext(
+        accountService.isImpersonating() ? 'super_admin' : (sess?.role || null),
+        sess?.storeId || null
+      );
       if (sess && sess.storeId) {
         storageService.setStoreId(sess.storeId, sess.storeName, sess.phoneWhatsapp);
       }
@@ -645,6 +653,7 @@ export default function App() {
 
   // Navigation handlers
   const handleOpenDemoMenu = () => {
+    storageService.setAuthContext(null, 'default_store');
     storageService.setStoreId('default_store');
     const demoSettings: StoreSettings = {
       ...INITIAL_SETTINGS,
@@ -669,6 +678,7 @@ export default function App() {
 
   const handleLoginSuccess = (user: UserAccount) => {
     accountService.switchSession(user);
+    storageService.setAuthContext(user.role, user.storeId);
     storageService.setStoreId(user.storeId, user.storeName, user.phoneWhatsapp);
     localStorage.setItem('cardapp_last_store_id', user.storeId);
     setCurrentUser(user);
@@ -702,6 +712,7 @@ export default function App() {
     const res = accountService.impersonateAccount(targetAcc.id);
     if (!res.success || !res.user) return;
     const targetUser = res.user;
+    storageService.setAuthContext('super_admin', targetUser.storeId);
     storageService.setStoreId(targetUser.storeId, targetUser.storeName, targetUser.phoneWhatsapp);
     localStorage.setItem('cardapp_last_store_id', targetUser.storeId);
     setCurrentUser(targetUser);
@@ -721,6 +732,7 @@ export default function App() {
     const res = accountService.returnToSuperAdmin();
     if (!res.success || !res.user) return;
     const adminUser = res.user;
+    storageService.setAuthContext('super_admin', adminUser.storeId);
     setCurrentUser(adminUser);
     setCartItems([]);
     setActiveOrderId(null);
@@ -732,6 +744,7 @@ export default function App() {
 
   const handleLogout = () => {
     accountService.logout();
+    storageService.setAuthContext(null, 'default_store');
     setCurrentUser(null);
     localStorage.removeItem('cardapp_last_view');
     localStorage.removeItem('cardapp_last_store_id');
