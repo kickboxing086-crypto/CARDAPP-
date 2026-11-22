@@ -119,6 +119,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   if (!isOpen) return null;
 
   const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
+    const sess = accountService.getCurrentSession();
+    if (sess?.planStatus === 'bloqueado' && sess?.role !== 'super_admin') {
+      return 'status';
+    }
     try {
       const saved = sessionStorage.getItem('cardapp_ceo_active_tab') || localStorage.getItem('cardapp_ceo_active_tab');
       if (saved && ['orders', 'finance', 'products', 'delivery', 'settings', 'share', 'status'].includes(saved)) {
@@ -157,12 +161,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
       setOfficialPixKey(accountService.getCleanPixKey());
-      if (updated?.planStatus === 'bloqueado') {
+      if (updated?.planStatus === 'bloqueado' && updated?.role !== 'super_admin') {
         setActiveTab('status');
       }
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (currentSession?.planStatus === 'bloqueado' && currentSession?.role !== 'super_admin') {
+      setActiveTab('status');
+    }
+  }, [currentSession?.planStatus, currentSession?.role]);
 
   // Cálculo dos dias restantes para o vencimento do plano
   const daysUntilExpiry = useMemo(() => {
@@ -488,7 +498,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   };
 
   // Interceptar troca de aba caso o acesso esteja bloqueado
-  const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'settings' | 'status') => {
+  const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
     if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin') {
       setBlockedAlertNotice('Acesso bloqueado. Conclua a renovação (R$ 29,99/mês) pela Gateway Pix para reativar seu painel.');
@@ -3223,7 +3233,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     ? 'Gere o Gateway Pix (bcb.pix) abaixo e realize o pagamento em até 5 minutos para reativar seu acesso.'
                     : currentSession?.planTier === 'vitalicio'
                     ? 'Sua loja possui licença Vitalícia ativa.'
-                    : `Plano atual: ${currentSession?.planName || 'Teste Grátis 7 Dias'} • Restam ${Math.max(0, daysUntilExpiry)} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}.`}
+                    : `Plano atual: ${currentSession?.planName || 'Teste Grátis 5 Dias'} • Restam ${Math.max(0, daysUntilExpiry)} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}.`}
                 </p>
               </div>
 
@@ -3270,7 +3280,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-2 text-left">
                       <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
                       <span>
-                        <strong>{currentSession?.planName || 'Período de Teste Grátis (7 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Você pode renovar a qualquer momento pelo Gateway Pix.
+                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Você pode renovar a qualquer momento pelo Gateway Pix.
                       </span>
                     </div>
                   )}

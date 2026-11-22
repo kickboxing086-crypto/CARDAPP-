@@ -107,7 +107,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-[#0A0D14] text-slate-300 py-2.5 px-4 text-xs font-medium text-center flex items-center justify-center gap-2 border-b border-white/5">
         <Sparkles className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
         <span className="tracking-wide text-slate-300">
-          🚀 <strong>7 Dias Grátis</strong> para testar sem compromisso • Plano Único <strong>R$ 29,99/mês</strong> • <strong>0% de Comissão</strong> • Renovação manual após o período
+          🚀 <strong>5 Dias Grátis</strong> para testar na hora • Plano Único <strong>R$ 29,99/mês</strong> • <strong>0% de Comissão</strong> • Liberação imediata sem aprovação
         </span>
       </div>
 
@@ -154,7 +154,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 transition-all shadow-md shadow-amber-500/15 cursor-pointer active:scale-95"
               >
                 <Store className="w-4 h-4" />
-                <span>Solicitar Acesso</span>
+                <span>Testar 5 Dias Grátis</span>
               </button>
             )}
 
@@ -919,7 +919,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-amber-500/25 active:scale-98 flex items-center justify-center gap-2.5 cursor-pointer"
               >
-                <span>Solicitar Acesso à Minha Loja</span>
+                <span>Criar Minha Loja (5 Dias Grátis)</span>
                 <ArrowRight className="w-4 h-4 stroke-[3]" />
               </button>
             ) : (
@@ -928,7 +928,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={() => handleOpenWhatsapp()}
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-amber-500/25 active:scale-98 flex items-center justify-center gap-2.5 cursor-pointer"
               >
-                <span>Solicitar Acesso pelo WhatsApp</span>
+                <span>Começar 5 Dias Grátis pelo WhatsApp</span>
                 <ArrowRight className="w-4 h-4 stroke-[3]" />
               </button>
             )}

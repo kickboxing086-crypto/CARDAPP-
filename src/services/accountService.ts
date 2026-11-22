@@ -42,7 +42,7 @@ export const PLAN_PERIOD_DAYS: Record<PlanPeriod, number> = {
 };
 
 export const PLAN_PERIOD_LABELS: Record<PlanTier, string> = {
-  teste_gratis: 'Teste Grátis (7 dias)',
+  teste_gratis: 'Teste Grátis (5 dias)',
   mensal: 'Mensal',
   trimestral: 'Trimestral',
   semestral: 'Semestral',
@@ -268,7 +268,23 @@ class AccountService {
           snapshot.forEach((d) => list.push(decryptAccountFromFirestore(d.data()) as UserAccount));
           if (list.length > 0) {
             if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
-            this.accounts = list;
+            const now = new Date();
+            this.accounts = list.map((acc) => {
+              if (
+                acc.role !== 'super_admin' &&
+                acc.planTier !== 'vitalicio' &&
+                acc.planStatus === 'ativo' &&
+                acc.expiresAt &&
+                new Date(acc.expiresAt) < now
+              ) {
+                return {
+                  ...acc,
+                  planStatus: 'bloqueado',
+                  blockedReason: acc.blockedReason || 'Período de teste ou assinatura expirada',
+                };
+              }
+              return acc;
+            });
             this.saveToStorage();
           }
         },
@@ -398,19 +414,39 @@ class AccountService {
             phoneWhatsapp: request.phoneWhatsapp,
             email: request.email,
             planStatus: 'ativo',
-            daysValid: 7
+            daysValid: 5
         });
     }
   }
 
   public login(identifier: string, password: string): { success: boolean; message: string; user?: UserAccount } {
     const identifierLower = identifier.trim().toLowerCase();
-    const user = this.accounts.find(
+    const userIndex = this.accounts.findIndex(
       (a) => a.username.toLowerCase() === identifierLower || (a.email && a.email.toLowerCase() === identifierLower)
     );
-    if (!user) return { success: false, message: 'Usuário ou e-mail não encontrado.' };
+    if (userIndex === -1) return { success: false, message: 'Usuário ou e-mail não encontrado.' };
+    let user = this.accounts[userIndex];
     if (!verifyPassword(password, user.passwordHash)) return { success: false, message: 'Senha incorreta.' };
-    if (user.planStatus === 'bloqueado') return { success: false, message: 'Conta bloqueada.' };
+
+    if (
+      user.role !== 'super_admin' &&
+      user.planTier !== 'vitalicio' &&
+      user.planStatus === 'ativo' &&
+      user.expiresAt &&
+      new Date(user.expiresAt) < new Date()
+    ) {
+      user = {
+        ...user,
+        planStatus: 'bloqueado',
+        blockedReason: 'Seu período de 5 dias grátis ou assinatura expirou. Realize o pagamento de renovação para liberar o acesso.',
+      };
+      this.accounts[userIndex] = user;
+      this.saveToStorage();
+      try {
+        setDoc(doc(db, 'accounts', user.id), encryptAccountForFirestore(user), { merge: true }).catch(() => {});
+      } catch {}
+    }
+
     this.currentSession = user;
     try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
     this.notify();
@@ -477,9 +513,10 @@ class AccountService {
     }
 
     const now = new Date();
-    const resolvedTier: PlanTier = data.planTier || (data.daysValid === 7 ? 'teste_gratis' : 'mensal');
+    const resolvedTier: PlanTier =
+      data.planTier || (data.daysValid === 5 || data.daysValid === 7 ? 'teste_gratis' : 'mensal');
     const isVitalicio = resolvedTier === 'vitalicio';
-    const days = data.daysValid || (resolvedTier === 'teste_gratis' ? 7 : PLAN_PERIOD_DAYS[resolvedTier as PlanPeriod] || 30);
+    const days = data.daysValid || (resolvedTier === 'teste_gratis' ? 5 : PLAN_PERIOD_DAYS[resolvedTier as PlanPeriod] || 30);
     const expiry = isVitalicio
       ? new Date('2099-12-31T23:59:59.000Z')
       : new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
@@ -515,16 +552,6 @@ class AccountService {
         globalList.push(newAccount);
         localStorage.setItem(globalKey, JSON.stringify(globalList));
       }
-    } catch {}
-
-    // Criar solicitação de acesso correspondente visível no Admin Geral
-    try {
-      this.addAccessRequest({
-        name: newAccount.name,
-        email: newAccount.email || 'cliente@cardapp.com',
-        phoneWhatsapp: newAccount.phoneWhatsapp || '',
-        storeName: newAccount.storeName,
-      });
     } catch {}
 
     storageService.initializeNewStore(newAccount.storeId, newAccount.storeName, newAccount.phoneWhatsapp, {
@@ -565,7 +592,8 @@ class AccountService {
       tagline: data.tagline,
       instagramHandle: data.instagramHandle,
       planStatus: 'ativo',
-      daysValid: 7, // 7 dias grátis de teste
+      planTier: 'teste_gratis',
+      daysValid: 5, // 5 dias grátis de teste com liberação imediata sem aprovação
     });
   }
 

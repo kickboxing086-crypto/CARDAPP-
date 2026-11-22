@@ -269,7 +269,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     if (acc.role === 'super_admin') return 'Admin Mestre';
     if (acc.planName) return acc.planName;
     if (acc.planTier && PLAN_PERIOD_LABELS[acc.planTier]) return PLAN_PERIOD_LABELS[acc.planTier];
-    return '7 Dias Grátis';
+    return '5 Dias Grátis';
   };
 
   const handleOpenWhatsAppRenewal = (acc: UserAccount) => {
@@ -343,7 +343,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
     const daysValid =
       newAccountPlanTier === 'teste_gratis'
-        ? 7
+        ? 5
         : chosenPlan?.durationDays || PLAN_PERIOD_DAYS[newAccountPlanTier as PlanPeriod] || 30;
 
     const result = accountService.createAccount({
@@ -2010,7 +2010,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       <div className="flex flex-wrap gap-1.5">
                         {(
                           [
-                            { id: 'teste_gratis', label: '7 Dias Grátis' },
+                            { id: 'teste_gratis', label: '5 Dias Grátis' },
                             { id: 'mensal', label: 'Mensal' },
                             { id: 'trimestral', label: 'Trimestral' },
                             { id: 'semestral', label: 'Semestral' },
@@ -2101,7 +2101,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     Solicitações de Acesso de Novos Clientes
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Ao aprovar, o sistema gera automaticamente a conta segura (até 8 caracteres) e libera o acesso de 7 dias.
+                    Os logins dos clientes já são liberados automaticamente com 5 dias grátis, sem necessidade de aprovação manual. Caso exista alguma solicitação antiga pendente, ela aparece abaixo.
                   </p>
                 </div>
 
@@ -2191,7 +2191,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {(
                     [
-                      { tier: 'teste_gratis', label: '7 Dias Grátis' },
+                      { tier: 'teste_gratis', label: '5 Dias Grátis' },
                       { tier: 'mensal', label: 'Mensal' },
                       { tier: 'trimestral', label: 'Trimestral' },
                       { tier: 'semestral', label: 'Semestral' },

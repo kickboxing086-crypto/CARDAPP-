@@ -68,7 +68,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   // Etapa 5: E-mail Obrigatório (Chave oficial de recuperação)
   // Etapa 6: Nome de Usuário de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
   // Etapa 7: Senha de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
-  // Etapa 8: Revisão Final & Ativação (7 Dias Grátis)
+  // Etapa 8: Revisão Final & Ativação (5 Dias Grátis)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const [regName, setRegName] = useState('');
   const [regStoreName, setRegStoreName] = useState('');
@@ -348,7 +348,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Finalizar Cadastro e Entrar Imediatamente com 7 Dias Grátis
+  // Finalizar Cadastro e Entrar Imediatamente com 5 Dias Grátis
   const handleFinishRegistration = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setRegError('');
@@ -377,7 +377,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    // Registra a conta com 7 dias grátis de período de teste e obrigações da loja salvas
+    // Registra a conta com 5 dias grátis de período de teste (sem necessidade de aprovação) e obrigações da loja salvas
     const res = accountService.registerClientAccount({
       name: regName.trim(),
       storeName: regStoreName.trim(),
@@ -1634,10 +1634,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     Etapa 8 Final
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
-                    Tudo pronto! 7 Dias Grátis Liberados
+                    Tudo pronto! 5 Dias Grátis Liberados
                   </h3>
                   <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                    Sua loja já possui foto de perfil, dados configurados e <strong>7 dias grátis</strong> para você testar todo o sistema sem compromisso.
+                    Sua loja já possui foto de perfil, dados configurados e <strong>5 dias grátis</strong> de liberação imediata para você testar e realizar o pagamento de renovação.
                   </p>
                 </div>
 
@@ -1678,7 +1678,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     className="w-full py-4 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2.5 transition-all shadow-lg hover:shadow-emerald-200 cursor-pointer"
                   >
                     <CheckCircle2 className="w-5 h-5 text-white" />
-                    <span>Criar Acesso e Entrar (7 Dias Grátis)</span>
+                    <span>Criar Acesso e Entrar (5 Dias Grátis)</span>
                   </button>
 
                   <button
