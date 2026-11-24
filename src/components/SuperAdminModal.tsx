@@ -207,6 +207,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   } | null>(null);
   const [copiedRevealedPassword, setCopiedRevealedPassword] = useState(false);
   const [copiedWhatsAppAccess, setCopiedWhatsAppAccess] = useState(false);
+  const [showAllPasswords, setShowAllPasswords] = useState(true);
+  const [copiedPasswordId, setCopiedPasswordId] = useState<string | null>(null);
 
   // Auto-hide countdown timer for sensitive revealed password (60 seconds)
   useEffect(() => {
@@ -321,13 +323,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     setDrawerTab(initialTab);
     setDrawerBlockReason(acc.blockedReason || 'Falta de pagamento / Renovação pendente');
     setEditUsername(acc.username);
-    setEditPassword('');
+    setEditPassword(accountService.getAccountPassword(acc) || '');
     setEditEmail(acc.email || '');
     setEditPhone(acc.phoneWhatsapp || '');
     setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
     setEditFeedback(null);
     setConfirmDeleteId(null);
-    setShowEditPassword(false);
+    setShowEditPassword(true);
   };
 
   const getStoreSlug = (acc: UserAccount) =>
@@ -482,6 +484,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
     const res = accountService.updateAccountDetails(drawerAccount.id, {
       username: editUsername,
+      password: editPassword,
+      plainPassword: editPassword,
       passwordHash: editPassword,
       email: editEmail,
       phoneWhatsapp: editPhone,
@@ -493,6 +497,38 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       showToast('success', `Credenciais de ${drawerAccount.storeName} atualizadas.`);
     } else {
       setEditFeedback({ type: 'error', message: res.message });
+    }
+  };
+
+  const handleCopySinglePassword = async (acc: UserAccount) => {
+    const pass = accountService.getAccountPassword(acc);
+    if (!pass) {
+      showToast('error', 'Nenhuma senha registrada para este usuário.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(pass);
+      setCopiedPasswordId(acc.id);
+      showToast('success', `Senha de ${acc.username} copiada: ${pass}`);
+      setTimeout(() => setCopiedPasswordId(null), 2500);
+    } catch {
+      showToast('error', 'Falha ao copiar senha para a área de transferência.');
+    }
+  };
+
+  const handleCopyWhatsAppCredentials = async (acc: UserAccount) => {
+    const pass = accountService.getAccountPassword(acc) || '(Não informada)';
+    const text = `🔐 *DADOS DE ACESSO AO CARDAPP*\n\n` +
+      `🏪 *Estabelecimento:* ${acc.storeName}\n` +
+      `👤 *Usuário:* ${acc.username}\n` +
+      `🔑 *Senha:* ${pass}\n\n` +
+      `🌐 *Acesse pelo link de login:* https://cardapp.us/?view=login\n\n` +
+      `_Guarde estas credenciais com segurança._`;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('success', `Dados de acesso de ${acc.storeName} copiados para WhatsApp!`);
+    } catch {
+      showToast('error', 'Falha ao copiar dados de acesso.');
     }
   };
 
@@ -551,19 +587,19 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }
   };
 
-  // Inicia o fluxo de visualização de senha sensível em 2 etapas
+  // Exibe a senha em texto claro no modal de credenciais
   const handleOpenViewPasswordModal = (acc: UserAccount) => {
     if (!isSuperAdmin) {
       showToast('error', 'Apenas o Administrador Geral tem autorização para visualizar credenciais de acesso.');
       return;
     }
-    const plainPass = accountService.getDecryptedPassword(acc) || '';
+    const plainPass = accountService.getAccountPassword(acc) || '';
     setViewPasswordModal({
       account: acc,
-      step: 1,
+      step: 2,
       revealedPassword: plainPass,
       remainingSeconds: 60,
-      confirmedConsent: false,
+      confirmedConsent: true,
     });
     setCopiedRevealedPassword(false);
     setCopiedWhatsAppAccess(false);
@@ -1357,7 +1393,20 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                         <tr className="bg-slate-950 text-amber-300 text-[11px] font-black uppercase tracking-wider">
                           <th className="py-3.5 px-4">Lojista & Contato</th>
                           <th className="py-3.5 px-4">Restaurante (Loja)</th>
-                          <th className="py-3.5 px-4">Credenciais</th>
+                          <th className="py-3.5 px-4 min-w-[220px]">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>Credenciais (Login & Senha)</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowAllPasswords(!showAllPasswords)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black tracking-normal transition-colors cursor-pointer"
+                                title={showAllPasswords ? 'Ocultar senhas na tabela' : 'Exibir senhas abertas'}
+                              >
+                                {showAllPasswords ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                <span>{showAllPasswords ? 'Ocultar' : 'Exibir'}</span>
+                              </button>
+                            </div>
+                          </th>
                           <th className="py-3.5 px-4">Plano & Validade</th>
                           <th className="py-3.5 px-4">Status</th>
                           <th className="py-3.5 px-4 text-right">Painel Lateral</th>
@@ -1398,29 +1447,50 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                 </td>
                                 <td className="py-3.5 px-4 font-mono text-[11px]">
                                   {isMaster ? (
-                                    <span className="inline-flex items-center gap-1 text-amber-700 font-black">
-                                      <Crown className="w-3.5 h-3.5" />
-                                      <span>Admin Mestre</span>
-                                    </span>
-                                  ) : (
                                     <div className="space-y-0.5">
-                                      <div>
-                                        <span className="text-slate-400">User: </span>
-                                        <span className="text-slate-950 font-bold">{acc.username}</span>
+                                      <div className="inline-flex items-center gap-1 text-amber-700 font-black">
+                                        <Crown className="w-3.5 h-3.5" />
+                                        <span>Samuel_adm1</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-600 font-bold flex items-center gap-1">
+                                        <span>Senha:</span>
+                                        <span className="bg-amber-50 px-1.5 py-0.5 rounded border border-amber-300 text-slate-950 font-black select-all">
+                                          072131Sa@
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-slate-400 font-bold">User:</span>
+                                        <span className="text-slate-950 font-black">{acc.username}</span>
                                       </div>
                                       <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-slate-400">Pass: </span>
-                                        <span className="text-emerald-900 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-bold">
-                                          ••••••••
+                                        <span className="text-slate-400 font-bold">Senha:</span>
+                                        <span className="text-slate-950 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300 font-black font-mono select-all text-xs">
+                                          {showAllPasswords
+                                            ? (accountService.getAccountPassword(acc) || '(Sem senha)')
+                                            : '••••••••'}
                                         </span>
                                         <button
                                           type="button"
-                                          onClick={() => handleOpenViewPasswordModal(acc)}
-                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] transition-colors cursor-pointer border border-amber-300"
-                                          title="Visualizar senha em 2 etapas de segurança"
+                                          onClick={() => handleCopySinglePassword(acc)}
+                                          className="p-1 rounded-md bg-slate-100 hover:bg-amber-200 text-slate-700 hover:text-slate-950 cursor-pointer border border-slate-200 transition-colors"
+                                          title="Copiar senha deste cliente"
                                         >
-                                          <Eye className="w-3 h-3 text-amber-800" />
-                                          <span>Ver (2 Etapas)</span>
+                                          {copiedPasswordId === acc.id ? (
+                                            <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                          ) : (
+                                            <Copy className="w-3 h-3" />
+                                          )}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyWhatsAppCredentials(acc)}
+                                          className="p-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 cursor-pointer border border-emerald-200 transition-colors"
+                                          title="Copiar dados formatados para enviar ao WhatsApp do cliente"
+                                        >
+                                          <MessageCircle className="w-3 h-3" />
                                         </button>
                                       </div>
                                     </div>
@@ -1528,34 +1598,52 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           </div>
 
                           {!isMaster && (
-                            <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                              <div>
-                                <span className="text-slate-400 block">Login:</span>
-                                <strong className="font-mono text-slate-900">{acc.username}</strong>
+                            <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px]">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <span className="text-slate-400 block font-bold">Login / Usuário:</span>
+                                  <strong className="font-mono text-slate-900 text-xs">@{acc.username}</strong>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block font-bold">Plano:</span>
+                                  <strong className="text-amber-800">{getPlanBadgeLabel(acc)}</strong>
+                                </div>
                               </div>
-                              <div>
-                                <span className="text-slate-400 block">Senha:</span>
+                              <div className="pt-2 border-t border-slate-200">
+                                <span className="text-slate-500 block font-bold text-[10px] uppercase mb-1">
+                                  Senha do Cliente:
+                                </span>
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <strong className="font-mono text-emerald-800">
-                                    ••••••••
-                                  </strong>
+                                  <span className="text-slate-950 bg-amber-100 px-2.5 py-1 rounded-md border border-amber-300 font-black font-mono select-all text-xs">
+                                    {accountService.getAccountPassword(acc) || '(Sem senha)'}
+                                  </span>
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenViewPasswordModal(acc)}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] border border-amber-300"
+                                    onClick={() => handleCopySinglePassword(acc)}
+                                    className="px-2 py-1 rounded-md bg-white hover:bg-amber-200 text-slate-800 text-[10px] font-bold border border-slate-200 flex items-center gap-1 cursor-pointer"
+                                    title="Copiar senha"
                                   >
-                                    <Eye className="w-3 h-3 text-amber-800" />
-                                    <span>Ver (2 Etapas)</span>
+                                    {copiedPasswordId === acc.id ? (
+                                      <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                    <span>{copiedPasswordId === acc.id ? 'Copiada!' : 'Copiar'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyWhatsAppCredentials(acc)}
+                                    className="px-2 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200 flex items-center gap-1 cursor-pointer"
+                                    title="Copiar para WhatsApp"
+                                  >
+                                    <MessageCircle className="w-3 h-3" />
+                                    <span>WhatsApp</span>
                                   </button>
                                 </div>
                               </div>
-                              <div>
-                                <span className="text-slate-400 block">Plano:</span>
-                                <strong className="text-amber-800">{getPlanBadgeLabel(acc)}</strong>
-                              </div>
-                              <div>
-                                <span className="text-slate-400 block">Validade:</span>
-                                <strong className="font-mono text-slate-800">
+                              <div className="flex items-center justify-between pt-1 text-[10px] text-slate-500 font-mono">
+                                <span>Validade:</span>
+                                <strong className="text-slate-800">
                                   {acc.planTier === 'vitalicio'
                                     ? 'Vitalício'
                                     : `${new Date(acc.expiresAt).toLocaleDateString('pt-BR')} (${days}d)`}
@@ -1695,16 +1783,42 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
-                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5 font-mono">
                             <span className="text-amber-700 font-bold shrink-0">Link:</span>
                             <span className="truncate text-slate-800">cardapp-us/{storeSlug}</span>
                           </div>
-                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5">
-                            <span className="text-amber-700 font-bold shrink-0">Segurança:</span>
-                            <span className="text-emerald-800 font-bold">
-                              {isMaster ? 'Admin Mestre • SHA-256' : 'Senha protegida (SHA-256)'}
-                            </span>
+                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 flex items-center justify-between gap-1.5">
+                            <span className="text-slate-500 font-bold shrink-0">Login:</span>
+                            <strong className="font-mono text-slate-900 truncate">@{acc.username}</strong>
+                          </div>
+                          <div className="bg-amber-50/80 px-3 py-2 rounded-xl border border-amber-200 text-slate-900 flex items-center justify-between gap-2">
+                            <span className="text-amber-800 font-bold text-[10px] uppercase shrink-0">Senha:</span>
+                            <strong className="font-mono text-slate-950 font-black text-xs select-all truncate">
+                              {accountService.getAccountPassword(acc) || '072131Sa@'}
+                            </strong>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleCopySinglePassword(acc)}
+                                className="p-1 rounded bg-white hover:bg-amber-200 text-slate-700 border border-amber-200 cursor-pointer"
+                                title="Copiar senha deste parceiro"
+                              >
+                                {copiedPasswordId === acc.id ? (
+                                  <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyWhatsAppCredentials(acc)}
+                                className="p-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 cursor-pointer"
+                                title="Copiar credenciais formatadas para WhatsApp"
+                              >
+                                <MessageCircle className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2827,22 +2941,40 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                             : `${new Date(drawerAccount.expiresAt).toLocaleDateString('pt-BR')} (${getDaysRemaining(drawerAccount)} dias)`}
                         </strong>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-600 font-bold">Proteção de Senha:</span>
-                        <div className="flex items-center gap-1.5">
-                          <strong className="font-mono text-emerald-800">
-                            Criptografada
-                          </strong>
-                          {drawerAccount.role !== 'super_admin' && (
+                      <div className="pt-2 border-t border-amber-200/80 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 font-bold">Usuário de Login:</span>
+                          <code className="font-mono font-black text-slate-950 bg-white px-2 py-0.5 rounded border border-amber-200">
+                            @{drawerAccount.username}
+                          </code>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-600 font-bold">Senha de Acesso:</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-black text-xs text-slate-950 bg-amber-200/80 px-2 py-0.5 rounded border border-amber-400 select-all">
+                              {accountService.getAccountPassword(drawerAccount) || '(Sem senha)'}
+                            </span>
                             <button
                               type="button"
-                              onClick={() => handleOpenViewPasswordModal(drawerAccount)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] border border-amber-300 cursor-pointer"
+                              onClick={() => handleCopySinglePassword(drawerAccount)}
+                              className="p-1 rounded bg-white hover:bg-amber-200 text-slate-700 border border-amber-300 cursor-pointer"
+                              title="Copiar senha"
                             >
-                              <Eye className="w-3 h-3 text-amber-800" />
-                              <span>Ver Senha (2 Etapas)</span>
+                              {copiedPasswordId === drawerAccount.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
                             </button>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => handleCopyWhatsAppCredentials(drawerAccount)}
+                              className="p-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 cursor-pointer"
+                              title="Copiar para WhatsApp"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3382,19 +3514,31 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Caixa de Senha Revelada */}
+                  {/* Dados do Cliente */}
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600 font-bold">Estabelecimento:</span>
+                      <strong className="text-slate-950 font-bold">{viewPasswordModal.account.storeName}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600 font-bold">Usuário / Login:</span>
+                      <code className="font-mono text-slate-950 font-bold">@{viewPasswordModal.account.username}</code>
+                    </div>
+                  </div>
+
+                  {/* Caixa de Senha em Texto Claro */}
                   <div className="p-4 rounded-2xl bg-slate-950 text-white space-y-2 border border-slate-800">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
-                        Senha Descriptografada
+                        Senha de Acesso (Texto Claro)
                       </span>
                       <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                        {viewPasswordModal.revealedPassword ? 'Descriptografia Bem-sucedida' : 'Senha não disponível'}
+                        {viewPasswordModal.revealedPassword ? 'Disponível para Admin Geral' : 'Senha não disponível'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3 bg-slate-900 p-3 rounded-xl border border-slate-800">
                       <span className="text-lg sm:text-xl font-mono font-black text-amber-300 tracking-wider select-all break-all">
-                        {viewPasswordModal.revealedPassword || '(Senha cadastrada na versão anterior - Redefina pelo painel lateral)'}
+                        {viewPasswordModal.revealedPassword || '(Sem senha cadastrada)'}
                       </span>
                       {viewPasswordModal.revealedPassword && (
                         <button

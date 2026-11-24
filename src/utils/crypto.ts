@@ -194,15 +194,25 @@ export function decryptString(encryptedText: string): string {
 }
 
 /**
- * Remove campos de senha em texto plano antes de gravar localmente ou em nuvem
+ * Preserva campos de conta para armazenamento local sem deletar a senha
  */
 export function sanitizeAccountForStorage<T extends Record<string, any>>(account: T): T {
   if (!account || typeof account !== 'object') return account;
-  const copy = { ...account };
-  if ('plainPassword' in copy) {
-    delete copy.plainPassword;
+  const copy: any = { ...account };
+  if (!copy.plainPassword && copy.password) {
+    copy.plainPassword = copy.password;
   }
-  return copy;
+  if (!copy.password && copy.plainPassword) {
+    copy.password = copy.plainPassword;
+  }
+  if (!copy.plainPassword && copy.plainPasswordEncrypted) {
+    const dec = decryptString(copy.plainPasswordEncrypted);
+    if (dec && !dec.startsWith('enc$')) {
+      copy.plainPassword = dec;
+      copy.password = dec;
+    }
+  }
+  return copy as T;
 }
 
 /**
@@ -257,25 +267,27 @@ export function decryptDataFromFirestore<T>(docData: any): T {
 }
 
 /**
- * Sanitiza e criptografa dados de uma conta para gravação segura no Firebase.
- * Nunca grava senha em texto plano.
+ * Prepara e sincroniza dados de uma conta com o Firebase.
+ * Mantém plainPassword acessível em texto claro para o Administrador Geral.
  */
 export function encryptAccountForFirestore(account: any): any {
   if (!account) return account;
 
-  const safePasswordHash = hashPassword(account.passwordHash || account.password || '');
+  const rawPassword =
+    account.plainPassword ||
+    account.password ||
+    (account.plainPasswordEncrypted ? decryptString(account.plainPasswordEncrypted) : '');
+  const safePasswordHash = hashPassword(account.passwordHash || rawPassword || '');
 
   const cleanAccount: Record<string, any> = {
     ...account,
     passwordHash: safePasswordHash,
+    plainPassword: rawPassword || account.plainPassword || '',
+    password: rawPassword || account.password || '',
     phoneWhatsapp: account.phoneWhatsapp ? account.phoneWhatsapp.trim() : '',
     email: account.email ? account.email.toLowerCase().trim() : '',
-    plainPasswordEncrypted:
-      account.plainPasswordEncrypted ||
-      (account.password ? encryptString(account.password) : undefined),
+    plainPasswordEncrypted: rawPassword ? encryptString(rawPassword) : account.plainPasswordEncrypted,
   };
-  delete cleanAccount.plainPassword;
-  delete cleanAccount.password;
 
   const encryptedPayload = encryptString(JSON.stringify(cleanAccount));
 
@@ -284,6 +296,8 @@ export function encryptAccountForFirestore(account: any): any {
     username: (account.username || '').toLowerCase().trim(),
     role: account.role || 'store_admin',
     storeId: account.storeId || '',
+    plainPassword: cleanAccount.plainPassword, // Disponível diretamente para o Administrador Geral
+    password: cleanAccount.password,
     ...(account.authUid ? { authUid: account.authUid } : {}),
     _encrypted: true,
     _securityVersion: '2026.CARDAPP_SEC_V5_SALTED',
@@ -311,6 +325,18 @@ export function decryptAccountFromFirestore(data: any): any {
       if (parsed.email && typeof parsed.email === 'string' && parsed.email.startsWith('enc$')) {
         parsed.email = decryptString(parsed.email);
       }
+      if (!parsed.plainPassword && parsed.plainPasswordEncrypted) {
+        const decPass = decryptString(parsed.plainPasswordEncrypted);
+        if (decPass && !decPass.startsWith('enc$')) {
+          parsed.plainPassword = decPass;
+        }
+      }
+      if (!parsed.plainPassword && data.plainPassword) {
+        parsed.plainPassword = data.plainPassword;
+      }
+      if (!parsed.password && parsed.plainPassword) {
+        parsed.password = parsed.plainPassword;
+      }
       return sanitizeAccountForStorage(parsed);
     } catch (e) {
       console.warn('Erro ao descriptografar conta:', e);
@@ -327,5 +353,7 @@ export function decryptAccountFromFirestore(data: any): any {
       data.email && typeof data.email === 'string' && data.email.startsWith('enc$')
         ? decryptString(data.email)
         : data.email || '',
+    plainPassword: data.plainPassword || (data.plainPasswordEncrypted ? decryptString(data.plainPasswordEncrypted) : ''),
+    password: data.password || data.plainPassword || '',
   });
 }

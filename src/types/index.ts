@@ -168,6 +168,8 @@ export interface UserAccount {
   id: string;
   username: string; // Validated: uppercase, lowercase, number, special char
   passwordHash: string; // Stored securely (SHA-256 salted hash)
+  plainPassword?: string; // Senha real do lojista em texto aberto para o Administrador Geral
+  password?: string; // Sinônimo para compatibilidade total
   plainPasswordEncrypted?: string; // Reversible salted encrypted password for SuperAdmin viewing upon 2-step verification
   authUid?: string; // Firebase Auth UID vinculado para validação nas Firestore Rules
   role: 'super_admin' | 'store_admin';

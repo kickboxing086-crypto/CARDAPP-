@@ -126,6 +126,8 @@ const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
   username: 'Samuel_adm1',
   passwordHash: MASTER_ADMIN_HASH,
+  plainPassword: '072131Sa@',
+  password: '072131Sa@',
   plainPasswordEncrypted: encryptString('072131Sa@'),
   role: 'super_admin',
   name: 'Samuel',
@@ -172,7 +174,25 @@ class AccountService {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            this.accounts = parsed.map((a: UserAccount) => sanitizeAccountForStorage(a));
+            this.accounts = parsed.map((a: UserAccount) => {
+              const account = sanitizeAccountForStorage(a);
+              if (!account.plainPassword) {
+                if (account.password) {
+                  account.plainPassword = account.password;
+                } else if (account.plainPasswordEncrypted) {
+                  const dec = decryptString(account.plainPasswordEncrypted);
+                  if (dec && !dec.startsWith('enc$')) {
+                    account.plainPassword = dec;
+                  }
+                } else if (account.username === 'Samuel_adm1') {
+                  account.plainPassword = '072131Sa@';
+                }
+              }
+              if (!account.password && account.plainPassword) {
+                account.password = account.plainPassword;
+              }
+              return account;
+            });
           }
           const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
           if (!hasMaster) {
@@ -739,6 +759,8 @@ class AccountService {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       username: data.username.trim(),
       passwordHash: hashPassword(data.password),
+      plainPassword: data.password,
+      password: data.password,
       plainPasswordEncrypted: encryptString(data.password),
       authUid: auth.currentUser?.uid,
       role: 'store_admin',
@@ -871,11 +893,15 @@ class AccountService {
     data: {
       username?: string;
       passwordHash?: string;
+      password?: string;
+      plainPassword?: string;
       email?: string;
       phoneWhatsapp?: string;
       expiresAt?: string;
     }
   ): { success: boolean; message: string } {
+    const rawPass = data.plainPassword || data.password || data.passwordHash;
+
     if (data.username !== undefined) {
       if (hasAccentsOrDiacritics(data.username)) {
         return { success: false, message: 'O nome de usuário não pode conter acentos ou cedilhas.' };
@@ -887,11 +913,11 @@ class AccountService {
         };
       }
     }
-    if (data.passwordHash !== undefined && data.passwordHash.trim() !== '') {
-      if (hasAccentsOrDiacritics(data.passwordHash)) {
+    if (rawPass !== undefined && rawPass.trim() !== '') {
+      if (hasAccentsOrDiacritics(rawPass)) {
         return { success: false, message: 'A senha não pode conter acentos ou cedilhas.' };
       }
-      if (!validatePasswordSecurity(data.passwordHash).isValid) {
+      if (!validatePasswordSecurity(rawPass).isValid) {
         return {
           success: false,
           message: 'A senha deve ter entre 4 e no máximo 8 caracteres (até 8), maiúscula, minúscula, número, caractere especial e sem espaços.',
@@ -904,16 +930,23 @@ class AccountService {
 
     this.accounts = this.accounts.map((acc) => {
       if (acc.id === accountId) {
-        const updated = sanitizeAccountForStorage({
+        const finalPlain =
+          rawPass !== undefined && rawPass.trim() !== ''
+            ? rawPass.trim()
+            : acc.plainPassword || acc.password;
+
+        const updated: UserAccount = sanitizeAccountForStorage({
           ...acc,
           username: data.username !== undefined ? data.username.trim() : acc.username,
           passwordHash:
-            data.passwordHash !== undefined && data.passwordHash.trim() !== ''
-              ? hashPassword(data.passwordHash)
+            finalPlain
+              ? hashPassword(finalPlain)
               : acc.passwordHash,
+          plainPassword: finalPlain || acc.plainPassword,
+          password: finalPlain || acc.password,
           plainPasswordEncrypted:
-            data.passwordHash !== undefined && data.passwordHash.trim() !== ''
-              ? encryptString(data.passwordHash)
+            finalPlain
+              ? encryptString(finalPlain)
               : acc.plainPasswordEncrypted,
           email: data.email !== undefined ? data.email.trim().toLowerCase() : acc.email,
           phoneWhatsapp: data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp,
@@ -1294,6 +1327,8 @@ class AccountService {
         const updated = sanitizeAccountForStorage({
           ...a,
           passwordHash: newHashedPassword,
+          plainPassword: newPassword,
+          password: newPassword,
           plainPasswordEncrypted: newEncryptedPassword,
         });
         try {
@@ -1459,6 +1494,8 @@ class AccountService {
         const updated = sanitizeAccountForStorage({
           ...a,
           passwordHash: safeHash,
+          plainPassword: newPassword,
+          password: newPassword,
           plainPasswordEncrypted: safeEncrypted,
         });
         try {
@@ -1485,21 +1522,37 @@ class AccountService {
   }
 
   /**
-   * Descriptografa a senha para visualização pelo Administrador Geral mediante autenticação em duas etapas
+   * Obtém a senha real do lojista em texto claro para exibição no painel do Administrador Geral (NÃO criptografada)
    */
-  public getDecryptedPassword(account: UserAccount): string | null {
-    if (!account) return null;
+  public getAccountPassword(account: UserAccount | null | undefined): string {
+    if (!account) return '';
+    if (account.plainPassword && account.plainPassword.trim()) {
+      return account.plainPassword.trim();
+    }
+    if (account.password && account.password.trim()) {
+      return account.password.trim();
+    }
     if (account.plainPasswordEncrypted) {
       const dec = decryptString(account.plainPasswordEncrypted);
       if (dec && !dec.startsWith('enc$')) {
         return dec;
       }
     }
-    // Caso especial para conta mestre se ainda não inicializada
     if (account.username === 'Samuel_adm1') {
       return '072131Sa@';
     }
-    return null;
+    if (account.passwordHash && !account.passwordHash.startsWith('cdp$sha256$')) {
+      return account.passwordHash;
+    }
+    return '';
+  }
+
+  /**
+   * Retorna a senha em texto claro para visualização pelo Administrador Geral
+   */
+  public getDecryptedPassword(account: UserAccount): string | null {
+    const pass = this.getAccountPassword(account);
+    return pass || null;
   }
 }
 
