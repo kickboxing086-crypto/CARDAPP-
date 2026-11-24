@@ -83,6 +83,15 @@ service cloud.firestore {
         );
     }
 
+    function isValidStoreSlugDoc(data) {
+      return data.keys().hasAll(['slug', 'storeId', 'storeName', 'updatedAt'])
+        && data.keys().hasOnly(['slug', 'storeId', 'storeName', 'updatedAt'])
+        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9\\-]+$')
+        && data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 140
+        && data.storeName is string && data.storeName.size() >= 1 && data.storeName.size() <= 120
+        && data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
     // ===============================================================
     // Bloqueio Global Padrão (Default-Deny)
     // ===============================================================
@@ -179,6 +188,26 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Índice público de slugs (sem PII) para resolver https://dominio/nome-da-loja
+    match /storeSlugs/{slug} {
+      allow get: if isValidId(slug);
+      allow list: if false;
+      allow create: if isValidId(slug)
+        && isSignedIn()
+        && isValidStoreSlugDoc(request.resource.data)
+        && request.resource.data.slug == slug
+        && (isAdmin() || isStoreOwner(request.resource.data.storeId));
+      allow update: if isValidId(slug)
+        && isSignedIn()
+        && isValidStoreSlugDoc(request.resource.data)
+        && request.resource.data.slug == slug
+        && (
+          isAdmin()
+          || (isStoreOwner(request.resource.data.storeId) && resource.data.storeId == request.resource.data.storeId)
+        );
+      allow delete: if isAdmin() || (isSignedIn() && isStoreOwner(resource.data.storeId));
+    }
+
     // Lojas, Cardápio e Pedidos Segregados por Propriedade
     match /stores/{storeId} {
       allow get: if isValidId(storeId);
@@ -195,8 +224,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['id', 'storeName', 'ownerUid', 'updatedAt'])
         && request.resource.data.id == storeId
         && (isAdmin() || (
-          resource.data.ownerUid == request.auth.uid
-          && request.resource.data.ownerUid == resource.data.ownerUid
+          (!('ownerUid' in resource.data) || resource.data.ownerUid == '' || resource.data.ownerUid == request.auth.uid)
+          && request.resource.data.ownerUid == request.auth.uid
         ));
       allow delete: if isAdmin();
 

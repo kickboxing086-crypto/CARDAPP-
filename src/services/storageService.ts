@@ -1,6 +1,8 @@
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   setDoc,
   deleteDoc,
   onSnapshot,
@@ -15,6 +17,7 @@ import {
   INITIAL_CATEGORIES,
 } from '../data/initialData';
 import { encryptDataForFirestore, decryptDataFromFirestore } from '../utils/crypto';
+import { slugifyStoreName } from '../utils/constants';
 
 let broadcastChannel: BroadcastChannel | null = null;
 try {
@@ -125,6 +128,216 @@ export const storageService = {
     }
   },
 
+  async ensureStoreDocument(storeId?: string, storeName?: string): Promise<boolean> {
+    const cleanId = storeId || this.currentStoreId;
+    if (!auth.currentUser || !cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
+      return false;
+    }
+
+    let resolvedName = (storeName || '').trim();
+    if (!resolvedName) {
+      try {
+        const stored = localStorage.getItem(`cardapp_settings_${cleanId}`);
+        if (stored) {
+          resolvedName = (JSON.parse(stored)?.storeName || '').trim();
+        }
+      } catch {}
+    }
+    if (!resolvedName) resolvedName = 'Minha Loja';
+
+    try {
+      const storeRootRef = doc(db, 'stores', cleanId);
+      await setDoc(
+        storeRootRef,
+        {
+          id: cleanId,
+          storeName: resolvedName,
+          ...(this.authRole !== 'super_admin' ? { ownerUid: auth.currentUser.uid } : {}),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      await this.syncStoreSlug(cleanId, resolvedName);
+      return true;
+    } catch (err) {
+      console.warn('ensureStoreDocument notice:', err);
+      return false;
+    }
+  },
+
+  async syncStoreSlug(storeId?: string, storeName?: string): Promise<void> {
+    const cleanId = storeId || this.currentStoreId;
+    if (!auth.currentUser || !cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
+      return;
+    }
+    const cleanName = (storeName || '').trim();
+    const slug = slugifyStoreName(cleanName);
+    if (!slug || slug.length < 2 || slug === 'minha-loja' || slug === 'cardapp-digital') {
+      return;
+    }
+    try {
+      await setDoc(
+        doc(db, 'storeSlugs', slug),
+        {
+          slug,
+          storeId: cleanId,
+          storeName: cleanName.slice(0, 120),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('syncStoreSlug notice:', err);
+    }
+  },
+
+  async syncAllStoreDataToFirestore(storeId?: string, storeName?: string): Promise<void> {
+    const cleanId = storeId || this.currentStoreId;
+    if (!auth.currentUser || !cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
+      return;
+    }
+
+    try {
+      let localSettings: StoreSettings | null = null;
+      try {
+        const rawSet = localStorage.getItem(`cardapp_settings_${cleanId}`);
+        if (rawSet) localSettings = JSON.parse(rawSet);
+      } catch {}
+
+      const effectiveName = storeName || localSettings?.storeName || 'Minha Loja';
+      const rootOk = await this.ensureStoreDocument(cleanId, effectiveName);
+      if (!rootOk) return;
+
+      if (localSettings) {
+        await setDoc(
+          doc(db, 'stores', cleanId, 'settings', 'current'),
+          encryptDataForFirestore(localSettings)
+        ).catch(() => {});
+      }
+
+      try {
+        const rawCats = localStorage.getItem(`cardapp_categories_${cleanId}`);
+        if (rawCats) {
+          const cats = JSON.parse(rawCats) as Category[];
+          if (Array.isArray(cats)) {
+            await Promise.all(
+              cats.map((cat) =>
+                setDoc(
+                  doc(db, 'stores', cleanId, 'categories', cat.id),
+                  encryptDataForFirestore(cat)
+                ).catch(() => {})
+              )
+            );
+          }
+        }
+      } catch {}
+
+      try {
+        const rawProds = localStorage.getItem(`cardapp_products_${cleanId}`);
+        if (rawProds) {
+          const prods = JSON.parse(rawProds) as Product[];
+          if (Array.isArray(prods)) {
+            await Promise.all(
+              prods.map((prod) =>
+                setDoc(
+                  doc(db, 'stores', cleanId, 'products', prod.id),
+                  encryptDataForFirestore(prod)
+                ).catch(() => {})
+              )
+            );
+          }
+        }
+      } catch {}
+    } catch (err) {
+      console.warn('syncAllStoreDataToFirestore notice:', err);
+    }
+  },
+
+  async resolveStoreTarget(
+    param: string
+  ): Promise<{ storeId: string; storeName?: string } | null> {
+    const clean = (param || '').trim();
+    if (!clean || clean === 'default_store' || clean === 'master_admin') {
+      return null;
+    }
+
+    const slug = slugifyStoreName(clean);
+    if (slug && slug.length >= 2) {
+      try {
+        const slugSnap = await getDoc(doc(db, 'storeSlugs', slug));
+        if (slugSnap.exists()) {
+          const data = slugSnap.data() as { storeId?: string; storeName?: string };
+          if (data?.storeId) {
+            return { storeId: data.storeId, storeName: data.storeName };
+          }
+        }
+      } catch {}
+    }
+
+    try {
+      const storeSnap = await getDoc(doc(db, 'stores', clean));
+      if (storeSnap.exists()) {
+        const data = storeSnap.data() as { storeName?: string };
+        return { storeId: storeSnap.id, storeName: data?.storeName };
+      }
+    } catch {}
+
+    return null;
+  },
+
+  async loadStoreFromFirestoreOnce(storeId: string): Promise<boolean> {
+    const cleanId = (storeId || '').trim();
+    if (!cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
+      return false;
+    }
+
+    let foundAny = false;
+    try {
+      const [rootRes, settingsRes, catsRes, prodsRes] = await Promise.allSettled([
+        getDoc(doc(db, 'stores', cleanId)),
+        getDoc(doc(db, 'stores', cleanId, 'settings', 'current')),
+        getDocs(collection(db, 'stores', cleanId, 'categories')),
+        getDocs(collection(db, 'stores', cleanId, 'products')),
+      ]);
+
+      if (rootRes.status === 'fulfilled' && rootRes.value.exists()) {
+        foundAny = true;
+      }
+
+      if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
+        foundAny = true;
+        const data = decryptDataFromFirestore<StoreSettings>(settingsRes.value.data());
+        localStorage.setItem(`cardapp_settings_${cleanId}`, JSON.stringify(data));
+      }
+
+      if (catsRes.status === 'fulfilled' && !catsRes.value.empty) {
+        foundAny = true;
+        const categories: Category[] = [];
+        catsRes.value.forEach((d) => {
+          categories.push(decryptDataFromFirestore<Category>(d.data()));
+        });
+        localStorage.setItem(`cardapp_categories_${cleanId}`, JSON.stringify(categories));
+      }
+
+      if (prodsRes.status === 'fulfilled' && !prodsRes.value.empty) {
+        foundAny = true;
+        const products: Product[] = [];
+        prodsRes.value.forEach((d) => {
+          products.push(decryptDataFromFirestore<Product>(d.data()));
+        });
+        localStorage.setItem(`cardapp_products_${cleanId}`, JSON.stringify(products));
+      }
+
+      if (foundAny) {
+        this.notifyChange();
+      }
+    } catch (err) {
+      console.warn('loadStoreFromFirestoreOnce notice:', err);
+    }
+
+    return foundAny;
+  },
+
   initializeNewStore(
     storeId: string,
     storeName: string,
@@ -160,25 +373,13 @@ export const storageService = {
     localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
     localStorage.setItem(setKey, JSON.stringify(freshSettings));
 
-    try {
+    (async () => {
       if (auth.currentUser) {
-        const storeRootRef = doc(db, 'stores', cleanId);
-        setDoc(
-          storeRootRef,
-          {
-            id: cleanId,
-            storeName: storeName || 'Minha Loja',
-            ownerUid: auth.currentUser.uid,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        ).catch(() => {});
+        await this.ensureStoreDocument(cleanId, freshSettings.storeName);
+        const setRef = doc(db, 'stores', cleanId, 'settings', 'current');
+        await setDoc(setRef, encryptDataForFirestore(freshSettings)).catch(() => {});
       }
-      const setRef = doc(db, 'stores', cleanId, 'settings', 'current');
-      setDoc(setRef, encryptDataForFirestore(freshSettings)).catch(() => {});
-    } catch {
-      // ignore
-    }
+    })().catch(() => {});
 
     return freshSettings;
   },
@@ -342,6 +543,9 @@ export const storageService = {
             });
             localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
             this.notifyChange();
+          } else if (targetStore !== 'default_store' && !snap.metadata.fromCache) {
+            localStorage.setItem(this.getProductsKey(), JSON.stringify([]));
+            this.notifyChange();
           }
         },
         (error) => {
@@ -396,14 +600,15 @@ export const storageService = {
     this.notifyChange();
 
     // Sync to Firestore (Criptografado)
-    try {
-      categories.forEach(async (cat) => {
-        const catRef = doc(db, 'stores', this.currentStoreId, 'categories', cat.id);
-        await setDoc(catRef, encryptDataForFirestore(cat)).catch(() => {});
-      });
-    } catch {
-      // ignore
-    }
+    (async () => {
+      const storeId = this.currentStoreId;
+      await this.ensureStoreDocument(storeId);
+      await Promise.all(
+        categories.map((cat) =>
+          setDoc(doc(db, 'stores', storeId, 'categories', cat.id), encryptDataForFirestore(cat)).catch(() => {})
+        )
+      );
+    })().catch(() => {});
   },
 
   addCategory(name: string): Category {
@@ -421,16 +626,6 @@ export const storageService = {
     const newCat: Category = { id, name };
     const updated = [...categories, newCat];
     this.saveCategories(updated);
-
-    // Save to Firestore directly (Criptografado)
-    try {
-      const catRef = doc(db, 'stores', this.currentStoreId, 'categories', id);
-      setDoc(catRef, encryptDataForFirestore(newCat)).catch((err) => {
-        console.warn('Sync addCategory fallback:', err);
-      });
-    } catch {
-      // ignore
-    }
 
     return newCat;
   },
@@ -471,14 +666,15 @@ export const storageService = {
     this.notifyChange();
 
     // Sync to Firestore (Criptografado)
-    try {
-      products.forEach(async (prod) => {
-        const prodRef = doc(db, 'stores', this.currentStoreId, 'products', prod.id);
-        await setDoc(prodRef, encryptDataForFirestore(prod)).catch(() => {});
-      });
-    } catch {
-      // ignore
-    }
+    (async () => {
+      const storeId = this.currentStoreId;
+      await this.ensureStoreDocument(storeId);
+      await Promise.all(
+        products.map((prod) =>
+          setDoc(doc(db, 'stores', storeId, 'products', prod.id), encryptDataForFirestore(prod)).catch(() => {})
+        )
+      );
+    })().catch(() => {});
   },
 
   addProduct(product: Omit<Product, 'id'>): Product {
@@ -488,17 +684,18 @@ export const storageService = {
       id: 'prod-' + Date.now(),
     };
     const updated = [newProduct, ...products];
-    this.saveProducts(updated);
+    localStorage.setItem(this.getProductsKey(), JSON.stringify(updated));
+    this.notifyChange();
 
-    // Sync to Firestore (Criptografado)
-    try {
-      const prodRef = doc(db, 'stores', this.currentStoreId, 'products', newProduct.id);
-      setDoc(prodRef, encryptDataForFirestore(newProduct)).catch((err) => {
+    // Sync new product to Firestore (Criptografado)
+    (async () => {
+      const storeId = this.currentStoreId;
+      await this.ensureStoreDocument(storeId);
+      const prodRef = doc(db, 'stores', storeId, 'products', newProduct.id);
+      await setDoc(prodRef, encryptDataForFirestore(newProduct)).catch((err) => {
         console.warn('Sync addProduct fallback:', err);
       });
-    } catch {
-      // ignore
-    }
+    })().catch(() => {});
 
     return newProduct;
   },
@@ -508,17 +705,18 @@ export const storageService = {
     const index = products.findIndex((p) => p.id === product.id);
     if (index !== -1) {
       products[index] = product;
-      this.saveProducts(products);
+      localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
+      this.notifyChange();
 
       // Sync to Firestore (Criptografado)
-      try {
-        const prodRef = doc(db, 'stores', this.currentStoreId, 'products', product.id);
-        setDoc(prodRef, encryptDataForFirestore(product)).catch((err) => {
+      (async () => {
+        const storeId = this.currentStoreId;
+        await this.ensureStoreDocument(storeId);
+        const prodRef = doc(db, 'stores', storeId, 'products', product.id);
+        await setDoc(prodRef, encryptDataForFirestore(product)).catch((err) => {
           console.warn('Sync updateProduct fallback:', err);
         });
-      } catch {
-        // ignore
-      }
+      })().catch(() => {});
     }
   },
 
@@ -878,28 +1076,15 @@ export const storageService = {
       // ignore
     }
 
-    // Sync to Firestore (Criptografado)
-    try {
-      if (auth.currentUser) {
-        const storeRootRef = doc(db, 'stores', this.currentStoreId);
-        setDoc(
-          storeRootRef,
-          {
-            id: this.currentStoreId,
-            storeName: settings.storeName || 'Minha Loja',
-            ...(this.authRole === 'store_admin' ? { ownerUid: auth.currentUser.uid } : {}),
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        ).catch(() => {});
-      }
-      const settingsRef = doc(db, 'stores', this.currentStoreId, 'settings', 'current');
-      setDoc(settingsRef, encryptDataForFirestore(settings)).catch((err) => {
+    // Sync to Firestore (Criptografado) garantindo /stores/{storeId} + /storeSlugs/{slug} primeiro
+    (async () => {
+      const storeId = this.currentStoreId;
+      await this.ensureStoreDocument(storeId, settings.storeName);
+      const settingsRef = doc(db, 'stores', storeId, 'settings', 'current');
+      await setDoc(settingsRef, encryptDataForFirestore(settings)).catch((err) => {
         console.warn('Sync saveSettings fallback:', err);
       });
-    } catch {
-      // ignore
-    }
+    })().catch(() => {});
   },
 };
 

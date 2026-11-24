@@ -3,10 +3,11 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInAnonymously,
   signOut,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { db, auth, handleFirestoreError, OperationType } from '../firebase';
+import { db, auth } from '../firebase';
 import {
   UserAccount,
   ClientRegistrationFormData,
@@ -34,7 +35,9 @@ import {
   sanitizeAccountForStorage,
   encryptString,
   decryptString,
+  sha256HexAsync,
 } from '../utils/crypto';
+import { slugifyStoreName } from '../utils/constants';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
@@ -158,6 +161,9 @@ class AccountService {
     this.loadFromStorage();
     this.initFirestoreSync();
     this.checkExpirations();
+    if (this.currentSession && this.currentSession.role === 'store_admin') {
+      this.ensureFirebaseAuthForSession(this.currentSession).catch(() => {});
+    }
   }
 
   private loadFromStorage() {
@@ -439,16 +445,7 @@ class AccountService {
         setDoc(doc(db, 'accounts', sess.id), encryptAccountForFirestore(updatedSession), { merge: true }).catch(() => {});
       }
       if (sess.storeId && sess.storeId !== 'default_store' && sess.storeId !== 'master_admin') {
-        setDoc(
-          doc(db, 'stores', sess.storeId),
-          {
-            id: sess.storeId,
-            storeName: sess.storeName || 'Minha Loja',
-            ownerUid: firebaseUser.uid,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        ).catch(() => {});
+        storageService.syncAllStoreDataToFirestore(sess.storeId, sess.storeName).catch(() => {});
       }
       try {
         this.ownAccountUnsub = onSnapshot(
@@ -467,6 +464,132 @@ class AccountService {
         );
       } catch {}
     }
+  }
+
+  private async getDeterministicAuthPassword(seed: string): Promise<string> {
+    const hash = await sha256HexAsync(seed.toLowerCase().trim() + '_cardapp_salt_2026');
+    return 'Cp!' + hash.slice(0, 16) + '9a';
+  }
+
+  public async ensureFirebaseAuthForSession(
+    user: UserAccount,
+    rawPassword?: string
+  ): Promise<FirebaseUser | null> {
+    if (!user) return auth.currentUser;
+
+    if (user.role === 'super_admin') {
+      if (auth.currentUser) return auth.currentUser;
+      if (user.email && rawPassword) {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, user.email, rawPassword);
+          if (cred.user) {
+            this.syncWithFirebaseUser(cred.user);
+            return cred.user;
+          }
+        } catch {}
+      }
+      return auth.currentUser;
+    }
+
+    // Se já houver outro usuário Firebase logado que não pertence a esta conta, desconecta primeiro
+    if (
+      auth.currentUser &&
+      user.authUid &&
+      auth.currentUser.uid !== user.authUid
+    ) {
+      try {
+        await signOut(auth);
+      } catch {}
+    }
+
+    if (auth.currentUser && (!user.authUid || auth.currentUser.uid === user.authUid)) {
+      if (user.storeId && user.storeId !== 'default_store' && user.storeId !== 'master_admin') {
+        await storageService.syncAllStoreDataToFirestore(user.storeId, user.storeName);
+      }
+      return auth.currentUser;
+    }
+
+    let signedUser: FirebaseUser | null = auth.currentUser;
+    const candidatePassword = rawPassword || user.plainPassword || user.password || '';
+
+    // 1. Tenta autenticar ou criar com o e-mail do usuário + senha informada / determinística
+    if (user.email) {
+      const cleanEmail = user.email.toLowerCase().trim();
+      const detPass = await this.getDeterministicAuthPassword(cleanEmail);
+
+      if (!signedUser && candidatePassword) {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, cleanEmail, candidatePassword);
+          signedUser = cred.user;
+        } catch {}
+      }
+      if (!signedUser) {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, cleanEmail, detPass);
+          signedUser = cred.user;
+        } catch {}
+      }
+      if (!signedUser) {
+        try {
+          const cred = await createUserWithEmailAndPassword(
+            auth,
+            cleanEmail,
+            detPass
+          );
+          signedUser = cred.user;
+        } catch {}
+      }
+    }
+
+    // 2. Fallback seguro com e-mail técnico determinístico vinculado ao ID da conta
+    if (!signedUser) {
+      const safeLocalPart = (user.id || user.storeId || 'store')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '');
+      const serviceEmail = `${safeLocalPart}@cardapp.auth`;
+      const detServicePass = await this.getDeterministicAuthPassword(user.id || serviceEmail);
+
+      try {
+        const cred = await signInWithEmailAndPassword(auth, serviceEmail, detServicePass);
+        signedUser = cred.user;
+      } catch {}
+
+      if (!signedUser) {
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, serviceEmail, detServicePass);
+          signedUser = cred.user;
+        } catch {}
+      }
+    }
+
+    // 3. Fallback anônimo se provedores de email estiverem desabilitados
+    if (!signedUser) {
+      try {
+        const cred = await signInAnonymously(auth);
+        signedUser = cred.user;
+      } catch {}
+    }
+
+    if (signedUser) {
+      const updatedUser: UserAccount = { ...user, authUid: signedUser.uid };
+      this.accounts = this.accounts.map((a) => (a.id === user.id ? updatedUser : a));
+      if (this.currentSession?.id === user.id) {
+        this.currentSession = updatedUser;
+        try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedUser)); } catch {}
+      }
+      this.saveToStorage();
+      setDoc(
+        doc(db, 'accounts', user.id),
+        encryptAccountForFirestore(updatedUser),
+        { merge: true }
+      ).catch(() => {});
+
+      if (user.storeId && user.storeId !== 'default_store' && user.storeId !== 'master_admin') {
+        await storageService.syncAllStoreDataToFirestore(user.storeId, user.storeName);
+      }
+    }
+
+    return signedUser;
   }
 
   private initFirestoreSync() {
@@ -594,16 +717,7 @@ class AccountService {
     try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user)); } catch {}
     storageService.setAuthContext(user.role, user.storeId);
 
-    // Vínculo silencioso opcional com Firebase Auth quando o e-mail/senha já existir
-    if (user.email && !auth.currentUser) {
-      signInWithEmailAndPassword(auth, user.email, password)
-        .then((cred) => {
-          if (cred.user) {
-            this.syncWithFirebaseUser(cred.user);
-          }
-        })
-        .catch(() => {});
-    }
+    this.ensureFirebaseAuthForSession(user, password).catch(() => {});
 
     this.notify();
     return { success: true, message: 'Login realizado.', user };
@@ -800,34 +914,12 @@ class AccountService {
       instagramHandle: data.instagramHandle,
     });
 
-    if (newAccount.email && this.currentSession?.role !== 'super_admin') {
-      createUserWithEmailAndPassword(auth, newAccount.email, data.password)
-        .then((cred) => {
-          if (cred.user) {
-            const withUid = { ...newAccount, authUid: cred.user.uid };
-            this.accounts = this.accounts.map((a) => (a.id === newAccount.id ? withUid : a));
-            this.saveToStorage();
-            setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(withUid), { merge: true }).catch(() => {});
-            setDoc(
-              doc(db, 'stores', newAccount.storeId),
-              {
-                id: newAccount.storeId,
-                storeName: newAccount.storeName,
-                ownerUid: cred.user.uid,
-                updatedAt: new Date().toISOString(),
-              },
-              { merge: true }
-            ).catch(() => {});
-          }
-        })
-        .catch(() => {});
+    if (this.currentSession?.role !== 'super_admin') {
+      this.ensureFirebaseAuthForSession(newAccount, data.password).catch(() => {});
+    } else if (auth.currentUser) {
+      setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch(() => {});
+      storageService.syncAllStoreDataToFirestore(newAccount.storeId, newAccount.storeName).catch(() => {});
     }
-
-    try {
-      if (auth.currentUser) {
-        setDoc(doc(db, 'accounts', newAccount.id), encryptAccountForFirestore(newAccount)).catch(() => {});
-      }
-    } catch {}
 
     return { success: true, message: 'Conta gerada com sucesso!', account: newAccount };
   }
@@ -971,6 +1063,56 @@ class AccountService {
 
     this.saveToStorage();
     return { success: true, message: 'Conta atualizada com sucesso!' };
+  }
+
+  public findAccountByStoreParam(param: string): UserAccount | undefined {
+    const clean = (param || '').trim();
+    if (!clean) return undefined;
+    const cleanSlug = slugifyStoreName(clean);
+    return (
+      this.accounts.find((a) => a.storeId === clean) ||
+      this.accounts.find((a) => slugifyStoreName(a.storeName) === cleanSlug && cleanSlug.length >= 2) ||
+      this.accounts.find((a) => (a.storeName || '').toLowerCase().trim() === clean.toLowerCase())
+    );
+  }
+
+  public updateStoreProfile(
+    storeId: string,
+    data: { storeName?: string; phoneWhatsapp?: string }
+  ) {
+    if (!storeId || storeId === 'default_store' || storeId === 'master_admin') return;
+    let changed = false;
+    this.accounts = this.accounts.map((acc) => {
+      if (acc.storeId === storeId) {
+        const nextName = data.storeName?.trim() || acc.storeName;
+        const nextPhone = data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp;
+        if (nextName !== acc.storeName || nextPhone !== acc.phoneWhatsapp) {
+          changed = true;
+          const updated: UserAccount = {
+            ...acc,
+            storeName: nextName,
+            phoneWhatsapp: nextPhone,
+          };
+          if (auth.currentUser) {
+            setDoc(doc(db, 'accounts', acc.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
+          }
+          return updated;
+        }
+      }
+      return acc;
+    });
+
+    if (this.currentSession?.storeId === storeId) {
+      const updatedSess = this.accounts.find((a) => a.id === this.currentSession!.id);
+      if (updatedSess) {
+        this.currentSession = updatedSess;
+        try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedSess)); } catch {}
+      }
+    }
+
+    if (changed) {
+      this.saveToStorage();
+    }
   }
 
   public createSubscriptionPlan(data: {

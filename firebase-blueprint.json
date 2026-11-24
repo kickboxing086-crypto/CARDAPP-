@@ -218,6 +218,30 @@
         }
       },
       "required": ["email", "code", "createdAt", "expiresAt", "verified"]
+    },
+    "StoreSlug": {
+      "title": "StoreSlug",
+      "description": "Mapeamento público de slug amigável do nome da loja para o storeId",
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "storeId": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "storeName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": ["slug", "storeId", "storeName", "updatedAt"]
     }
   },
   "firestore": {
@@ -228,6 +252,10 @@
     "/accounts/{accountId}": {
       "schema": "UserAccount",
       "description": "Contas de administradores e gerentes de lojas"
+    },
+    "/storeSlugs/{slug}": {
+      "schema": "StoreSlug",
+      "description": "Índice público sem PII para resolver links por nome da loja"
     },
     "/stores/{storeId}/settings/current": {
       "schema": "StoreSettings",

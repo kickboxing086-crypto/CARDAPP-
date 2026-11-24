@@ -60,6 +60,7 @@ import {
   generateSecurePassword,
 } from '../utils/security';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
+import { getClientAppUrl, slugifyStoreName } from '../utils/constants';
 import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 import { auth } from '../firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -333,19 +334,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   const getStoreSlug = (acc: UserAccount) =>
-    acc.storeName
-      ? acc.storeName
-          .toLowerCase()
-          .trim()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-      : acc.id;
+    slugifyStoreName(acc.storeName) || acc.id;
 
   const handleCopyStoreLink = (acc: UserAccount) => {
-    const storeSlug = getStoreSlug(acc);
-    const url = `${window.location.origin}/?store=${storeSlug}`;
+    const url = getClientAppUrl(acc.storeId, acc.storeName);
     navigator.clipboard.writeText(url);
     setCopiedStoreId(acc.id);
     setTimeout(() => setCopiedStoreId(null), 2500);
@@ -1749,7 +1741,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                             </button>
 
                             <a
-                              href={`/?store=${storeSlug}`}
+                              href={getClientAppUrl(acc.storeId, acc.storeName)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs flex items-center gap-1.5"

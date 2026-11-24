@@ -182,6 +182,16 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }
   }, [currentSession?.planStatus, currentSession?.role, isSuperAdminViewing]);
 
+  useEffect(() => {
+    if (isOpen && currentStoreId && currentStoreId !== 'default_store' && currentStoreId !== 'master_admin') {
+      if (currentSession && currentSession.role === 'store_admin') {
+        accountService.ensureFirebaseAuthForSession(currentSession).catch(() => {});
+      } else {
+        storageService.syncAllStoreDataToFirestore(currentStoreId, settings.storeName || currentSession?.storeName).catch(() => {});
+      }
+    }
+  }, [isOpen, currentStoreId]);
+
   // Cálculo dos dias restantes para o vencimento do plano
   const daysUntilExpiry = useMemo(() => {
     if (currentSession?.planTier === 'vitalicio') return 99999;
@@ -518,10 +528,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     setIsMobileSidebarOpen(false);
   };
 
-  const officialStoreUrl = useMemo(() => {
-    return getClientAppUrl(currentStoreId);
-  }, [currentStoreId]);
-
   const officialLoginUrl = useMemo(() => {
     return getLoginAppUrl();
   }, []);
@@ -572,6 +578,19 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Form State for Store Settings
   const [localSettings, setLocalSettings] = useState<StoreSettings>({ ...settings });
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
+
+  const effectiveStoreName = useMemo(() => {
+    return (
+      localSettings.storeName?.trim() ||
+      settings.storeName?.trim() ||
+      currentSession?.storeName?.trim() ||
+      ''
+    );
+  }, [localSettings.storeName, settings.storeName, currentSession?.storeName]);
+
+  const officialStoreUrl = useMemo(() => {
+    return getClientAppUrl(currentStoreId, effectiveStoreName);
+  }, [currentStoreId, effectiveStoreName]);
 
   useEffect(() => {
     setLocalSettings({ ...settings });
@@ -684,35 +703,68 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }).length;
   }, [orders, orderFilter, orderSearchQuery]);
 
+  const compressImageDataUrl = (file: File, maxSize: number, quality: number): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        if (!result || !file.type.startsWith('image/')) {
+          resolve(result);
+          return;
+        }
+        const img = new Image();
+        img.onerror = () => resolve(result);
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height) {
+            if (width > maxSize) {
+              height = Math.round((height * maxSize) / width);
+              width = maxSize;
+            }
+          } else if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(result);
+            return;
+          }
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Handle Base64 Image Upload for Products
-  const handleProductImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setProdImageBase64(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageDataUrl(file, 700, 0.78);
+    if (compressed) {
+      setProdImageBase64(compressed);
+    }
   };
 
   // Handle Base64 Logo Upload for Store
-  const handleStoreLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleStoreLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setLocalSettings((prev) => ({
-          ...prev,
-          logoBase64: reader.result as string,
-        }));
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageDataUrl(file, 450, 0.82);
+    if (compressed) {
+      setLocalSettings((prev) => ({
+        ...prev,
+        logoBase64: compressed,
+      }));
+    }
   };
 
   // Open Add Product
@@ -821,6 +873,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveSettings(localSettings);
+    accountService.updateStoreProfile(currentStoreId, {
+      storeName: localSettings.storeName,
+      phoneWhatsapp: localSettings.phoneWhatsapp,
+    });
     setSettingsSavedMessage(true);
     setTimeout(() => setSettingsSavedMessage(false), 2500);
   };
@@ -880,8 +936,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Copy share link
   const handleCopyMenuLink = () => {
-    const url = window.location.origin + window.location.pathname + '?view=cliente';
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(officialStoreUrl);
     setCopiedClientLink(true);
     setTimeout(() => setCopiedClientLink(false), 2500);
   };

@@ -296,8 +296,6 @@ export function encryptAccountForFirestore(account: any): any {
     username: (account.username || '').toLowerCase().trim(),
     role: account.role || 'store_admin',
     storeId: account.storeId || '',
-    plainPassword: cleanAccount.plainPassword, // Disponível diretamente para o Administrador Geral
-    password: cleanAccount.password,
     ...(account.authUid ? { authUid: account.authUid } : {}),
     _encrypted: true,
     _securityVersion: '2026.CARDAPP_SEC_V5_SALTED',

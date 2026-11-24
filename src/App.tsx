@@ -48,6 +48,28 @@ import {
 } from './data/initialData';
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
+import { RESERVED_ROUTE_SLUGS, getClientAppUrl } from './utils/constants';
+
+function extractStoreTargetFromLocation(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const storeQuery = (urlParams.get('store') || urlParams.get('loja') || '').trim();
+    if (storeQuery) return storeQuery;
+
+    const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const firstSegment = rawPath.split('/')[0] || '';
+    const lowerSeg = firstSegment.toLowerCase();
+    if (
+      firstSegment &&
+      !firstSegment.includes('.') &&
+      !RESERVED_ROUTE_SLUGS.has(lowerSeg)
+    ) {
+      return decodeURIComponent(firstSegment);
+    }
+  } catch {}
+  return '';
+}
 
 export default function App() {
   // Navigation view: 'landing' vs 'menu' (Customer shopping screen) vs 'login' (Dedicated login screen)
@@ -58,20 +80,37 @@ export default function App() {
       const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
       const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
       const savedNavView = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_current_view') : null;
+      const storeTarget = extractStoreTargetFromLocation();
 
       // 1. Rota de login explícita
-      if (view === 'login' || view === 'entrar' || pathname === '/login' || pathname === '/entrar' || hash === '#login') {
+      if (
+        view === 'login' ||
+        view === 'entrar' ||
+        view === 'cadastro' ||
+        view === 'registrar' ||
+        view === 'register' ||
+        pathname === '/login' ||
+        pathname === '/entrar' ||
+        pathname === '/cadastro' ||
+        pathname === '/registrar' ||
+        hash === '#login'
+      ) {
         return 'login';
       }
 
-      // 2. Rota de cliente / cardápio / admin explícita
+      // 2. Rota de cliente / cardápio / admin explícita OU link direto da loja (/nome-da-loja ou ?store=...)
       if (
+        storeTarget ||
         view === 'cliente' ||
         view === 'cardapio' ||
         view === 'menu' ||
         view === 'ceo' ||
         view === 'admin' ||
+        pathname === '/cliente' ||
         pathname === '/cardapio' ||
+        pathname === '/menu' ||
+        pathname === '/ceo' ||
+        pathname === '/admin' ||
         hash.includes('cardapio') ||
         hash.includes('admin')
       ) {
@@ -94,6 +133,13 @@ export default function App() {
     // 4. Ao entrar no site pela primeira vez, sempre entra automaticamente na Landing Page
     return 'landing';
   });
+
+  const [isResolvingStore, setIsResolvingStore] = useState<boolean>(() => {
+    const target = extractStoreTargetFromLocation();
+    if (!target) return false;
+    return !accountService.findAccountByStoreParam(target);
+  });
+  const [storeResolveError, setStoreResolveError] = useState<string | null>(null);
 
   // Push Notification Banner state
   const [pushBanner, setPushBanner] = useState<{
@@ -195,6 +241,8 @@ export default function App() {
 
   // Check URL query parameters or paths
   useEffect(() => {
+    let isMounted = true;
+
     const syncRouteFromUrl = () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -224,58 +272,38 @@ export default function App() {
         const isClienteRoute =
           view === 'cliente' ||
           view === 'cardapio' ||
+          view === 'menu' ||
           pathname === '/cliente' ||
           pathname === '/cardapio' ||
           pathname === '/menu';
 
-        const storeParam = urlParams.get('store') || urlParams.get('loja');
-        if (storeParam) {
-          const accounts = accountService.getAccounts();
-          let target = accounts.find((a) => a.storeId === storeParam);
-          if (!target) {
-            target = accounts.find((a) => {
-              const slug = (a.storeName || '')
-                .toLowerCase()
-                .trim()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '');
-              return slug === storeParam.toLowerCase().trim();
-            });
-          }
-          if (!target) {
-            target = accounts.find((a) => (a.storeName || '').toLowerCase().trim() === storeParam.toLowerCase().trim());
-          }
-
-          if (target) {
-            storageService.setStoreId(target.storeId, target.storeName, target.phoneWhatsapp);
-            localStorage.setItem('cardapp_last_store_id', target.storeId);
-          } else {
-            storageService.setStoreId(storeParam);
-            localStorage.setItem('cardapp_last_store_id', storeParam);
-          }
-        }
-
+        const storeTarget = extractStoreTargetFromLocation();
         const session = accountService.getCurrentSession();
-        const lastView = localStorage.getItem('cardapp_last_view');
         const lastStore = localStorage.getItem('cardapp_last_store_id');
 
         const savedView = sessionStorage.getItem('cardapp_current_view');
         const savedCeo = sessionStorage.getItem('cardapp_ceo_open');
         const savedSuperAdmin = sessionStorage.getItem('cardapp_superadmin_open');
 
-        // Regra do Usuário: Assim que o cliente entrar no site (sem histórico nesta aba), automaticamente já vai para a Landing Page
-        if (!view && (!pathname || pathname === '/') && !window.location.hash && !savedView) {
-          setCurrentView('landing');
-          setIsCeoModalOpen(false);
-          setIsSuperAdminModalOpen(false);
-          sessionStorage.setItem('cardapp_current_view', 'landing');
+        // Rotas explícitas de login e cadastro têm prioridade
+        if (isRegister) {
+          setIsResolvingStore(false);
+          setLoginModalMode('register');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
+          return;
+        }
+        if (isLogin) {
+          setIsResolvingStore(false);
+          setLoginModalMode('login');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
           return;
         }
 
-        // Se o lojista estava com o painel do CEO aberto ou acessou rota admin/ceo
+        // Se o lojista acessou rota admin/ceo ou estava com painel CEO aberto
         if (isCeoRoute || (savedCeo === 'true' && session?.role === 'store_admin')) {
+          setIsResolvingStore(false);
           if (session) {
             storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
             setCurrentUser(session);
@@ -287,6 +315,7 @@ export default function App() {
 
         // Se o SuperAdmin estava com o painel aberto
         if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === 'true')) {
+          setIsResolvingStore(false);
           storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
           setCurrentUser(session);
           setCurrentView('menu');
@@ -294,50 +323,118 @@ export default function App() {
           return;
         }
 
-        // Rotas de login e cadastro
-        if (isRegister) {
-          setLoginModalMode('register');
-          setCurrentView('login');
-          setIsLoginModalOpen(true);
+        // Link compartilhado da loja (/nome-da-loja ou ?store=... / ?loja=...)
+        if (storeTarget) {
+          setCurrentView('menu');
+          setIsCeoModalOpen(false);
+          setIsSuperAdminModalOpen(false);
+          setStoreResolveError(null);
+          sessionStorage.setItem('cardapp_current_view', 'menu');
+
+          const localTarget = accountService.findAccountByStoreParam(storeTarget);
+          if (localTarget) {
+            storageService.setStoreId(
+              localTarget.storeId,
+              localTarget.storeName,
+              localTarget.phoneWhatsapp
+            );
+            localStorage.setItem('cardapp_last_store_id', localTarget.storeId);
+            setProducts(storageService.getProducts());
+            setCategories(storageService.getCategories());
+            setSettings(storageService.getSettings());
+            setIsResolvingStore(false);
+            storageService.loadStoreFromFirestoreOnce(localTarget.storeId).then(() => {
+              if (!isMounted) return;
+              setProducts(storageService.getProducts());
+              setCategories(storageService.getCategories());
+              setSettings(storageService.getSettings());
+            });
+            return;
+          }
+
+          setIsResolvingStore(true);
+          (async () => {
+            const resolved = await storageService.resolveStoreTarget(storeTarget);
+            if (!isMounted) return;
+
+            const resolvedStoreId =
+              resolved?.storeId ||
+              (storeTarget.startsWith('store_') ? storeTarget : '');
+
+            if (!resolvedStoreId) {
+              setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
+              setIsResolvingStore(false);
+              return;
+            }
+
+            storageService.setStoreId(resolvedStoreId, resolved?.storeName);
+            localStorage.setItem('cardapp_last_store_id', resolvedStoreId);
+            await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
+            if (!isMounted) return;
+
+            setProducts(storageService.getProducts());
+            setCategories(storageService.getCategories());
+            setSettings(storageService.getSettings());
+            setIsResolvingStore(false);
+          })();
           return;
-        } else if (isLogin || savedView === 'login') {
+        }
+
+        // Sem loja específica na URL: página inicial (Landing) na primeira visita
+        if (!view && (!pathname || pathname === '/') && !window.location.hash && !savedView) {
+          setIsResolvingStore(false);
+          setCurrentView('landing');
+          setIsCeoModalOpen(false);
+          setIsSuperAdminModalOpen(false);
+          sessionStorage.setItem('cardapp_current_view', 'landing');
+          return;
+        }
+
+        if (savedView === 'login') {
+          setIsResolvingStore(false);
           setLoginModalMode('login');
           setCurrentView('login');
           setIsLoginModalOpen(true);
           return;
         } else if (isClienteRoute || view === 'cardapio' || view === 'menu' || savedView === 'menu') {
+          setIsResolvingStore(false);
           if (lastStore) {
             storageService.setStoreId(lastStore);
           }
           setCurrentView('menu');
           return;
         } else if (savedView === 'landing') {
+          setIsResolvingStore(false);
           setCurrentView('landing');
           return;
         } else {
-          // Padrão: Landing Page
+          setIsResolvingStore(false);
           setCurrentView('landing');
           sessionStorage.setItem('cardapp_current_view', 'landing');
         }
       } catch {
-        // ignore
+        setIsResolvingStore(false);
       }
     };
 
     syncRouteFromUrl();
     window.addEventListener('popstate', syncRouteFromUrl);
-    return () => window.removeEventListener('popstate', syncRouteFromUrl);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('popstate', syncRouteFromUrl);
+    };
   }, []);
 
   // Load initial data and subscribe to storage changes
   useEffect(() => {
     testFirestoreConnection();
     const initialSession = accountService.getCurrentSession();
+    const urlStoreTarget = extractStoreTargetFromLocation();
     storageService.setAuthContext(
       accountService.isImpersonating() ? 'super_admin' : (initialSession?.role || null),
       initialSession?.storeId || null
     );
-    if (initialSession && initialSession.storeId) {
+    if (initialSession && initialSession.storeId && !urlStoreTarget) {
       storageService.setStoreId(initialSession.storeId, initialSession.storeName, initialSession.phoneWhatsapp);
     }
 
@@ -382,7 +479,7 @@ export default function App() {
         accountService.isImpersonating() ? 'super_admin' : (sess?.role || null),
         sess?.storeId || null
       );
-      if (sess && sess.storeId) {
+      if (sess && sess.storeId && !extractStoreTargetFromLocation()) {
         storageService.setStoreId(sess.storeId, sess.storeName, sess.phoneWhatsapp);
       }
     });
@@ -745,7 +842,9 @@ export default function App() {
       setCurrentView('menu');
       localStorage.setItem('cardapp_last_view', 'ceo');
       try {
-        window.history.replaceState({}, '', `/?view=cliente&store=${encodeURIComponent(user.storeId)}`);
+        const cleanUrl = getClientAppUrl(user.storeId, user.storeName);
+        const parsed = new URL(cleanUrl);
+        window.history.replaceState({}, '', parsed.pathname + parsed.search);
       } catch {
         // ignore
       }
@@ -897,7 +996,45 @@ export default function App() {
       )}
 
       {/* 3. DIGITAL MENU VIEW FOR CLIENTS (SOMENTE COMPRAS DO CLIENTE, SEM SETAS OU "X" PARA O LANDING PAGE) */}
-      {currentView === 'menu' && (
+      {currentView === 'menu' && isResolvingStore && (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-[#FFFDF7]">
+          <div className="w-16 h-16 rounded-3xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg mb-4 animate-pulse">
+            <ForkKnifeIcon className="w-8 h-8 stroke-[2.3]" />
+          </div>
+          <h2 className="text-lg font-black text-slate-950">Carregando cardápio da loja...</h2>
+          <p className="text-xs text-slate-500 mt-1">Buscando produtos e informações atualizadas</p>
+        </div>
+      )}
+
+      {currentView === 'menu' && !isResolvingStore && storeResolveError && (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-[#FFFDF7]">
+          <div className="max-w-md w-full bg-white rounded-3xl p-6 border-2 border-amber-300 shadow-lg space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <ForkKnifeIcon className="w-7 h-7 stroke-[2.2]" />
+            </div>
+            <h2 className="text-lg font-black text-slate-950">Loja não encontrada</h2>
+            <p className="text-xs text-slate-600">{storeResolveError}</p>
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleOpenDemoMenu}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer"
+              >
+                Ver Cardápio Demonstração
+              </button>
+              <button
+                type="button"
+                onClick={handleGoToLanding}
+                className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs cursor-pointer"
+              >
+                Página Inicial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {currentView === 'menu' && !isResolvingStore && !storeResolveError && (
         <>
           {/* Welcome Splash Animation in Yellow & White */}
           {showSplash && (
@@ -1153,7 +1290,7 @@ export default function App() {
 
       {/* CEO / STORE OWNER ADMIN MODAL */}
       <CEOAdminModal
-        key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}_${settings.storeName}`}
+        key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}`}
         isOpen={isCeoModalOpen}
         onClose={() => {
           setIsCeoModalOpen(false);
