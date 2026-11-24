@@ -138,8 +138,23 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
 
   const openWhatsApp = () => {
     const url = getOrderWhatsAppUrl(order, settings);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
   };
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      openWhatsApp();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, []);
 
   const statusSteps: {
     key: OrderStatus;
@@ -350,13 +365,13 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           </div>
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-white text-emerald-950 inline-block mb-1">
-              Envio Imediato para a Loja
+              Envio 100% Automático
             </span>
             <h3 className="font-black text-sm sm:text-base leading-tight">
-              Pedido Gerado com Sucesso! Envie agora no WhatsApp da Loja
+              Pedido Enviado Automaticamente para o WhatsApp!
             </h3>
             <p className="text-xs text-emerald-100 font-medium mt-0.5">
-              Clique no botão ao lado para enviar a comanda completa com todos os itens diretamente para o atendimento do restaurante.
+              A comanda com todos os itens foi aberta no WhatsApp da loja. Caso necessário, clique abaixo para reenviar.
             </p>
           </div>
         </div>
@@ -366,7 +381,7 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-950 font-black text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
         >
           <MessageCircle className="w-4 h-4 fill-emerald-700 text-emerald-700" />
-          <span>Enviar no WhatsApp da Loja</span>
+          <span>Reenviar no WhatsApp</span>
         </button>
       </div>
 

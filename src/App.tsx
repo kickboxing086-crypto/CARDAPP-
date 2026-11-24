@@ -3,8 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Home, Crown, Lock } from 'lucide-react';
+import {
+  triggerOrderStatusNotification,
+  getStatusNotificationMessage,
+  requestPushPermission,
+  playNotificationSound,
+} from './utils/notificationService';
 import {
   Product,
   CartItem,
@@ -42,11 +48,6 @@ import {
 } from './data/initialData';
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
-import {
-  triggerOrderStatusNotification,
-  getStatusNotificationMessage,
-  requestPushPermission,
-} from './utils/notificationService';
 
 export default function App() {
   // Navigation view: 'landing' vs 'menu' (Customer shopping screen) vs 'login' (Dedicated login screen)
@@ -117,6 +118,10 @@ export default function App() {
   // Core Data State
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const ordersRef = useRef<Order[]>(orders);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<StoreSettings>(storageService.getSettings());
   const [activeOrderId, setActiveOrderId] = useState<string | null>(storageService.getActiveOrderId());
@@ -329,8 +334,25 @@ export default function App() {
     }
 
     const unsubscribeStorage = storageService.subscribe(() => {
+      const newOrders = storageService.getOrders();
+      if (newOrders.length > ordersRef.current.length) {
+        try {
+          playNotificationSound();
+        } catch {}
+      } else {
+        const hasStatusChange = newOrders.some((newO) => {
+          const oldO = ordersRef.current.find((o) => o.id === newO.id);
+          return oldO && oldO.status !== newO.status;
+        });
+        if (hasStatusChange) {
+          try {
+            playNotificationSound();
+          } catch {}
+        }
+      }
+
       setProducts(storageService.getProducts());
-      setOrders(storageService.getOrders());
+      setOrders(newOrders);
       setCategories(storageService.getCategories());
       setSettings(storageService.getSettings());
       setActiveOrderId(storageService.getActiveOrderId());
@@ -586,13 +608,18 @@ export default function App() {
       customer: customerData,
     });
 
-    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja (somente em lojas reais cadastradas)
-    const isDemoStore = storageService.currentStoreId === 'default_store';
-    if (!isDemoStore && settings.phoneWhatsapp) {
+    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja
+    if (settings.phoneWhatsapp) {
       try {
         const whatsappUrl = getOrderWhatsAppUrl(newOrder, settings);
         if (whatsappUrl) {
-          window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+          const a = document.createElement('a');
+          a.href = whatsappUrl;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
         }
       } catch {
         // fallback
