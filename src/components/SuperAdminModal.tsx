@@ -37,6 +37,10 @@ import {
   Infinity as InfinityIcon,
   ShieldAlert,
   Menu,
+  Timer,
+  Clock,
+  ArrowRight,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -179,6 +183,47 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // Quick Copy Link State
   const [copiedStoreId, setCopiedStoreId] = useState<string | null>(null);
   const [dbFeedback, setDbFeedback] = useState<string | null>(null);
+
+  // Two-step renewal confirmation state (organized 2-step verification)
+  const [renewalModal, setRenewalModal] = useState<{
+    account: UserAccount;
+    planOrPeriod: SubscriptionPlan | PlanPeriod;
+    step: 1 | 2;
+    planName: string;
+    priceFormatted: string;
+    durationDays: number;
+    currentExpiresAtFormatted: string;
+    newExpiresAtFormatted: string;
+    confirmedSecurity: boolean;
+  } | null>(null);
+
+  // Two-step sensitive password viewing modal state
+  const [viewPasswordModal, setViewPasswordModal] = useState<{
+    account: UserAccount;
+    step: 1 | 2;
+    revealedPassword: string;
+    remainingSeconds: number;
+    confirmedConsent: boolean;
+  } | null>(null);
+  const [copiedRevealedPassword, setCopiedRevealedPassword] = useState(false);
+  const [copiedWhatsAppAccess, setCopiedWhatsAppAccess] = useState(false);
+
+  // Auto-hide countdown timer for sensitive revealed password (60 seconds)
+  useEffect(() => {
+    if (!viewPasswordModal || viewPasswordModal.step !== 2) return;
+    if (viewPasswordModal.remainingSeconds <= 0) {
+      setViewPasswordModal(null);
+      return;
+    }
+    const timer = setInterval(() => {
+      setViewPasswordModal((prev) => {
+        if (!prev || prev.step !== 2) return null;
+        if (prev.remainingSeconds <= 1) return null;
+        return { ...prev, remainingSeconds: prev.remainingSeconds - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [viewPasswordModal?.step, viewPasswordModal?.remainingSeconds]);
   const [linkedPixKeyInput, setLinkedPixKeyInput] = useState<string>(() => accountService.getCleanPixKey());
   const [copiedAdminPixKey, setCopiedAdminPixKey] = useState(false);
 
@@ -451,21 +496,103 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     }
   };
 
+  // Inicia o fluxo de Renovação em 2 Etapas (Confirmação de Segurança)
   const handleApplyPlanToAccount = (acc: UserAccount, planOrPeriod: SubscriptionPlan | PlanPeriod) => {
     if (!isSuperAdmin) {
-      showToast('error', 'Somente o Administrador Geral pode aplicar planos.');
+      showToast('error', 'Somente o Administrador Geral pode renovar planos.');
       return;
     }
-    const res = accountService.applyPlanToAccount(acc.id, planOrPeriod);
+    const isString = typeof planOrPeriod === 'string';
+    const period = isString ? planOrPeriod : planOrPeriod.period;
+    const planName = isString ? (PERIOD_LABELS[planOrPeriod] || planOrPeriod) : planOrPeriod.name;
+    const durationDays = isString ? (PLAN_PERIOD_DAYS[period] || 30) : planOrPeriod.durationDays;
+    const priceFormatted = isString
+      ? formatCurrency(parseFloat(PERIOD_DEFAULT_PRICES[period] || '29.99'))
+      : formatCurrency(planOrPeriod.price);
+
+    const currentExp = acc.expiresAt ? new Date(acc.expiresAt) : null;
+    const currentExpiresAtFormatted = currentExp
+      ? currentExp.toLocaleDateString('pt-BR')
+      : 'Sem data anterior';
+
+    const now = new Date();
+    const baseDate = currentExp && currentExp.getTime() > now.getTime() ? currentExp : now;
+    const newExp = new Date(baseDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    const newExpiresAtFormatted =
+      durationDays >= 36500 ? 'Acesso Vitalício (Sem expiração)' : newExp.toLocaleDateString('pt-BR');
+
+    setRenewalModal({
+      account: acc,
+      planOrPeriod,
+      step: 1,
+      planName,
+      priceFormatted,
+      durationDays,
+      currentExpiresAtFormatted,
+      newExpiresAtFormatted,
+      confirmedSecurity: false,
+    });
+  };
+
+  // Efetiva a renovação do plano após a confirmação na Etapa 2
+  const handleExecuteRenewal = () => {
+    if (!renewalModal) return;
+    const res = accountService.applyPlanToAccount(renewalModal.account.id, renewalModal.planOrPeriod);
     if (res.success) {
-      showToast('success', `${acc.storeName}: ${res.message}`);
-      const updated = accountService.getAccounts().find((a) => a.id === acc.id);
-      if (updated && drawerAccountId === acc.id) {
+      showToast('success', `${renewalModal.account.storeName}: ${res.message}`);
+      setAccounts(accountService.getAccounts());
+      const updated = accountService.getAccounts().find((a) => a.id === renewalModal.account.id);
+      if (updated && drawerAccountId === renewalModal.account.id) {
         setEditExpiresAt(updated.expiresAt ? updated.expiresAt.slice(0, 10) : '');
       }
+      setRenewalModal(null);
     } else {
       showToast('error', res.message);
     }
+  };
+
+  // Inicia o fluxo de visualização de senha sensível em 2 etapas
+  const handleOpenViewPasswordModal = (acc: UserAccount) => {
+    if (!isSuperAdmin) {
+      showToast('error', 'Apenas o Administrador Geral tem autorização para visualizar credenciais de acesso.');
+      return;
+    }
+    const plainPass = accountService.getDecryptedPassword(acc) || '';
+    setViewPasswordModal({
+      account: acc,
+      step: 1,
+      revealedPassword: plainPass,
+      remainingSeconds: 60,
+      confirmedConsent: false,
+    });
+    setCopiedRevealedPassword(false);
+    setCopiedWhatsAppAccess(false);
+  };
+
+  const handleCopyRevealedPassword = async () => {
+    if (!viewPasswordModal?.revealedPassword) return;
+    try {
+      await navigator.clipboard.writeText(viewPasswordModal.revealedPassword);
+      setCopiedRevealedPassword(true);
+      setTimeout(() => setCopiedRevealedPassword(false), 2500);
+    } catch {}
+  };
+
+  const handleCopyWhatsAppAccessCredentials = async () => {
+    if (!viewPasswordModal) return;
+    const acc = viewPasswordModal.account;
+    const pass = viewPasswordModal.revealedPassword || '(Senha cadastrada pelo cliente)';
+    const text = `🔐 *DADOS DE ACESSO AO CARDAPP*\n\n` +
+      `🏪 *Estabelecimento:* ${acc.storeName}\n` +
+      `👤 *Usuário:* ${acc.username}\n` +
+      `🔑 *Senha:* ${pass}\n\n` +
+      `🌐 *Acesse pelo link de login:* https://cardapp.us/?view=login\n\n` +
+      `_Guarde estas credenciais com segurança._`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWhatsAppAccess(true);
+      setTimeout(() => setCopiedWhatsAppAccess(false), 3000);
+    } catch {}
   };
 
   const handleToggleBlockAccount = (acc: UserAccount, reason?: string) => {
@@ -1281,11 +1408,20 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                         <span className="text-slate-400">User: </span>
                                         <span className="text-slate-950 font-bold">{acc.username}</span>
                                       </div>
-                                      <div>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
                                         <span className="text-slate-400">Pass: </span>
                                         <span className="text-emerald-900 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-bold">
-                                          •••••••• (SHA-256)
+                                          ••••••••
                                         </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenViewPasswordModal(acc)}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] transition-colors cursor-pointer border border-amber-300"
+                                          title="Visualizar senha em 2 etapas de segurança"
+                                        >
+                                          <Eye className="w-3 h-3 text-amber-800" />
+                                          <span>Ver (2 Etapas)</span>
+                                        </button>
                                       </div>
                                     </div>
                                   )}
@@ -1399,9 +1535,19 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                               </div>
                               <div>
                                 <span className="text-slate-400 block">Senha:</span>
-                                <strong className="font-mono text-emerald-800">
-                                  •••••••• (SHA-256)
-                                </strong>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <strong className="font-mono text-emerald-800">
+                                    ••••••••
+                                  </strong>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenViewPasswordModal(acc)}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] border border-amber-300"
+                                  >
+                                    <Eye className="w-3 h-3 text-amber-800" />
+                                    <span>Ver (2 Etapas)</span>
+                                  </button>
+                                </div>
                               </div>
                               <div>
                                 <span className="text-slate-400 block">Plano:</span>
@@ -2683,9 +2829,21 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-slate-600 font-bold">Proteção de Senha:</span>
-                        <strong className="font-mono text-emerald-800">
-                          Hash SHA-256 Ativo
-                        </strong>
+                        <div className="flex items-center gap-1.5">
+                          <strong className="font-mono text-emerald-800">
+                            Criptografada
+                          </strong>
+                          {drawerAccount.role !== 'super_admin' && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenViewPasswordModal(drawerAccount)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] border border-amber-300 cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3 text-amber-800" />
+                              <span>Ver Senha (2 Etapas)</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -2971,6 +3129,308 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 )}
               </div>
             </aside>
+          </div>
+        )}
+
+        {/* MODAL ETAPA 1 E 2: RENOVAÇÃO DE PLANO COM DUAS ETAPAS */}
+        {renewalModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border-2 border-amber-400 max-w-lg w-full p-6 sm:p-7 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+              {/* Header com indicador de etapa */}
+              <div className="flex items-center justify-between pb-3 border-b border-amber-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-xs">
+                    <RefreshCw className="w-5 h-5 stroke-[2.5]" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">
+                      Segurança do Administrador Geral
+                    </span>
+                    <h3 className="text-base sm:text-lg font-black text-slate-950">
+                      Renovação de Assinatura
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                  <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center ${renewalModal.step === 1 ? 'bg-amber-400 text-slate-950' : 'bg-emerald-500 text-white'}`}>
+                    1
+                  </span>
+                  <span className="text-slate-300 font-bold">→</span>
+                  <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center ${renewalModal.step === 2 ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-600'}`}>
+                    2
+                  </span>
+                </div>
+              </div>
+
+              {/* ETAPA 1: REVISÃO DETALHADA DO PLANO E DADOS DA LOJA */}
+              {renewalModal.step === 1 && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2">
+                    <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider block">
+                      Etapa 1 de 2: Dados da Loja & Plano Escolhido
+                    </span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Estabelecimento:</span>
+                        <strong className="text-slate-950 font-bold text-sm block">{renewalModal.account.storeName}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Responsável / CEO:</span>
+                        <strong className="text-slate-900 font-bold block">{renewalModal.account.name}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Usuário de Acesso:</span>
+                        <code className="font-mono text-slate-900 font-bold">{renewalModal.account.username}</code>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Plano Selecionado:</span>
+                        <strong className="text-amber-800 font-black">{renewalModal.planName}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Vencimento Atual</span>
+                      <strong className="text-xs font-mono text-slate-800 mt-0.5 block">{renewalModal.currentExpiresAtFormatted}</strong>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-center">
+                      <span className="text-[10px] uppercase font-black text-emerald-800 block">Novo Vencimento Oficial</span>
+                      <strong className="text-xs font-mono font-black text-emerald-900 mt-0.5 block">{renewalModal.newExpiresAtFormatted}</strong>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-950 text-white flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-wider text-amber-400 font-black block">Valor do Plano</span>
+                      <span className="text-xs text-slate-300">{renewalModal.durationDays >= 36500 ? 'Sem limite de renovação' : `Duração de ${renewalModal.durationDays} dias`}</span>
+                    </div>
+                    <span className="text-xl font-black text-amber-400 font-mono">{renewalModal.priceFormatted}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setRenewalModal(null)}
+                      className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRenewalModal((prev) => prev ? { ...prev, step: 2 } : null)}
+                      className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md flex items-center justify-center gap-2"
+                    >
+                      <span>Avançar para Etapa 2</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ETAPA 2: AUTENTICAÇÃO DO ADMIN & CONFIRMAÇÃO FINAL */}
+              {renewalModal.step === 2 && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2 border border-slate-800">
+                    <div className="flex items-center gap-2 text-amber-400">
+                      <ShieldCheck className="w-5 h-5 stroke-[2.5]" />
+                      <span className="text-xs font-black uppercase tracking-wider">
+                        Etapa 2 de 2: Confirmação & Ativação de Acesso
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Você está prestes a renovar e reativar a loja <strong>{renewalModal.account.storeName}</strong> com o plano <strong>{renewalModal.planName}</strong> até <strong>{renewalModal.newExpiresAtFormatted}</strong>.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={renewalModal.confirmedSecurity}
+                        onChange={(e) => setRenewalModal((prev) => prev ? { ...prev, confirmedSecurity: e.target.checked } : null)}
+                        className="w-4 h-4 mt-0.5 text-amber-500 accent-amber-500 shrink-0"
+                      />
+                      <span className="text-xs font-semibold text-slate-800 leading-snug">
+                        Confirmo a renovação oficial e liberação imediata do cardápio digital e painel do lojista.
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setRenewalModal((prev) => prev ? { ...prev, step: 1 } : null)}
+                      className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-colors flex items-center gap-1.5"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Voltar</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!renewalModal.confirmedSecurity}
+                      onClick={handleExecuteRenewal}
+                      className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-black text-xs cursor-pointer transition-all shadow-md flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                      <span>Confirmar e Ativar Plano Agora</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL ETAPA 1 E 2: VISUALIZAÇÃO DE SENHA COM 2 ETAPAS E AUTO-OCULTAÇÃO */}
+        {viewPasswordModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border-2 border-amber-400 max-w-lg w-full p-6 sm:p-7 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+              {/* Header com indicador de 2 etapas */}
+              <div className="flex items-center justify-between pb-3 border-b border-amber-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-xs">
+                    <KeyRound className="w-5 h-5 stroke-[2.5]" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">
+                      Segurança de Credenciais Sensíveis
+                    </span>
+                    <h3 className="text-base sm:text-lg font-black text-slate-950">
+                      Visualizar Senha do Cliente
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                  <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center ${viewPasswordModal.step === 1 ? 'bg-amber-400 text-slate-950' : 'bg-emerald-500 text-white'}`}>
+                    1
+                  </span>
+                  <span className="text-slate-300 font-bold">→</span>
+                  <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center ${viewPasswordModal.step === 2 ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-600'}`}>
+                    2
+                  </span>
+                </div>
+              </div>
+
+              {/* ETAPA 1: TERMO DE AUTORIZAÇÃO DO ADMINISTRADOR MESTRE */}
+              {viewPasswordModal.step === 1 && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+                    <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider block">
+                      Etapa 1 de 2: Confirmação de Autorização
+                    </span>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      As senhas dos lojistas são dados confidenciais protegidos por criptografia reversível autorizada. Esta consulta será registrada sob a autoridade do Administrador Geral.
+                    </p>
+                    <div className="pt-2 border-t border-amber-200 text-xs">
+                      <span className="text-slate-500 block text-[11px]">Loja Selecionada:</span>
+                      <strong className="text-slate-950 font-bold block">{viewPasswordModal.account.storeName}</strong>
+                      <span className="text-slate-500 block text-[11px] mt-1">Usuário de Login:</span>
+                      <code className="font-mono text-slate-900 font-bold">{viewPasswordModal.account.username}</code>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={viewPasswordModal.confirmedConsent}
+                        onChange={(e) => setViewPasswordModal((prev) => prev ? { ...prev, confirmedConsent: e.target.checked } : null)}
+                        className="w-4 h-4 mt-0.5 text-amber-500 accent-amber-500 shrink-0"
+                      />
+                      <span className="text-xs font-bold text-slate-900 leading-snug">
+                        Confirmo que sou o Administrador Geral e necessito descriptografar e visualizar a senha para auxílio operacional ao lojista.
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewPasswordModal(null)}
+                      className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!viewPasswordModal.confirmedConsent}
+                      onClick={() => setViewPasswordModal((prev) => prev ? { ...prev, step: 2 } : null)}
+                      className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-black text-xs cursor-pointer transition-all shadow-md flex items-center justify-center gap-2"
+                    >
+                      <span>Avançar para Etapa 2</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ETAPA 2: SENHA REVELADA + 1-CLIQUE COPIAR + FORMATADOR WHATSAPP + AUTO-OCULTAÇÃO 60S */}
+              {viewPasswordModal.step === 2 && (
+                <div className="space-y-4">
+                  {/* Timer de Auto-Ocultação */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-amber-100 border border-amber-300 text-amber-950">
+                    <div className="flex items-center gap-2 text-xs font-black">
+                      <Timer className="w-4 h-4 text-amber-700 animate-pulse" />
+                      <span>Auto-ocultação de segurança:</span>
+                    </div>
+                    <span className="text-xs font-black font-mono bg-white px-2.5 py-0.5 rounded-lg border border-amber-300">
+                      {viewPasswordModal.remainingSeconds}s
+                    </span>
+                  </div>
+
+                  {/* Caixa de Senha Revelada */}
+                  <div className="p-4 rounded-2xl bg-slate-950 text-white space-y-2 border border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                        Senha Descriptografada
+                      </span>
+                      <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                        {viewPasswordModal.revealedPassword ? 'Descriptografia Bem-sucedida' : 'Senha não disponível'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 bg-slate-900 p-3 rounded-xl border border-slate-800">
+                      <span className="text-lg sm:text-xl font-mono font-black text-amber-300 tracking-wider select-all break-all">
+                        {viewPasswordModal.revealedPassword || '(Senha cadastrada na versão anterior - Redefina pelo painel lateral)'}
+                      </span>
+                      {viewPasswordModal.revealedPassword && (
+                        <button
+                          type="button"
+                          onClick={handleCopyRevealedPassword}
+                          className="px-3 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shrink-0 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          {copiedRevealedPassword ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                          <span>{copiedRevealedPassword ? 'Copiada!' : 'Copiar'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Botão de Enviar Dados Completos para o WhatsApp do Cliente */}
+                  <button
+                    type="button"
+                    onClick={handleCopyWhatsAppAccessCredentials}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <MessageCircle className="w-4 h-4 text-emerald-700" />
+                    <span>{copiedWhatsAppAccess ? 'Dados Formatados Copiados para WhatsApp!' : 'Copiar Mensagem Formatada para WhatsApp'}</span>
+                  </button>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewPasswordModal(null)}
+                      className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs cursor-pointer transition-colors"
+                    >
+                      Ocultar e Fechar Agora
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

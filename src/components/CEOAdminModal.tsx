@@ -80,6 +80,7 @@ import {
   getOrderWhatsAppUrl,
 } from '../utils/comandaFormatter';
 import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
+import { ELEGANT_FONTS, getFontClass } from '../utils/typography';
 
 interface CEOAdminModalProps {
   isOpen: boolean;
@@ -259,7 +260,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Chave interna utilizada exclusivamente na montagem oculta do código EMV br.gov.bcb.pix (nunca exibida na tela)
   const cleanOfficialPixKey = useMemo(
-    () => extractCleanPixKey(officialPixKey) || 'a8d6dde8-33ae-45c8-b88a-5023cc204a55',
+    () => extractCleanPixKey(officialPixKey) || accountService.getCleanPixKey(),
     [officialPixKey]
   );
 
@@ -1153,6 +1154,30 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
             <button
               type="button"
+              onClick={() => handleNavigateTab('share')}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
+                activeTab === 'share'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm ring-1 ring-amber-500/50'
+                  : currentSession?.planStatus === 'bloqueado'
+                  ? 'text-slate-400 opacity-60 hover:bg-red-50/50 hover:text-red-800'
+                  : 'text-slate-700 hover:bg-amber-100/70 hover:text-slate-950'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Share2 className="w-4 h-4 stroke-[2.4]" />
+                <span>Compartilhar Link da Loja</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'share' ? 'bg-slate-950 text-amber-300' : 'bg-amber-200 text-amber-950'
+                }`}
+              >
+                Clientes
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => handleNavigateTab('status')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'status'
@@ -1389,6 +1414,16 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleNavigateTab('share')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs transition-all shadow-2xs cursor-pointer active:scale-95"
+                title="Compartilhar Link da Loja com os Clientes"
+              >
+                <Share2 className="w-3.5 h-3.5 text-amber-700 stroke-[2.2]" />
+                <span className="hidden sm:inline">Compartilhar Link</span>
+              </button>
+
               <button
                 type="button"
                 onClick={onSwitchToClientView}
@@ -2708,6 +2743,71 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         Sua logo aparecerá centralizada no topo do cardápio estilo perfil do Instagram!
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* TIPOGRAFIA & FONTES ELEGANTES DA LOJA */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border border-amber-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <span>Tipografia & Estilo das Letras da Loja</span>
+                    </label>
+                    <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-200">
+                      {ELEGANT_FONTS.find((f) => f.id === (localSettings.fontFamily || 'plus-jakarta'))?.name || 'Plus Jakarta Sans'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mb-3">
+                    Escolha o tipo de letra elegante para os títulos da sua loja e produtos no cardápio digital do cliente:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {ELEGANT_FONTS.map((font) => {
+                      const isSelected = (localSettings.fontFamily || 'plus-jakarta') === font.id;
+                      return (
+                        <button
+                          key={font.id}
+                          type="button"
+                          onClick={() => setLocalSettings((prev) => ({ ...prev, fontFamily: font.id }))}
+                          className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative ${
+                            isSelected
+                              ? 'bg-amber-400/20 border-amber-500 shadow-xs ring-1 ring-amber-400'
+                              : 'bg-white border-slate-200 hover:border-amber-300 hover:bg-amber-50/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-black text-slate-900">{font.name}</span>
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {font.category}
+                            </span>
+                          </div>
+                          <p className={`text-base font-bold text-slate-900 leading-snug truncate ${font.className}`}>
+                            {font.sampleText}
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Estilo: {font.tag}
+                          </p>
+                          {isSelected && (
+                            <div className="absolute top-2.5 right-2 w-4 h-4 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs">
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Demonstração visual ao vivo */}
+                  <div className="mt-3 p-3 rounded-xl bg-white border border-amber-200">
+                    <span className="block text-[10px] font-black uppercase text-amber-900 tracking-wider mb-1">
+                      Prévia do Título no Cardápio:
+                    </span>
+                    <p className={`text-xl font-black text-slate-950 leading-tight ${getFontClass(localSettings.fontFamily)}`}>
+                      {localSettings.storeName || 'Nome do Seu Restaurante'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Esta tipografia será aplicada automaticamente no cabeçalho do cardápio e nos títulos dos seus produtos.
+                    </p>
                   </div>
                 </div>
 

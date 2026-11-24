@@ -2,6 +2,7 @@ import React from 'react';
 import { ShoppingBag, Menu, Info, Lock, UserCheck, Clock3, Home, Crown } from 'lucide-react';
 import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
+import { getFontClass } from '../utils/typography';
 
 interface HeaderProps {
   settings: StoreSettings;
@@ -81,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-1">
-                <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-950 group-hover:text-amber-800 transition-colors font-display">
+                <span className={`font-extrabold text-sm sm:text-base tracking-tight text-slate-950 group-hover:text-amber-800 transition-colors ${getFontClass(settings.fontFamily)}`}>
                   {settings.storeName}
                 </span>
               </div>

@@ -270,6 +270,9 @@ export function encryptAccountForFirestore(account: any): any {
     passwordHash: safePasswordHash,
     phoneWhatsapp: account.phoneWhatsapp ? account.phoneWhatsapp.trim() : '',
     email: account.email ? account.email.toLowerCase().trim() : '',
+    plainPasswordEncrypted:
+      account.plainPasswordEncrypted ||
+      (account.password ? encryptString(account.password) : undefined),
   };
   delete cleanAccount.plainPassword;
   delete cleanAccount.password;

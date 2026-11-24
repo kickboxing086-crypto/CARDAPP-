@@ -32,6 +32,8 @@ import {
   encryptDataForFirestore,
   decryptDataFromFirestore,
   sanitizeAccountForStorage,
+  encryptString,
+  decryptString,
 } from '../utils/crypto';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
@@ -124,6 +126,7 @@ const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
   username: 'Samuel_adm1',
   passwordHash: MASTER_ADMIN_HASH,
+  plainPasswordEncrypted: encryptString('072131Sa@'),
   role: 'super_admin',
   name: 'Samuel',
   email: BOOTSTRAP_ADMIN_EMAIL,
@@ -736,6 +739,7 @@ class AccountService {
       id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       username: data.username.trim(),
       passwordHash: hashPassword(data.password),
+      plainPasswordEncrypted: encryptString(data.password),
       authUid: auth.currentUser?.uid,
       role: 'store_admin',
       name: data.name,
@@ -907,6 +911,10 @@ class AccountService {
             data.passwordHash !== undefined && data.passwordHash.trim() !== ''
               ? hashPassword(data.passwordHash)
               : acc.passwordHash,
+          plainPasswordEncrypted:
+            data.passwordHash !== undefined && data.passwordHash.trim() !== ''
+              ? encryptString(data.passwordHash)
+              : acc.plainPasswordEncrypted,
           email: data.email !== undefined ? data.email.trim().toLowerCase() : acc.email,
           phoneWhatsapp: data.phoneWhatsapp !== undefined ? data.phoneWhatsapp.trim() : acc.phoneWhatsapp,
           expiresAt: data.expiresAt !== undefined ? data.expiresAt : acc.expiresAt,
@@ -1279,10 +1287,15 @@ class AccountService {
     }
 
     const newHashedPassword = hashPassword(newPassword);
+    const newEncryptedPassword = encryptString(newPassword);
 
     this.accounts = this.accounts.map((a) => {
       if (a.id === account!.id) {
-        const updated = sanitizeAccountForStorage({ ...a, passwordHash: newHashedPassword });
+        const updated = sanitizeAccountForStorage({
+          ...a,
+          passwordHash: newHashedPassword,
+          plainPasswordEncrypted: newEncryptedPassword,
+        });
         try {
           if (auth.currentUser) {
             setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
@@ -1440,9 +1453,14 @@ class AccountService {
       };
     }
     const safeHash = hashPassword(newPassword);
+    const safeEncrypted = encryptString(newPassword);
     this.accounts = this.accounts.map((a) => {
       if (a.id === account.id) {
-        const updated = sanitizeAccountForStorage({ ...a, passwordHash: safeHash });
+        const updated = sanitizeAccountForStorage({
+          ...a,
+          passwordHash: safeHash,
+          plainPasswordEncrypted: safeEncrypted,
+        });
         try {
           if (auth.currentUser) {
             setDoc(doc(db, 'accounts', a.id), encryptAccountForFirestore(updated), { merge: true }).catch(() => {});
@@ -1464,6 +1482,24 @@ class AccountService {
       message: 'Senha redefinida com sucesso! Você já pode acessar sua conta.',
       user: updatedAccount,
     };
+  }
+
+  /**
+   * Descriptografa a senha para visualização pelo Administrador Geral mediante autenticação em duas etapas
+   */
+  public getDecryptedPassword(account: UserAccount): string | null {
+    if (!account) return null;
+    if (account.plainPasswordEncrypted) {
+      const dec = decryptString(account.plainPasswordEncrypted);
+      if (dec && !dec.startsWith('enc$')) {
+        return dec;
+      }
+    }
+    // Caso especial para conta mestre se ainda não inicializada
+    if (account.username === 'Samuel_adm1') {
+      return '072131Sa@';
+    }
+    return null;
   }
 }
 

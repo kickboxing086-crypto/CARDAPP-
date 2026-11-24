@@ -3,6 +3,7 @@ import { Instagram, MessageCircle, MapPin, ExternalLink, Clock, Bike, ShieldChec
 import { StoreSettings } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
+import { getFontClass } from '../utils/typography';
 
 interface InstagramStoreProfileProps {
   settings: StoreSettings;
@@ -58,7 +59,7 @@ export const InstagramStoreProfile: React.FC<InstagramStoreProfileProps> = ({
         </div>
 
         {/* Store Title Centered */}
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight font-display mb-1.5">
+        <h1 className={`text-2xl sm:text-3xl font-black text-slate-950 tracking-tight mb-1.5 ${getFontClass(settings.fontFamily)}`}>
           {settings.storeName}
         </h1>
 

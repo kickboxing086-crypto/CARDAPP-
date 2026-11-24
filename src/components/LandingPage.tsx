@@ -119,11 +119,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <ForkKnifeIcon className="w-6 h-6 stroke-[2.5]" />
             </div>
             <div>
-              <span className="font-black text-lg sm:text-xl tracking-tight text-white font-display block leading-none">
+              <span className="font-black text-base sm:text-lg tracking-tight text-white block leading-none">
                 CARDAPP
               </span>
               <span className="text-[10px] font-medium text-slate-400 tracking-wider block mt-1">
-                SF TECNOLOGIA GLOBAL
+                SF TECNOLOGIA
               </span>
             </div>
           </div>
@@ -192,12 +192,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span>PLATAFORMA DE PEDIDOS ONLINE • ZERO COMISSÃO SOBRE VENDAS</span>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black text-white tracking-tight font-display leading-[1.15] max-w-4xl mx-auto">
-            O padrão de excelência em <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-300 to-amber-400">Cardápio Digital</span> para o seu negócio
+          <h1 className="text-2xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight max-w-3xl mx-auto">
+            Cardápio Digital para o seu negócio <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-300 to-amber-400">vender mais</span> sem taxas
           </h1>
 
-          <p className="text-sm sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Substitua comissões abusivas de até 27% por um sistema próprio de alta performance. Seus clientes pedem com elegância direto pelo celular e a comanda chega estruturada no seu WhatsApp e painel de gestão em tempo real.
+          <p className="text-xs sm:text-sm md:text-base text-slate-300 max-w-xl mx-auto leading-relaxed">
+            Receba pedidos organizados no seu WhatsApp e na tela do seu estabelecimento sem intermediários. Seu cliente acessa direto pelo celular, sem precisar baixar aplicativo.
           </p>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -276,17 +276,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* SECTION: COMO FUNCIONA NA PRÁTICA (DETALHADO E EXPLICATIVO) */}
-      <section id="como-funciona" className="py-20 max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="text-center space-y-3 mb-16">
-          <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-            Passo a Passo Operacional
+      {/* SECTION: COMO FUNCIONA NA PRÁTICA (SIMPLES E DIRETO) */}
+      <section id="como-funciona" className="py-16 max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="text-center space-y-2 mb-12">
+          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+            Passo a Passo Simples
           </span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
-            Como o CARDAPP transforma o seu atendimento
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
+            Como funciona na prática
           </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            Uma jornada simples, elegante e altamente eficiente desenhada para estabelecimentos que valorizam agilidade.
+          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            Quatro passos fáceis para você começar a receber pedidos sem complicação.
           </p>
         </div>
 
@@ -334,17 +334,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION: SHOWCASE INTERATIVO DAS TELAS */}
-      <section id="telas" className="py-20 bg-[#0C0F15] border-y border-white/10">
+      <section id="telas" className="py-16 bg-[#0C0F15] border-y border-white/10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center space-y-3 mb-12">
-            <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-              Demonstração Interativa
+          <div className="text-center space-y-2 mb-10">
+            <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+              Demonstração
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
-              Explore cada módulo do sistema em ação
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
+              Veja o sistema em funcionamento
             </h2>
-            <p className="text-sm text-slate-400 max-w-xl mx-auto">
-              Veja o que seus clientes experimentam e como sua equipe gerencia cada operação com total precisão.
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              Interface moderna, rápida e intuitiva para o cliente e para o lojista.
             </p>
           </div>
 
@@ -411,7 +411,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="px-3 py-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[11px] font-bold uppercase tracking-widest inline-block">
                     Visão do Consumidor Final
                   </span>
-                  <h3 className="text-2xl sm:text-3xl font-black text-white font-display">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-tight">
                     Design responsivo, elegante e de navegação fluida
                   </h3>
                   <p className="text-sm text-slate-300 leading-relaxed">
@@ -483,7 +483,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="px-3 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold uppercase tracking-widest inline-block">
                     Organização Comercial
                   </span>
-                  <h3 className="text-2xl sm:text-3xl font-black text-white font-display">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-tight">
                     Comanda estruturada e profissional no seu WhatsApp
                   </h3>
                   <p className="text-sm text-slate-300 leading-relaxed">
@@ -537,7 +537,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="px-3 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[11px] font-bold uppercase tracking-widest inline-block">
                     Produção & Expedição
                   </span>
-                  <h3 className="text-2xl sm:text-3xl font-black text-white font-display">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-tight">
                     Impressão térmica profissional com 1 clique
                   </h3>
                   <p className="text-sm text-slate-300 leading-relaxed">
@@ -599,7 +599,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="px-3 py-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[11px] font-bold uppercase tracking-widest inline-block">
                     Atendimento no Salão
                   </span>
-                  <h3 className="text-2xl sm:text-3xl font-black text-white font-display">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-tight">
                     QR Code individual e exclusivo para mesas
                   </h3>
                   <p className="text-sm text-slate-300 leading-relaxed">
@@ -625,7 +625,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400 block">
                     CARDÁPIO EXCLUSIVO DE MESA
                   </span>
-                  <h4 className="text-3xl font-black font-display tracking-wider">MESA 12</h4>
+                  <h4 className="text-xl sm:text-2xl font-black font-mono tracking-wider">MESA 12</h4>
                   <div className="bg-white p-4 rounded-2xl mx-auto w-40 h-40 flex items-center justify-center shadow-inner">
                     <QrCode className="w-32 h-32 text-slate-950" />
                   </div>
@@ -640,16 +640,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION: LUCRATIVIDADE & CALCULADORA COMPARATIVA */}
-      <section id="comparativo" className="py-20 max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="text-center space-y-3 mb-14">
-          <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-            Simulador de Lucro Real
+      <section id="comparativo" className="py-16 max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="text-center space-y-2 mb-10">
+          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+            Simulador
           </span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
-            Quanto dinheiro você deixa de perder com o CARDAPP?
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
+            Economize seu dinheiro todo mês
           </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            Simule abaixo o impacto financeiro de eliminar as comissões de marketplaces terceiros.
+          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            Sem taxa por pedido ou comissões retidas. Veja quanto sobra no seu caixa:
           </p>
         </div>
 
@@ -702,7 +702,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <label className="text-sm sm:text-base font-bold text-white">
                 Faturamento mensal estimado em pedidos:
               </label>
-              <span className="text-xl sm:text-3xl font-black text-amber-400 font-display">
+              <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">
                 {formatCurrency(monthlySales)}
               </span>
             </div>
@@ -748,17 +748,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION: RECURSOS OPERACIONAIS */}
-      <section id="recursos" className="py-20 bg-[#0C0F15] border-y border-white/10">
+      <section id="recursos" className="py-16 bg-[#0C0F15] border-y border-white/10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center space-y-3 mb-14">
-            <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-              Arsenal Tecnológico
+          <div className="text-center space-y-2 mb-10">
+            <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+              Recursos
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
-              Recursos de alta performance inclusos
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
+              Tudo o que sua loja precisa
             </h2>
-            <p className="text-sm text-slate-400 max-w-xl mx-auto">
-              Ferramentas robustas desenvolvidas para otimizar a rotina do seu estabelecimento.
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              Ferramentas fáceis de usar para você atender seus clientes com agilidade.
             </p>
           </div>
 
@@ -827,16 +827,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION: PLANO E INVESTIMENTO */}
-      <section id="planos" className="py-20 max-w-4xl mx-auto px-4 sm:px-6">
-        <div className="text-center space-y-3 mb-14">
-          <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-            Investimento Transparente
+      <section id="planos" className="py-16 max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="text-center space-y-2 mb-10">
+          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+            Investimento
           </span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
-            Plano Único e Sem Limites
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
+            Plano Simples e Transparente
           </h2>
-          <p className="text-sm text-slate-400 max-w-md mx-auto">
-            Acesso irrestrito a todas as funcionalidades sem cobranças por volume de vendas.
+          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            Preço fixo de R$ 29,99/mês. Sem taxas ocultas, sem comissão e sem burocracia.
           </p>
         </div>
 
@@ -861,7 +861,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="text-left sm:text-right shrink-0">
               <span className="text-xs font-bold text-slate-400 block">Mensalidade Fixa</span>
               <div className="flex items-baseline gap-1">
-                <span className="text-3xl sm:text-5xl font-black text-white font-display">R$ 29,99</span>
+                <span className="text-3xl sm:text-4xl font-black text-white font-mono">R$ 29,99</span>
                 <span className="text-xs font-bold text-slate-400">/mês</span>
               </div>
               <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md inline-block mt-2">
@@ -937,17 +937,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION: FAQ EXPLICATIVO */}
-      <section id="faq" className="py-20 bg-[#0C0F15] border-t border-white/10">
+      <section id="faq" className="py-16 bg-[#0C0F15] border-t border-white/10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
-          <div className="text-center space-y-3 mb-14">
-            <span className="text-xs font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-              Esclarecimentos
+          <div className="text-center space-y-2 mb-10">
+            <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+              Dúvidas
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white font-display">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
               Perguntas Frequentes
             </h2>
-            <p className="text-sm text-slate-400">
-              Respostas detalhadas para todas as suas dúvidas sobre a plataforma.
+            <p className="text-xs sm:text-sm text-slate-400">
+              Respostas rápidas e diretas para suas dúvidas sobre a plataforma.
             </p>
           </div>
 
@@ -990,7 +990,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="p-8 rounded-3xl bg-gradient-to-r from-[#161B26] to-[#10141D] border border-amber-500/30 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
             <div className="space-y-2 text-center md:text-left">
               <span className="text-[10px] uppercase font-black text-amber-400 tracking-widest">
-                Suporte VIP & Ativação
+                Suporte & Ativação
               </span>
               <h3 className="text-xl sm:text-2xl font-black">
                 Precisa de ajuda para configurar sua loja?
@@ -1020,7 +1020,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black">
                 <ForkKnifeIcon className="w-4 h-4 stroke-[2.5]" />
               </div>
-              <span className="font-black text-base text-white font-display">
+              <span className="font-black text-base text-white tracking-tight">
                 CARDAPP <span className="text-amber-400">Luxury</span>
               </span>
             </div>
