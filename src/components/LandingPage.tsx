@@ -26,10 +26,8 @@ import {
   Receipt,
   Headphones,
   Info,
-  Sparkles,
   Award,
   Crown,
-  Star,
 } from 'lucide-react';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
@@ -105,7 +103,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     <div className="min-h-screen bg-[#07080B] text-slate-100 selection:bg-amber-400/30 selection:text-white font-sans overflow-x-hidden">
       {/* Top Calming Announcement Bar */}
       <div className="bg-[#0A0D14] text-slate-300 py-2.5 px-4 text-xs font-medium text-center flex items-center justify-center gap-2 border-b border-white/5">
-        <Sparkles className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+        <ShieldCheck className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
         <span className="tracking-wide text-slate-300">
           🚀 <strong>5 Dias Grátis</strong> para testar na hora • Plano Único <strong>R$ 29,99/mês</strong> • <strong>0% de Comissão</strong> • Liberação imediata sem aprovação
         </span>
@@ -188,7 +186,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center space-y-8 relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/10 text-slate-300 text-xs font-medium shadow-sm backdrop-blur-md">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>PLATAFORMA DE PEDIDOS ONLINE • ZERO COMISSÃO SOBRE VENDAS</span>
           </div>
 

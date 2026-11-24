@@ -33,7 +33,6 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   Ban,
-  Sparkles,
   Infinity as InfinityIcon,
   ShieldAlert,
   Menu,
@@ -41,6 +40,7 @@ import {
   Clock,
   ArrowRight,
   ArrowLeft,
+  Award,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -2126,7 +2126,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-3xl border border-amber-300 shadow-sm space-y-4 h-fit"
                   >
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <Award className="w-4 h-4 text-amber-600" />
                       <h3 className="font-black text-base text-slate-950">Novo Plano de Assinatura</h3>
                     </div>
 

@@ -44,7 +44,6 @@ import {
   Unlock,
   RefreshCw,
   Timer,
-  Sparkles,
   ShieldCheck,
   AlertCircle,
   Shield,
@@ -1216,7 +1215,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               className="w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black text-slate-700 hover:bg-amber-100/70 hover:text-slate-950 transition-all cursor-pointer bg-amber-50/80 border border-amber-200 mt-1"
             >
               <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-amber-600 stroke-[2.4]" />
+                <HelpCircle className="w-4 h-4 text-amber-600 stroke-[2.4]" />
                 <span>Guia / Tutorial Básico</span>
               </div>
               <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded">
@@ -2750,7 +2749,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border border-amber-200">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <Award className="w-4 h-4 text-amber-600" />
                       <span>Tipografia & Estilo das Letras da Loja</span>
                     </label>
                     <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-200">
@@ -3540,49 +3539,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     </div>
                   )}
 
-                  {/* Fluxo Visual em 3 Etapas + Valor Fixo */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-left">
-                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 1</span>
-                      <span className="text-xs font-black text-slate-900">Gere o Gateway Pix</span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">QR Code e código Copia e Cola br.gov.bcb.pix</p>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 2</span>
-                      <span className="text-xs font-black text-slate-900">Pague em até 5 min</span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Direto no aplicativo do seu banco via Pix</p>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-black text-emerald-700 uppercase block">Passo 3</span>
-                      <span className="text-xs font-black text-slate-900">Acesso Liberado</span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Confirmação rápida + 30 dias ativos</p>
-                    </div>
-                  </div>
-
-                  {/* RESUMO DO PLANO ÚNICO (SOMENTE R$ 29,99/MÊS) */}
-                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 text-white border-2 border-emerald-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left shadow-md">
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
-                        Assinatura Mensal CARDAPP • Pagamento Pix
-                      </span>
-                      <h5 className="text-sm sm:text-base font-black text-white">
-                        Renovação de 30 Dias • Acesso Completo
-                      </h5>
-                      <p className="text-[11px] text-slate-300">
-                        Cardápio digital ilimitado, pedidos no WhatsApp e 0% de comissão.
-                      </p>
-                    </div>
-                    <div className="sm:text-right shrink-0">
-                      <span className="text-3xl font-black text-emerald-400 font-display block leading-none">
-                        R$ 29,99
-                      </span>
-                      <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
-                        valor único mensal
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* BOTÃO PRINCIPAL EM DESTAQUE PARA GERAR GATEWAY PIX */}
+                  {/* BOTÃO PRINCIPAL: REALIZAR PAGAMENTO */}
                   {!gatewayPixPayment && (
                     <div className="space-y-2.5">
                       <button
@@ -3597,15 +3554,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           <QrCode className="w-6 h-6 stroke-[2.5]" />
                         )}
                         <span>
-                          {isGeneratingPix
-                            ? 'Gerando Gateway Pix (bcb.pix)...'
-                            : 'Gerar Pagamento Pix Agora • R$ 29,99'}
+                          {isGeneratingPix ? 'Gerando QR Code...' : 'Realizar Pagamento • R$ 29,99/Mês'}
                         </span>
                       </button>
-                      <p className="text-[11px] text-slate-600 text-center flex items-center justify-center gap-1.5 font-semibold">
-                        <Timer className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Prazo de validade de <strong>5 minutos</strong> por código gerado (br.gov.bcb.pix).</span>
-                      </p>
                     </div>
                   )}
 
@@ -3741,21 +3692,19 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           </button>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            {gatewayPixPayment.mode === 'api' && (
-                              <button
-                                type="button"
-                                onClick={() => handleCheckGatewayPaymentStatus(gatewayPixPayment.paymentId, false)}
-                                disabled={isVerifyingPayment}
-                                className="w-full py-3.5 px-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
-                              >
-                                {isVerifyingPayment ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="w-4 h-4" />
-                                )}
-                                <span>{isVerifyingPayment ? 'Verificando...' : 'Já paguei • Confirmar'}</span>
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleCheckGatewayPaymentStatus(gatewayPixPayment.paymentId, false)}
+                              disabled={isVerifyingPayment}
+                              className="w-full py-3.5 px-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
+                            >
+                              {isVerifyingPayment ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-4 h-4" />
+                              )}
+                              <span>{isVerifyingPayment ? 'Analisando...' : 'Analisar status'}</span>
+                            </button>
 
                             <button
                               type="button"
@@ -4544,7 +4493,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-amber-100">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-md shadow-amber-500/20 shrink-0">
-                  <Sparkles className="w-6 h-6 stroke-[2.3]" />
+                  <HelpCircle className="w-6 h-6 stroke-[2.3]" />
                 </div>
                 <div>
                   <h3 className="text-lg sm:text-xl font-black text-slate-950 tracking-tight">

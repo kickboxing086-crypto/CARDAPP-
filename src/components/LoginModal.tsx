@@ -22,7 +22,7 @@ import {
   Upload,
   MapPin,
   Instagram,
-  Sparkles,
+  FileText,
   Image as ImageIcon,
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
@@ -904,7 +904,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <Sparkles className="w-3.5 h-3.5" />
+                          <FileText className="w-3.5 h-3.5" />
                         </div>
                         <input
                           type="text"
