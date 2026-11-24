@@ -49,6 +49,17 @@ export function sanitizeForFirestore<T>(data: T): T {
   }
 }
 
+function safeSetLocalStorage(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn(`localStorage write warning (${key}):`, err);
+    return false;
+  }
+}
+
+const inMemoryProductsByStore: Record<string, Product[]> = {};
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
 
 export const storageService = {
@@ -247,18 +258,25 @@ export const storageService = {
 
       try {
         const rawProds = localStorage.getItem(`cardapp_products_${cleanId}`);
-        if (rawProds) {
-          const prods = JSON.parse(rawProds) as Product[];
-          if (Array.isArray(prods)) {
-            await Promise.all(
-              prods.map((prod) =>
-                setDoc(
-                  doc(db, 'stores', cleanId, 'products', prod.id),
-                  encryptDataForFirestore(prod)
-                ).catch(() => {})
-              )
-            );
-          }
+        const prods = rawProds
+          ? (JSON.parse(rawProds) as Product[])
+          : inMemoryProductsByStore[cleanId] || null;
+        if (Array.isArray(prods)) {
+          await Promise.all(
+            prods.map(async (prod) => {
+              const enc = encryptDataForFirestore(prod);
+              if (typeof enc?.payload === 'string' && enc.payload.length >= 495000) {
+                console.warn(`Produto "${prod.name}" excede o limite de tamanho do Firestore.`);
+                return;
+              }
+              try {
+                await setDoc(doc(db, 'stores', cleanId, 'products', prod.id), enc);
+                this.clearProductPending(prod.id, cleanId);
+              } catch {
+                // mantém pendente localmente
+              }
+            })
+          );
         }
       } catch {}
       return true;
@@ -374,11 +392,15 @@ export const storageService = {
 
       if (prodsRes.status === 'fulfilled' && !prodsRes.value.empty) {
         foundAny = true;
-        const products: Product[] = [];
+        const remoteProducts: Product[] = [];
         prodsRes.value.forEach((d) => {
-          products.push(decryptDataFromFirestore<Product>(d.data()));
+          remoteProducts.push(decryptDataFromFirestore<Product>(d.data()));
         });
-        localStorage.setItem(`cardapp_products_${cleanId}`, JSON.stringify(products));
+        const merged = this.mergeProductsWithLocal(cleanId, remoteProducts, {
+          preserveMissingLocal: true,
+        });
+        inMemoryProductsByStore[cleanId] = merged;
+        safeSetLocalStorage(`cardapp_products_${cleanId}`, JSON.stringify(merged));
       }
 
       if (foundAny) {
@@ -589,16 +611,48 @@ export const storageService = {
       const unsubProducts = onSnapshot(
         productsRef,
         (snap) => {
-          if (!snap.empty) {
-            const products: Product[] = [];
-            snap.forEach((d) => {
-              products.push(decryptDataFromFirestore<Product>(d.data()));
+          const remoteProducts: Product[] = [];
+          snap.forEach((d) => {
+            remoteProducts.push(decryptDataFromFirestore<Product>(d.data()));
+          });
+
+          const localProducts = this.readRawProductsForStore(targetStore);
+          const pendingMap = this.getPendingProductMap(targetStore);
+          const hasPending = Object.keys(pendingMap).length > 0;
+
+          // Se não há autenticação Firebase ativa e o remoto veio vazio, preserva produtos locais
+          if (snap.empty && (!auth.currentUser || hasPending || targetStore === 'default_store')) {
+            if (localProducts.length > 0 && auth.currentUser && hasPending) {
+              localProducts.forEach((lp) => {
+                if (pendingMap[lp.id]) {
+                  this.syncSingleProductToFirestore(targetStore, lp);
+                }
+              });
+            }
+            return;
+          }
+
+          if (snap.empty && localProducts.length === 0) {
+            return;
+          }
+
+          const merged = this.mergeProductsWithLocal(targetStore, remoteProducts, {
+            preserveMissingLocal: !auth.currentUser || snap.metadata.fromCache,
+          });
+
+          inMemoryProductsByStore[targetStore] = merged;
+          safeSetLocalStorage(`cardapp_products_${targetStore}`, JSON.stringify(merged));
+          this.notifyChange();
+
+          // Reenvia produtos pendentes (ou cuja foto local ainda não subiu para o Firestore)
+          if (auth.currentUser) {
+            const remoteById = new Map(remoteProducts.map((p) => [p.id, p]));
+            merged.forEach((mp) => {
+              const remoteMatch = remoteById.get(mp.id);
+              if (pendingMap[mp.id] || (mp.image && remoteMatch && !remoteMatch.image)) {
+                this.syncSingleProductToFirestore(targetStore, mp);
+              }
             });
-            localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
-            this.notifyChange();
-          } else if (targetStore !== 'default_store' && !snap.metadata.fromCache) {
-            localStorage.setItem(this.getProductsKey(), JSON.stringify([]));
-            this.notifyChange();
           }
         },
         (error) => {
@@ -698,89 +752,249 @@ export const storageService = {
   },
 
   // PRODUCTS
+  getDeletedProductIds(storeId?: string): Set<string> {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const stored = localStorage.getItem(`cardapp_deleted_products_${cleanId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return new Set(parsed);
+      }
+    } catch {}
+    return new Set();
+  },
+
+  addDeletedProductId(productId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const set = this.getDeletedProductIds(cleanId);
+      set.add(productId);
+      safeSetLocalStorage(
+        `cardapp_deleted_products_${cleanId}`,
+        JSON.stringify(Array.from(set).slice(-150))
+      );
+    } catch {}
+  },
+
+  removeDeletedProductId(productId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const set = this.getDeletedProductIds(cleanId);
+      if (set.delete(productId)) {
+        safeSetLocalStorage(
+          `cardapp_deleted_products_${cleanId}`,
+          JSON.stringify(Array.from(set))
+        );
+      }
+    } catch {}
+  },
+
+  getPendingProductMap(storeId?: string): Record<string, number> {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const stored = localStorage.getItem(`cardapp_pending_products_${cleanId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {};
+  },
+
+  markProductPending(productId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const map = this.getPendingProductMap(cleanId);
+      map[productId] = Date.now();
+      safeSetLocalStorage(`cardapp_pending_products_${cleanId}`, JSON.stringify(map));
+    } catch {}
+  },
+
+  clearProductPending(productId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const map = this.getPendingProductMap(cleanId);
+      if (productId in map) {
+        delete map[productId];
+        safeSetLocalStorage(`cardapp_pending_products_${cleanId}`, JSON.stringify(map));
+      }
+    } catch {}
+  },
+
+  readRawProductsForStore(storeId: string): Product[] {
+    if (Array.isArray(inMemoryProductsByStore[storeId])) {
+      return inMemoryProductsByStore[storeId];
+    }
+    try {
+      const stored = localStorage.getItem(`cardapp_products_${storeId}`);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  },
+
+  mergeProductsWithLocal(
+    storeId: string,
+    remoteProducts: Product[],
+    options?: { preserveMissingLocal?: boolean }
+  ): Product[] {
+    const deletedIds = this.getDeletedProductIds(storeId);
+    const pendingMap = this.getPendingProductMap(storeId);
+    const localProducts = this.readRawProductsForStore(storeId);
+    const mergedMap = new Map<string, Product>();
+
+    remoteProducts.forEach((rp) => {
+      if (rp?.id && !deletedIds.has(rp.id)) {
+        mergedMap.set(rp.id, rp);
+      }
+    });
+
+    localProducts.forEach((lp) => {
+      if (!lp?.id || deletedIds.has(lp.id)) return;
+      const remote = mergedMap.get(lp.id);
+      const isPending = Boolean(pendingMap[lp.id]);
+
+      if (!remote) {
+        if (isPending || options?.preserveMissingLocal) {
+          mergedMap.set(lp.id, lp);
+        }
+        return;
+      }
+
+      const localTs = lp.updatedAt ? Date.parse(lp.updatedAt) : 0;
+      const remoteTs = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
+      const localHasNewerImage = Boolean(lp.image) && !remote.image && (isPending || localTs >= remoteTs);
+
+      if (isPending || localTs > remoteTs || localHasNewerImage) {
+        mergedMap.set(lp.id, lp);
+      }
+    });
+
+    return Array.from(mergedMap.values());
+  },
+
+  async syncSingleProductToFirestore(storeId: string, product: Product): Promise<boolean> {
+    if (!auth.currentUser || !storeId || storeId === 'default_store' || storeId === 'master_admin') {
+      return false;
+    }
+    try {
+      await this.ensureStoreDocument(storeId);
+      const encrypted = encryptDataForFirestore(product);
+      if (typeof encrypted?.payload === 'string' && encrypted.payload.length >= 495000) {
+        console.warn(`Sync product "${product.name}" aborted: encrypted payload exceeds 495KB.`);
+        return false;
+      }
+      const prodRef = doc(db, 'stores', storeId, 'products', product.id);
+      await setDoc(prodRef, encrypted);
+      this.clearProductPending(product.id, storeId);
+      return true;
+    } catch (err) {
+      console.warn('Sync product fallback:', err);
+      return false;
+    }
+  },
+
   getProducts(): Product[] {
+    if (Array.isArray(inMemoryProductsByStore[this.currentStoreId])) {
+      return inMemoryProductsByStore[this.currentStoreId];
+    }
     try {
       const stored = localStorage.getItem(this.getProductsKey());
-      if (stored !== null) return JSON.parse(stored);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          inMemoryProductsByStore[this.currentStoreId] = parsed;
+          return parsed;
+        }
+      }
     } catch {
       // fallback
     }
     if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
-      localStorage.setItem(this.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
+      inMemoryProductsByStore[this.currentStoreId] = INITIAL_PRODUCTS;
+      safeSetLocalStorage(this.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
       return INITIAL_PRODUCTS;
     }
     // Para contas novas de clientes/lojistas: começa 100% zerado
-    localStorage.setItem(this.getProductsKey(), JSON.stringify([]));
+    inMemoryProductsByStore[this.currentStoreId] = [];
+    safeSetLocalStorage(this.getProductsKey(), JSON.stringify([]));
     return [];
   },
 
   saveProducts(products: Product[]) {
-    localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
+    const storeId = this.currentStoreId;
+    const stamped = products.map((p) => ({
+      ...p,
+      updatedAt: p.updatedAt || new Date().toISOString(),
+    }));
+    inMemoryProductsByStore[storeId] = stamped;
+    safeSetLocalStorage(this.getProductsKey(), JSON.stringify(stamped));
     this.notifyChange();
 
     // Sync to Firestore (Criptografado)
     (async () => {
-      const storeId = this.currentStoreId;
-      await this.ensureStoreDocument(storeId);
-      await Promise.all(
-        products.map((prod) =>
-          setDoc(doc(db, 'stores', storeId, 'products', prod.id), encryptDataForFirestore(prod)).catch(() => {})
-        )
-      );
+      await Promise.all(stamped.map((prod) => this.syncSingleProductToFirestore(storeId, prod)));
     })().catch(() => {});
   },
 
   addProduct(product: Omit<Product, 'id'>): Product {
+    const storeId = this.currentStoreId;
     const products = this.getProducts();
     const newProduct: Product = {
       ...product,
       id: 'prod-' + Date.now(),
+      updatedAt: new Date().toISOString(),
     };
     const updated = [newProduct, ...products];
-    localStorage.setItem(this.getProductsKey(), JSON.stringify(updated));
+    this.removeDeletedProductId(newProduct.id, storeId);
+    this.markProductPending(newProduct.id, storeId);
+    inMemoryProductsByStore[storeId] = updated;
+    safeSetLocalStorage(this.getProductsKey(), JSON.stringify(updated));
     this.notifyChange();
 
     // Sync new product to Firestore (Criptografado)
-    (async () => {
-      const storeId = this.currentStoreId;
-      await this.ensureStoreDocument(storeId);
-      const prodRef = doc(db, 'stores', storeId, 'products', newProduct.id);
-      await setDoc(prodRef, encryptDataForFirestore(newProduct)).catch((err) => {
-        console.warn('Sync addProduct fallback:', err);
-      });
-    })().catch(() => {});
+    this.syncSingleProductToFirestore(storeId, newProduct).catch(() => {});
 
     return newProduct;
   },
 
   updateProduct(product: Product) {
+    const storeId = this.currentStoreId;
     const products = this.getProducts();
     const index = products.findIndex((p) => p.id === product.id);
+    const stampedProduct: Product = {
+      ...product,
+      updatedAt: new Date().toISOString(),
+    };
     if (index !== -1) {
-      products[index] = product;
-      localStorage.setItem(this.getProductsKey(), JSON.stringify(products));
+      const nextProducts = [...products];
+      nextProducts[index] = stampedProduct;
+      this.removeDeletedProductId(stampedProduct.id, storeId);
+      this.markProductPending(stampedProduct.id, storeId);
+      inMemoryProductsByStore[storeId] = nextProducts;
+      safeSetLocalStorage(this.getProductsKey(), JSON.stringify(nextProducts));
       this.notifyChange();
 
       // Sync to Firestore (Criptografado)
-      (async () => {
-        const storeId = this.currentStoreId;
-        await this.ensureStoreDocument(storeId);
-        const prodRef = doc(db, 'stores', storeId, 'products', product.id);
-        await setDoc(prodRef, encryptDataForFirestore(product)).catch((err) => {
-          console.warn('Sync updateProduct fallback:', err);
-        });
-      })().catch(() => {});
+      this.syncSingleProductToFirestore(storeId, stampedProduct).catch(() => {});
     }
   },
 
   deleteProduct(productId: string) {
+    const storeId = this.currentStoreId;
     const products = this.getProducts();
     const updated = products.filter((p) => p.id !== productId);
-    this.saveProducts(updated);
+    this.addDeletedProductId(productId, storeId);
+    this.clearProductPending(productId, storeId);
+    inMemoryProductsByStore[storeId] = updated;
+    safeSetLocalStorage(this.getProductsKey(), JSON.stringify(updated));
+    this.notifyChange();
 
     // Sync to Firestore
     try {
-      const prodRef = doc(db, 'stores', this.currentStoreId, 'products', productId);
+      const prodRef = doc(db, 'stores', storeId, 'products', productId);
       deleteDoc(prodRef).catch(() => {});
     } catch {
       // ignore

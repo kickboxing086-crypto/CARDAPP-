@@ -558,6 +558,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [prodPrice, setProdPrice] = useState('');
   const [prodDescription, setProdDescription] = useState('');
   const [prodImageBase64, setProdImageBase64] = useState<string>('');
+  const [isUploadingProdImage, setIsUploadingProdImage] = useState(false);
+  const [prodImageError, setProdImageError] = useState<string | null>(null);
   const [prodAvailable, setProdAvailable] = useState(true);
 
   // Promotion Form State
@@ -698,40 +700,87 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }).length;
   }, [orders, orderFilter, orderSearchQuery]);
 
-  const compressImageDataUrl = (file: File, maxSize: number, quality: number): Promise<string> => {
+  const compressImageDataUrl = (
+    file: File,
+    maxSize: number,
+    quality: number,
+    maxDataUrlLength = 220000
+  ): Promise<string> => {
     return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        if (!result || !file.type.startsWith('image/')) {
-          resolve(result);
-          return;
-        }
-        const img = new Image();
-        img.onerror = () => resolve(result);
-        img.onload = () => {
-          let { width, height } = img;
+      const renderImageToBoundedJpeg = (img: HTMLImageElement): string => {
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        if (!origW || !origH) return '';
+
+        let currentMax = maxSize;
+        let currentQuality = quality;
+        let bestDataUrl = '';
+
+        for (let sizeAttempt = 0; sizeAttempt < 5; sizeAttempt++) {
+          let width = origW;
+          let height = origH;
           if (width > height) {
-            if (width > maxSize) {
-              height = Math.round((height * maxSize) / width);
-              width = maxSize;
+            if (width > currentMax) {
+              height = Math.max(1, Math.round((height * currentMax) / width));
+              width = currentMax;
             }
-          } else if (height > maxSize) {
-            width = Math.round((width * maxSize) / height);
-            height = maxSize;
+          } else if (height > currentMax) {
+            width = Math.max(1, Math.round((width * currentMax) / height));
+            height = currentMax;
           }
+
           const canvas = document.createElement('canvas');
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(result);
-            return;
-          }
+          if (!ctx) return '';
+
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
+
+          let q = currentQuality;
+          for (let qAttempt = 0; qAttempt < 4; qAttempt++) {
+            const candidate = canvas.toDataURL('image/jpeg', q);
+            bestDataUrl = candidate;
+            if (candidate.length <= maxDataUrlLength) {
+              return candidate;
+            }
+            q = Math.max(0.32, Number((q - 0.14).toFixed(2)));
+          }
+
+          currentMax = Math.max(180, Math.round(currentMax * 0.72));
+          currentQuality = 0.72;
+        }
+
+        return bestDataUrl.length <= maxDataUrlLength ? bestDataUrl : '';
+      };
+
+      const reader = new FileReader();
+      reader.onerror = () => resolve('');
+      reader.onloadend = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        if (!result || !file.type.startsWith('image/')) {
+          resolve('');
+          return;
+        }
+        const img = new Image();
+        img.onerror = () => {
+          resolve(result.startsWith('data:image/') && result.length <= maxDataUrlLength ? result : '');
+        };
+        img.onload = () => {
+          try {
+            const compressed = renderImageToBoundedJpeg(img);
+            if (compressed) {
+              resolve(compressed);
+            } else if (result.length <= maxDataUrlLength) {
+              resolve(result);
+            } else {
+              resolve('');
+            }
+          } catch {
+            resolve(result.length <= maxDataUrlLength ? result : '');
+          }
         };
         img.src = result;
       };
@@ -741,35 +790,57 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Handle Base64 Image Upload for Products
   const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
-    const compressed = await compressImageDataUrl(file, 700, 0.78);
-    if (compressed) {
-      setProdImageBase64(compressed);
+    setProdImageError(null);
+    setIsUploadingProdImage(true);
+    try {
+      const compressed = await compressImageDataUrl(file, 700, 0.78, 220000);
+      if (compressed) {
+        setProdImageBase64(compressed);
+      } else {
+        setProdImageError(
+          'Não foi possível processar esta foto (formato inválido ou arquivo muito grande). Tente uma imagem JPG ou PNG.'
+        );
+      }
+    } catch {
+      setProdImageError('Erro ao carregar a foto do dispositivo. Tente novamente.');
+    } finally {
+      setIsUploadingProdImage(false);
+      input.value = '';
     }
   };
 
   // Handle Base64 Logo Upload for Store
   const handleStoreLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
-    const compressed = await compressImageDataUrl(file, 450, 0.82);
-    if (compressed) {
-      setLocalSettings((prev) => ({
-        ...prev,
-        logoBase64: compressed,
-      }));
+    try {
+      const compressed = await compressImageDataUrl(file, 450, 0.82, 150000);
+      if (compressed) {
+        setLocalSettings((prev) => ({
+          ...prev,
+          logoBase64: compressed,
+        }));
+      }
+    } finally {
+      input.value = '';
     }
   };
 
   // Open Add Product
   const handleOpenAddProduct = () => {
+    const defaultCategory = categories.find((c) => c.id !== 'todos')?.id || 'todos';
     setEditingProductId(null);
     setProdName('');
-    setProdCategory('acai');
+    setProdCategory(defaultCategory);
     setProdPrice('');
     setProdDescription('');
     setProdImageBase64('');
+    setProdImageError(null);
+    setIsUploadingProdImage(false);
     setProdAvailable(true);
     setHasPromo(false);
     setPromoQty('2');
@@ -788,6 +859,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     setProdPrice(prod.price.toString());
     setProdDescription(prod.description);
     setProdImageBase64(prod.image || '');
+    setProdImageError(null);
+    setIsUploadingProdImage(false);
     setProdAvailable(prod.isAvailable);
 
     if (prod.promotion && prod.promotion.enabled) {
@@ -827,6 +900,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Save Product (No prep time!)
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isUploadingProdImage) return;
     const priceNum = parseFloat(prodPrice.replace(',', '.'));
     if (!prodName.trim() || isNaN(priceNum) || priceNum <= 0) return;
 
@@ -2223,10 +2297,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         <label className="text-xs font-black text-slate-900 uppercase tracking-wider">
                           Foto do Produto (Upload pelo CEO ou Garfo e Faca)
                         </label>
-                        {prodImageBase64 && (
+                        {prodImageBase64 && !isUploadingProdImage && (
                           <button
                             type="button"
-                            onClick={() => setProdImageBase64('')}
+                            onClick={() => {
+                              setProdImageBase64('');
+                              setProdImageError(null);
+                            }}
                             className="text-xs text-red-600 hover:underline font-bold"
                           >
                             Remover foto (usar Garfo e Faca)
@@ -2235,25 +2312,55 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-4">
-                        <div className="w-20 h-20 rounded-2xl border border-amber-300 bg-white overflow-hidden shrink-0 flex items-center justify-center">
-                          {prodImageBase64 ? (
-                            <img src={prodImageBase64} alt="Preview" className="w-full h-full object-cover" />
+                        <div className="w-20 h-20 rounded-2xl border border-amber-300 bg-white overflow-hidden shrink-0 flex items-center justify-center relative">
+                          {isUploadingProdImage ? (
+                            <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                          ) : prodImageBase64 ? (
+                            <img
+                              src={prodImageBase64}
+                              alt="Preview"
+                              onError={() => {
+                                setProdImageBase64('');
+                                setProdImageError('A imagem selecionada não pôde ser exibida.');
+                              }}
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <ForkKnifeIcon className="w-10 h-10 text-amber-500 stroke-[2]" />
                           )}
                         </div>
 
                         <div className="flex-1">
-                          <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer shadow-2xs">
-                            <Upload className="w-4 h-4" />
-                            <span>Enviar Foto do seu Dispositivo (Base64)</span>
+                          <label
+                            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xs transition-colors ${
+                              isUploadingProdImage
+                                ? 'bg-amber-200 text-slate-600 cursor-wait'
+                                : 'bg-amber-400 hover:bg-amber-500 text-slate-950 cursor-pointer'
+                            }`}
+                          >
+                            {isUploadingProdImage ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                            <span>
+                              {isUploadingProdImage
+                                ? 'Otimizando foto...'
+                                : 'Enviar Foto do seu Dispositivo'}
+                            </span>
                             <input
                               type="file"
                               accept="image/*"
+                              disabled={isUploadingProdImage}
                               onChange={handleProductImageUpload}
                               className="hidden"
                             />
                           </label>
+                          {prodImageError && (
+                            <p className="text-[11px] text-red-600 font-bold mt-1.5 leading-snug">
+                              {prodImageError}
+                            </p>
+                          )}
                           <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">
                             Se não adicionar foto alguma, o cliente verá a elegante ilustração de um garfo e uma faca com o nome do produto.
                           </p>
@@ -2387,9 +2494,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </button>
                       <button
                         type="submit"
-                        className="px-6 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 text-xs font-black shadow-xs cursor-pointer"
+                        disabled={isUploadingProdImage}
+                        className={`px-6 py-2.5 rounded-xl text-xs font-black shadow-xs transition-colors ${
+                          isUploadingProdImage
+                            ? 'bg-amber-200 text-slate-500 cursor-wait'
+                            : 'bg-amber-400 hover:bg-amber-500 text-slate-950 cursor-pointer'
+                        }`}
                       >
-                        Salvar Produto
+                        {isUploadingProdImage ? 'Processando foto...' : 'Salvar Produto'}
                       </button>
                     </div>
                   </form>
@@ -2403,7 +2515,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="flex items-center gap-3">
                       <div className="w-14 h-14 rounded-xl bg-amber-50 overflow-hidden shrink-0 border border-amber-200 flex items-center justify-center">
                         {prod.image ? (
-                          <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+                          <img
+                            src={prod.image}
+                            alt={prod.name}
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                            className="w-full h-full object-cover"
+                          />
                         ) : (
                           <ForkKnifeIcon className="w-7 h-7 text-amber-500 stroke-[2]" />
                         )}

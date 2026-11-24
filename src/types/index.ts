@@ -29,6 +29,7 @@ export interface Product {
   isAvailable: boolean;
   promotion?: ProductPromotion;
   complements?: ProductComplement[];
+  updatedAt?: string;
 }
 
 export interface SelectedComplement {

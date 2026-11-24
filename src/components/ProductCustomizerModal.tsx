@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, Minus, Check, MessageSquare, Tag } from 'lucide-react';
 import { Product, SelectedComplement, ProductComplement } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -28,13 +28,26 @@ export const ProductCustomizerModal: React.FC<ProductCustomizerModalProps> = ({
   onClose,
   onConfirm,
 }) => {
-  if (!product) return null;
-
   const [quantity, setQuantity] = useState(initialQuantity > 0 ? initialQuantity : 1);
   const [notes, setNotes] = useState(initialNotes);
   const [selectedComplements, setSelectedComplements] = useState<SelectedComplement[]>(initialComplements);
   const [isSuccess, setIsSuccess] = useState(false);
   const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [product?.id, product?.image]);
+
+  useEffect(() => {
+    if (product) {
+      setQuantity(initialQuantity > 0 ? initialQuantity : 1);
+      setNotes(initialNotes);
+      setSelectedComplements(initialComplements);
+      setIsSuccess(false);
+    }
+  }, [product?.id]);
+
+  if (!product) return null;
 
   // Toggle complement selection
   const handleToggleComplement = (comp: ProductComplement) => {
