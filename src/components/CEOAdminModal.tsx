@@ -1,6 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { auth } from '../firebase';
 import { accountService } from '../services/accountService';
 import { storageService } from '../services/storageService';
 import QRCode from 'qrcode';
@@ -74,7 +72,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
-import { OFFICIAL_APP_URL, getClientAppUrl, getCeoAppUrl, getLoginAppUrl } from '../utils/constants';
+import { getClientAppUrl } from '../utils/constants';
 import {
   getEstimatedTimeWindow,
   getDeliveryTypeLabel,
@@ -153,30 +151,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [orderFilter, setOrderFilter] = useState<'all' | OrderStatus>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [copiedClientLink, setCopiedClientLink] = useState(false);
-  const [copiedCeoLink, setCopiedCeoLink] = useState(false);
-  const [copiedLoginLink, setCopiedLoginLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
-  // Loja Oficial e Login Oficial com ID real da loja do CEO
+  // Loja Oficial com ID real da loja do CEO
   const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
   const currentSession = accountSession || accountService.getCurrentSession();
   const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
   const [officialPixKey, setOfficialPixKey] = useState<string>(() => accountService.getCleanPixKey());
 
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => auth.currentUser);
-  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
-  const [cloudSyncMessage, setCloudSyncMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
-
   // Assinar alterações da conta e chave interna da Gateway no accountService
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (u) => {
-      setFirebaseUser(u);
-    });
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
@@ -185,10 +171,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
         setActiveTab('status');
       }
     });
-    return () => {
-      unsubAuth();
-      unsub();
-    };
+    return unsub;
   }, []);
 
   useEffect(() => {
@@ -206,42 +189,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       }
     }
   }, [isOpen, currentStoreId]);
-
-  const handleConnectGoogleCloud = async () => {
-    setIsSyncingCloud(true);
-    setCloudSyncMessage(null);
-    try {
-      const res = await accountService.linkGoogleToCurrentStore(currentStoreId, effectiveStoreName);
-      setCloudSyncMessage({
-        type: res.success ? 'success' : 'error',
-        text: res.message,
-      });
-    } catch (err: any) {
-      setCloudSyncMessage({
-        type: 'error',
-        text: err?.message || 'Erro ao sincronizar loja com a nuvem.',
-      });
-    } finally {
-      setIsSyncingCloud(false);
-    }
-  };
-
-  const handleSyncCloudNow = async () => {
-    if (!currentStoreId || currentStoreId === 'default_store' || currentStoreId === 'master_admin') return;
-    setIsSyncingCloud(true);
-    setCloudSyncMessage(null);
-    try {
-      const ok = await storageService.syncAllStoreDataToFirestore(currentStoreId, effectiveStoreName);
-      setCloudSyncMessage({
-        type: ok ? 'success' : 'error',
-        text: ok
-          ? 'Dados da loja e link público atualizados na nuvem!'
-          : 'Conecte sua conta Google abaixo para publicar sua loja online.',
-      });
-    } finally {
-      setIsSyncingCloud(false);
-    }
-  };
 
   // Cálculo dos dias restantes para o vencimento do plano
   const daysUntilExpiry = useMemo(() => {
@@ -579,9 +526,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     setIsMobileSidebarOpen(false);
   };
 
-  const officialLoginUrl = useMemo(() => {
-    return getLoginAppUrl();
-  }, []);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [logoutConfirmationStep, setLogoutConfirmationStep] = useState<1 | 2>(1);
 
@@ -1511,7 +1455,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 {activeTab === 'share' && (
                   <>
                     <Share2 className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="truncate">Compartilhar Links Oficiais</span>
+                    <span className="truncate">Compartilhar Cardápio</span>
                   </>
                 )}
                 {activeTab === 'status' && (
@@ -3370,7 +3314,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 5: LINK SEPARADO PARA O CLIENTE E PARA O CEO + QR CODE */}
+          {/* TAB 5: LINK DE COMPARTILHAMENTO DO CARDÁPIO */}
           {activeTab === 'share' && (
             <div className="max-w-2xl mx-auto space-y-6">
               <div className="text-center pb-2">
@@ -3378,34 +3322,34 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <Share2 className="w-7 h-7" />
                 </div>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-                  Links da Loja & Login
+                  Link de Compartilhamento do Cardápio
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Apenas os links essenciais: o link oficial da sua loja para os clientes e o link oficial de login.
+                  Copie e envie o link oficial do seu cardápio para seus clientes no WhatsApp, redes sociais ou bio do Instagram.
                 </p>
               </div>
 
-              {/* OPÇÃO 1: LINK OFICIAL DA LOJA (PARA O CLIENTE) */}
+              {/* LINK OFICIAL DO CARDÁPIO (PARA O CLIENTE) */}
               <div className="bg-white rounded-3xl border-2 border-amber-400 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-black">
-                      1
+                    <span className="w-7 h-7 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center">
+                      <Share2 className="w-4 h-4" />
                     </span>
                     <h4 className="font-black text-base text-slate-950">
-                      Link Oficial da Loja para os Clientes
+                      Link do Cardápio para os Clientes
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                    Loja Oficial
+                    Cardápio Oficial
                   </span>
                 </div>
 
                 <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                  Envie este link no WhatsApp, redes sociais ou coloque na bio do Instagram. O cliente abre diretamente a sua loja oficial, escolhe os produtos, adiciona complementos e acompanha o pedido.
+                  Ao abrir este link, o cliente acessa diretamente a sua loja, escolhe os produtos, adiciona complementos e envia o pedido.
                 </p>
 
-                {/* Input e Botão de Copiar Link Oficial da Loja */}
+                {/* Input e Botão de Copiar Link Oficial do Cardápio */}
                 <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/70 mb-5">
                   <input
                     type="text"
@@ -3423,80 +3367,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
                   >
                     {copiedClientLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedClientLink ? 'Copiado!' : 'Copiar Link da Loja'}</span>
+                    <span>{copiedClientLink ? 'Copiado!' : 'Copiar Link'}</span>
                   </button>
                 </div>
-
-                {/* Status de Publicação Online na Nuvem */}
-                <div
-                  className={`rounded-2xl p-3.5 mb-5 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    firebaseUser
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                      : 'bg-amber-50 border-amber-300 text-amber-950'
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5 text-xs font-black">
-                      {firebaseUser ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      )}
-                      <span>
-                        {firebaseUser
-                          ? 'Loja sincronizada na nuvem • Link público ativo'
-                          : 'Ative seu link na nuvem para qualquer cliente abrir'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] opacity-85 leading-snug">
-                      {firebaseUser
-                        ? 'Qualquer cliente que abrir este link em outro celular verá sua loja e produtos atualizados.'
-                        : 'Conecte sua conta Google em 1 clique para publicar este nome de loja na internet.'}
-                    </p>
-                  </div>
-
-                  {firebaseUser ? (
-                    <button
-                      type="button"
-                      disabled={isSyncingCloud}
-                      onClick={handleSyncCloudNow}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-60"
-                    >
-                      {isSyncingCloud ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      )}
-                      <span>Sincronizar Agora</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isSyncingCloud}
-                      onClick={handleConnectGoogleCloud}
-                      className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 text-xs font-black flex items-center justify-center gap-1.5 shrink-0 cursor-pointer shadow-xs disabled:opacity-60"
-                    >
-                      {isSyncingCloud ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Share2 className="w-3.5 h-3.5" />
-                      )}
-                      <span>Publicar com Google</span>
-                    </button>
-                  )}
-                </div>
-
-                {cloudSyncMessage && (
-                  <div
-                    className={`mb-4 p-3 rounded-xl text-xs font-bold border ${
-                      cloudSyncMessage.type === 'success'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : 'bg-red-50 border-red-200 text-red-700'
-                    }`}
-                  >
-                    {cloudSyncMessage.text}
-                  </div>
-                )}
 
                 {/* QR Code Real e Altamente Legível para Qualquer Dispositivo */}
                 <div className="p-5 bg-slate-950 rounded-2xl text-center text-white flex flex-col sm:flex-row items-center justify-center gap-5">
@@ -3510,10 +3383,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                   <div className="text-left space-y-1.5 max-w-sm">
                     <span className="text-xs font-black uppercase text-amber-400 tracking-wide block">
-                      QR Code Oficial da Loja
+                      QR Code Oficial do Cardápio
                     </span>
                     <p className="text-[11px] text-slate-300 leading-snug">
-                      QR Code otimizado e legível em qualquer celular (Android ou iPhone). Basta apontar a câmera do smartphone para abrir sua loja oficial instantaneamente.
+                      QR Code otimizado e legível em qualquer celular (Android ou iPhone). Basta apontar a câmera do smartphone para abrir seu cardápio instantaneamente.
                     </p>
                     <div className="pt-1 flex items-center gap-2">
                       <button
@@ -3565,49 +3438,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* OPÇÃO 2: LINK DE LOGIN */}
-              <div className="bg-white rounded-3xl border border-slate-300 p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center text-xs font-black">
-                      2
-                    </span>
-                    <h4 className="font-black text-base text-slate-950">
-                      Link de Login Oficial
-                    </h4>
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-900">
-                    Acesso do Administrador
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                  Link oficial para o lojista e administrador acessar o painel do CEO com usuário e senha.
-                </p>
-
-                {/* Input e Botão de Copiar Link de Login Oficial */}
-                <div className="flex items-center gap-2 p-2 rounded-2xl border border-amber-300 bg-amber-50/60">
-                  <input
-                    type="text"
-                    readOnly
-                    value={officialLoginUrl}
-                    className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(officialLoginUrl);
-                      setCopiedLoginLink(true);
-                      setTimeout(() => setCopiedLoginLink(false), 2500);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs transition-all shadow-xs cursor-pointer shrink-0"
-                  >
-                    {copiedLoginLink ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedLoginLink ? 'Copiado!' : 'Copiar Link de Login'}</span>
-                  </button>
                 </div>
               </div>
             </div>
