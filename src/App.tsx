@@ -231,13 +231,30 @@ export default function App() {
         const storeParam = urlParams.get('store') || urlParams.get('loja');
         if (storeParam) {
           const accounts = accountService.getAccounts();
-          const target = accounts.find((a) => a.storeId === storeParam);
+          let target = accounts.find((a) => a.storeId === storeParam);
+          if (!target) {
+            target = accounts.find((a) => {
+              const slug = (a.storeName || '')
+                .toLowerCase()
+                .trim()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+              return slug === storeParam.toLowerCase().trim();
+            });
+          }
+          if (!target) {
+            target = accounts.find((a) => (a.storeName || '').toLowerCase().trim() === storeParam.toLowerCase().trim());
+          }
+
           if (target) {
             storageService.setStoreId(target.storeId, target.storeName, target.phoneWhatsapp);
+            localStorage.setItem('cardapp_last_store_id', target.storeId);
           } else {
             storageService.setStoreId(storeParam);
+            localStorage.setItem('cardapp_last_store_id', storeParam);
           }
-          localStorage.setItem('cardapp_last_store_id', storeParam);
         }
 
         const session = accountService.getCurrentSession();
