@@ -729,23 +729,13 @@ export default function App() {
       customer: customerData,
     });
 
-    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja
-    if (settings.phoneWhatsapp) {
-      try {
-        const whatsappUrl = getOrderWhatsAppUrl(newOrder, settings);
-        if (whatsappUrl) {
-          const a = document.createElement('a');
-          a.href = whatsappUrl;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }
-      } catch {
-        // fallback
-      }
-    }
+    const latestSettings = settings.phoneWhatsapp ? settings : storageService.getSettings();
+    const fallbackAccountPhone = !latestSettings.phoneWhatsapp
+      ? accountService.findAccountByStoreParam(storageService.currentStoreId)?.phoneWhatsapp || ''
+      : '';
+    const effectiveSettingsForWhatsApp = fallbackAccountPhone
+      ? { ...latestSettings, phoneWhatsapp: fallbackAccountPhone }
+      : latestSettings;
 
     // Solicita permissão para notificações push no navegador para avisar quando o CEO atualizar
     try {
@@ -755,10 +745,42 @@ export default function App() {
     }
 
     lastActiveOrderStatusRef.current = 'recebido';
+    try {
+      sessionStorage.setItem('cardapp_current_step', '4');
+    } catch {
+      // ignore
+    }
     setOrders(storageService.getOrders());
     setCartItems([]);
     setActiveOrderId(newOrder.id);
     setCurrentStep(4);
+
+    // Envia automaticamente a comanda digitada completa para o WhatsApp da loja
+    if (effectiveSettingsForWhatsApp.phoneWhatsapp) {
+      try {
+        const whatsappUrl = getOrderWhatsAppUrl(newOrder, effectiveSettingsForWhatsApp);
+        if (whatsappUrl) {
+          const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+          const isMobileDevice =
+            typeof navigator !== 'undefined' &&
+            /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+          if (!isInIframe && isMobileDevice) {
+            window.location.assign(whatsappUrl);
+          } else {
+            const a = document.createElement('a');
+            a.href = whatsappUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }
+        }
+      } catch {
+        // fallback
+      }
+    }
   };
 
   // CEO Actions
@@ -1296,34 +1318,36 @@ export default function App() {
       />
 
       {/* CEO / STORE OWNER ADMIN MODAL */}
-      <CEOAdminModal
-        key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}`}
-        isOpen={isCeoModalOpen}
-        onClose={() => {
-          setIsCeoModalOpen(false);
-          localStorage.setItem('cardapp_last_view', 'menu');
-        }}
-        products={products}
-        orders={orders}
-        categories={categories}
-        settings={settings}
-        onUpdateOrderStatus={handleUpdateOrderStatus}
-        onDeleteOrder={handleDeleteOrder}
-        onAddProduct={handleAddProduct}
-        onUpdateProduct={handleUpdateProduct}
-        onDeleteProduct={handleDeleteProduct}
-        onAddCategory={handleAddCategory}
-        onDeleteCategory={handleDeleteCategory}
-        onSaveSettings={handleSaveSettings}
-        onSwitchToClientView={() => {
-          setIsCeoModalOpen(false);
-          setCurrentView('menu');
-          localStorage.setItem('cardapp_last_view', 'menu');
-        }}
-        onLogout={handleLogout}
-        isAdminImpersonating={accountService.isImpersonating()}
-        onReturnToSuperAdmin={handleReturnToSuperAdmin}
-      />
+      {isCeoModalOpen && (
+        <CEOAdminModal
+          key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}`}
+          isOpen={true}
+          onClose={() => {
+            setIsCeoModalOpen(false);
+            localStorage.setItem('cardapp_last_view', 'menu');
+          }}
+          products={products}
+          orders={orders}
+          categories={categories}
+          settings={settings}
+          onUpdateOrderStatus={handleUpdateOrderStatus}
+          onDeleteOrder={handleDeleteOrder}
+          onAddProduct={handleAddProduct}
+          onUpdateProduct={handleUpdateProduct}
+          onDeleteProduct={handleDeleteProduct}
+          onAddCategory={handleAddCategory}
+          onDeleteCategory={handleDeleteCategory}
+          onSaveSettings={handleSaveSettings}
+          onSwitchToClientView={() => {
+            setIsCeoModalOpen(false);
+            setCurrentView('menu');
+            localStorage.setItem('cardapp_last_view', 'menu');
+          }}
+          onLogout={handleLogout}
+          isAdminImpersonating={accountService.isImpersonating()}
+          onReturnToSuperAdmin={handleReturnToSuperAdmin}
+        />
+      )}
 
       {/* SUPER ADMIN MODAL (SAMUEL_ADM1 - GERADOR DE CONTAS E BANCO DE DADOS) */}
       {currentUser && (

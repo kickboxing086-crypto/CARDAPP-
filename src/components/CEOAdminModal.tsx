@@ -122,8 +122,6 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   isAdminImpersonating = false,
   onReturnToSuperAdmin,
 }) => {
-  if (!isOpen) return null;
-
   const isSuperAdminViewing = Boolean(isAdminImpersonating || accountService.isImpersonating());
 
   const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
@@ -1114,6 +1112,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     setNeighborhoodToDelete(null);
     setNeighborhoodDeleteStep(1);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-white animate-in fade-in duration-200">

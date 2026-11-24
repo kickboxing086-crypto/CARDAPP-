@@ -104,6 +104,11 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
     }
   };
 
+  const whatsappUrl = React.useMemo(() => {
+    if (!order) return '';
+    return getOrderWhatsAppUrl(order, settings);
+  }, [order, settings]);
+
   if (!order) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center animate-in fade-in duration-300">
@@ -135,26 +140,6 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
   const isTable = order.customer.deliveryType === 'mesa';
   const isPickup = order.customer.deliveryType === 'retirada';
   const tableLabel = order.customer.tableNumber ? `Mesa ${order.customer.tableNumber}` : 'sua Mesa';
-
-  const openWhatsApp = () => {
-    const url = getOrderWhatsAppUrl(order, settings);
-    if (url) {
-      const a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  };
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      openWhatsApp();
-    }, 400);
-    return () => clearTimeout(timer);
-  }, []);
 
   const statusSteps: {
     key: OrderStatus;
@@ -365,24 +350,31 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
           </div>
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-white text-emerald-950 inline-block mb-1">
-              Envio 100% Automático
+              {whatsappUrl ? 'Envio Automático • WhatsApp' : 'Pedido Registrado'}
             </span>
             <h3 className="font-black text-sm sm:text-base leading-tight">
-              Pedido Enviado Automaticamente para o WhatsApp!
+              {whatsappUrl
+                ? 'Pedido Enviado para o WhatsApp da Loja!'
+                : 'Pedido Confirmado no Painel da Loja!'}
             </h3>
             <p className="text-xs text-emerald-100 font-medium mt-0.5">
-              A comanda com todos os itens foi aberta no WhatsApp da loja. Caso necessário, clique abaixo para reenviar.
+              {whatsappUrl
+                ? 'A comanda com todos os itens foi aberta no WhatsApp da loja. Caso não tenha aberto no seu aparelho, toque no botão ao lado.'
+                : 'A loja ainda não cadastrou um número de WhatsApp nas configurações, mas seu pedido já chegou no painel.'}
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={openWhatsApp}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-950 font-black text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
-        >
-          <MessageCircle className="w-4 h-4 fill-emerald-700 text-emerald-700" />
-          <span>Reenviar no WhatsApp</span>
-        </button>
+        {whatsappUrl && (
+          <a
+            href={whatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-950 font-black text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
+          >
+            <MessageCircle className="w-4 h-4 fill-emerald-700 text-emerald-700" />
+            <span>Enviar / Reenviar no WhatsApp</span>
+          </a>
+        )}
       </div>
 
       {/* CARTÃO EM DESTAQUE: PAGAMENTO VIA PIX DO PEDIDO */}
@@ -504,14 +496,17 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
               <span>{notificationsActive ? 'Alertas Push Ativos' : 'Ativar Alertas na Tela'}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={openWhatsApp}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-            >
-              <MessageCircle className="w-4 h-4 fill-white" />
-              <span>Avisar no WhatsApp</span>
-            </button>
+            {whatsappUrl && (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 fill-white" />
+                <span>Avisar no WhatsApp</span>
+              </a>
+            )}
           </div>
         </div>
 
