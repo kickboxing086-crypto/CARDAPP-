@@ -367,11 +367,18 @@ export default function App() {
               return;
             }
 
-            storageService.setStoreId(resolvedStoreId, resolved?.storeName);
-            localStorage.setItem('cardapp_last_store_id', resolvedStoreId);
-            await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
+            const hasLocalBefore = Boolean(localStorage.getItem(`cardapp_settings_${resolvedStoreId}`));
+            const foundInCloud = await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
             if (!isMounted) return;
 
+            if (!resolved && !hasLocalBefore && !foundInCloud) {
+              setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
+              setIsResolvingStore(false);
+              return;
+            }
+
+            storageService.setStoreId(resolvedStoreId, resolved?.storeName);
+            localStorage.setItem('cardapp_last_store_id', resolvedStoreId);
             setProducts(storageService.getProducts());
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());

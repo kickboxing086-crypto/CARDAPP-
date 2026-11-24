@@ -135,15 +135,20 @@ export const storageService = {
     }
 
     let resolvedName = (storeName || '').trim();
-    if (!resolvedName) {
+    if (!resolvedName || resolvedName === 'Minha Loja') {
       try {
         const stored = localStorage.getItem(`cardapp_settings_${cleanId}`);
         if (stored) {
-          resolvedName = (JSON.parse(stored)?.storeName || '').trim();
+          const parsedName = (JSON.parse(stored)?.storeName || '').trim();
+          if (parsedName) resolvedName = parsedName;
         }
       } catch {}
     }
     if (!resolvedName) resolvedName = 'Minha Loja';
+
+    const isFirebaseBootstrapAdmin =
+      auth.currentUser.email?.toLowerCase() === 'kickboxing086@gmail.com' &&
+      auth.currentUser.emailVerified === true;
 
     try {
       const storeRootRef = doc(db, 'stores', cleanId);
@@ -152,7 +157,7 @@ export const storageService = {
         {
           id: cleanId,
           storeName: resolvedName,
-          ...(this.authRole !== 'super_admin' ? { ownerUid: auth.currentUser.uid } : {}),
+          ...(!isFirebaseBootstrapAdmin ? { ownerUid: auth.currentUser.uid } : {}),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -191,10 +196,10 @@ export const storageService = {
     }
   },
 
-  async syncAllStoreDataToFirestore(storeId?: string, storeName?: string): Promise<void> {
+  async syncAllStoreDataToFirestore(storeId?: string, storeName?: string): Promise<boolean> {
     const cleanId = storeId || this.currentStoreId;
     if (!auth.currentUser || !cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
-      return;
+      return false;
     }
 
     try {
@@ -204,9 +209,17 @@ export const storageService = {
         if (rawSet) localSettings = JSON.parse(rawSet);
       } catch {}
 
-      const effectiveName = storeName || localSettings?.storeName || 'Minha Loja';
+      const localName = (localSettings?.storeName || '').trim();
+      const paramName = (storeName || '').trim();
+      const effectiveName =
+        (localName && localName !== 'Minha Loja' ? localName : '') ||
+        (paramName && paramName !== 'Minha Loja' ? paramName : '') ||
+        localName ||
+        paramName ||
+        'Minha Loja';
+
       const rootOk = await this.ensureStoreDocument(cleanId, effectiveName);
-      if (!rootOk) return;
+      if (!rootOk) return false;
 
       if (localSettings) {
         await setDoc(
@@ -248,8 +261,10 @@ export const storageService = {
           }
         }
       } catch {}
+      return true;
     } catch (err) {
       console.warn('syncAllStoreDataToFirestore notice:', err);
+      return false;
     }
   },
 
@@ -282,6 +297,31 @@ export const storageService = {
       }
     } catch {}
 
+    // Fallback local (mesmo navegador) caso as configurações da loja ainda estejam apenas no localStorage
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('cardapp_settings_')) {
+            const candidateId = key.slice('cardapp_settings_'.length);
+            if (!candidateId || candidateId === 'default_store' || candidateId === 'master_admin') {
+              continue;
+            }
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw) as StoreSettings;
+            const parsedSlug = slugifyStoreName(parsed?.storeName);
+            if (
+              candidateId === clean ||
+              (slug && slug.length >= 2 && parsedSlug === slug)
+            ) {
+              return { storeId: candidateId, storeName: parsed?.storeName };
+            }
+          }
+        }
+      }
+    } catch {}
+
     return null;
   },
 
@@ -300,14 +340,27 @@ export const storageService = {
         getDocs(collection(db, 'stores', cleanId, 'products')),
       ]);
 
+      let rootStoreName = '';
       if (rootRes.status === 'fulfilled' && rootRes.value.exists()) {
         foundAny = true;
+        rootStoreName = (rootRes.value.data() as { storeName?: string })?.storeName || '';
       }
 
       if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
         foundAny = true;
         const data = decryptDataFromFirestore<StoreSettings>(settingsRes.value.data());
         localStorage.setItem(`cardapp_settings_${cleanId}`, JSON.stringify(data));
+      } else if (rootStoreName) {
+        try {
+          const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
+          const base = existingRaw ? JSON.parse(existingRaw) : { ...INITIAL_SETTINGS };
+          if (!base.storeName || base.storeName === 'Minha Loja') {
+            localStorage.setItem(
+              `cardapp_settings_${cleanId}`,
+              JSON.stringify({ ...base, storeName: rootStoreName })
+            );
+          }
+        } catch {}
       }
 
       if (catsRes.status === 'fulfilled' && !catsRes.value.empty) {

@@ -19,6 +19,7 @@ let firebaseConfig: {
   projectId?: string;
   apiKey?: string;
   authDomain?: string;
+  firestoreDatabaseId?: string;
 } = {};
 
 try {
@@ -37,7 +38,9 @@ try {
     credential: admin.applicationDefault(),
     projectId: firebaseConfig.projectId
   });
-  db = getFirestore();
+  db = firebaseConfig.firestoreDatabaseId
+    ? getFirestore(firebaseConfig.firestoreDatabaseId)
+    : getFirestore();
 } catch (e) {
   console.warn('[Server] Firebase Admin init notice:', e);
 }

@@ -35,6 +35,25 @@ export const initGoogleAuth = (
   });
 };
 
+const firebaseGoogleProvider = new GoogleAuthProvider();
+firebaseGoogleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
+// Login Google padrão no Firebase Auth (sem solicitar permissão de envio de e-mail Gmail)
+export const googleFirebaseSignIn = async (): Promise<User | null> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, firebaseGoogleProvider);
+    return result.user;
+  } catch (error: any) {
+    console.error('[Google Firebase Auth] Erro de autenticação:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
 // Realiza o Sign-In com Google OAuth solicitando as permissões do Gmail
 export const googleSignIn = async (): Promise<{
   user: User;

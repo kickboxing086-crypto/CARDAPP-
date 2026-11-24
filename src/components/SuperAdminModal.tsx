@@ -279,11 +279,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       const res = await googleSignIn();
       if (res?.user) {
         setFirebaseUser(res.user);
+        const syncedCount = await accountService.syncAllLocalStoresToFirestore();
         setSecurityLinkFeedback({
           type: 'success',
-          message: `Firebase Auth conectado com sucesso como ${res.user.email || res.user.uid}. Regras e leituras administrativas sincronizadas.`,
+          message: `Firebase Auth conectado como ${res.user.email || res.user.uid}. ${syncedCount > 0 ? `${syncedCount} loja(s) sincronizada(s) na nuvem!` : 'Regras e leituras administrativas sincronizadas.'}`,
         });
-        showToast('success', 'Sessão Firebase Admin conectada com segurança!');
+        showToast('success', 'Sessão Firebase Admin conectada e lojas sincronizadas!');
       }
     } catch (err: any) {
       setSecurityLinkFeedback({

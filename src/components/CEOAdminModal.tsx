@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { auth } from '../firebase';
 import { accountService } from '../services/accountService';
 import { storageService } from '../services/storageService';
 import QRCode from 'qrcode';
@@ -163,8 +165,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
   const [officialPixKey, setOfficialPixKey] = useState<string>(() => accountService.getCleanPixKey());
 
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => auth.currentUser);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncMessage, setCloudSyncMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
   // Assinar alterações da conta e chave interna da Gateway no accountService
   useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      setFirebaseUser(u);
+    });
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
@@ -173,7 +185,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
         setActiveTab('status');
       }
     });
-    return unsub;
+    return () => {
+      unsubAuth();
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
@@ -191,6 +206,42 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       }
     }
   }, [isOpen, currentStoreId]);
+
+  const handleConnectGoogleCloud = async () => {
+    setIsSyncingCloud(true);
+    setCloudSyncMessage(null);
+    try {
+      const res = await accountService.linkGoogleToCurrentStore(currentStoreId, effectiveStoreName);
+      setCloudSyncMessage({
+        type: res.success ? 'success' : 'error',
+        text: res.message,
+      });
+    } catch (err: any) {
+      setCloudSyncMessage({
+        type: 'error',
+        text: err?.message || 'Erro ao sincronizar loja com a nuvem.',
+      });
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleSyncCloudNow = async () => {
+    if (!currentStoreId || currentStoreId === 'default_store' || currentStoreId === 'master_admin') return;
+    setIsSyncingCloud(true);
+    setCloudSyncMessage(null);
+    try {
+      const ok = await storageService.syncAllStoreDataToFirestore(currentStoreId, effectiveStoreName);
+      setCloudSyncMessage({
+        type: ok ? 'success' : 'error',
+        text: ok
+          ? 'Dados da loja e link público atualizados na nuvem!'
+          : 'Conecte sua conta Google abaixo para publicar sua loja online.',
+      });
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
 
   // Cálculo dos dias restantes para o vencimento do plano
   const daysUntilExpiry = useMemo(() => {
@@ -877,6 +928,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       storeName: localSettings.storeName,
       phoneWhatsapp: localSettings.phoneWhatsapp,
     });
+    try {
+      const nextUrl = getClientAppUrl(currentStoreId, localSettings.storeName);
+      const parsed = new URL(nextUrl);
+      window.history.replaceState({}, '', parsed.pathname + parsed.search);
+    } catch {}
     setSettingsSavedMessage(true);
     setTimeout(() => setSettingsSavedMessage(false), 2500);
   };
@@ -3370,6 +3426,77 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <span>{copiedClientLink ? 'Copiado!' : 'Copiar Link da Loja'}</span>
                   </button>
                 </div>
+
+                {/* Status de Publicação Online na Nuvem */}
+                <div
+                  className={`rounded-2xl p-3.5 mb-5 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    firebaseUser
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-amber-50 border-amber-300 text-amber-950'
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-xs font-black">
+                      {firebaseUser ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      )}
+                      <span>
+                        {firebaseUser
+                          ? 'Loja sincronizada na nuvem • Link público ativo'
+                          : 'Ative seu link na nuvem para qualquer cliente abrir'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-85 leading-snug">
+                      {firebaseUser
+                        ? 'Qualquer cliente que abrir este link em outro celular verá sua loja e produtos atualizados.'
+                        : 'Conecte sua conta Google em 1 clique para publicar este nome de loja na internet.'}
+                    </p>
+                  </div>
+
+                  {firebaseUser ? (
+                    <button
+                      type="button"
+                      disabled={isSyncingCloud}
+                      onClick={handleSyncCloudNow}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-60"
+                    >
+                      {isSyncingCloud ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      <span>Sincronizar Agora</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isSyncingCloud}
+                      onClick={handleConnectGoogleCloud}
+                      className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 text-xs font-black flex items-center justify-center gap-1.5 shrink-0 cursor-pointer shadow-xs disabled:opacity-60"
+                    >
+                      {isSyncingCloud ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Share2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>Publicar com Google</span>
+                    </button>
+                  )}
+                </div>
+
+                {cloudSyncMessage && (
+                  <div
+                    className={`mb-4 p-3 rounded-xl text-xs font-bold border ${
+                      cloudSyncMessage.type === 'success'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-red-50 border-red-200 text-red-700'
+                    }`}
+                  >
+                    {cloudSyncMessage.text}
+                  </div>
+                )}
 
                 {/* QR Code Real e Altamente Legível para Qualquer Dispositivo */}
                 <div className="p-5 bg-slate-950 rounded-2xl text-center text-white flex flex-col sm:flex-row items-center justify-center gap-5">

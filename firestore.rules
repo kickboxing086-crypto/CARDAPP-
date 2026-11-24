@@ -86,7 +86,7 @@ service cloud.firestore {
     function isValidStoreSlugDoc(data) {
       return data.keys().hasAll(['slug', 'storeId', 'storeName', 'updatedAt'])
         && data.keys().hasOnly(['slug', 'storeId', 'storeName', 'updatedAt'])
-        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9\\-]+$')
+        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9-]+$')
         && data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 140
         && data.storeName is string && data.storeName.size() >= 1 && data.storeName.size() <= 120
         && data.updatedAt is string && data.updatedAt.size() <= 60;
