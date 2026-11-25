@@ -271,10 +271,13 @@ export const storageService = {
       if (!rootOk) return false;
 
       if (localSettings) {
-        await setDoc(
-          doc(db, 'stores', cleanId, 'settings', 'current'),
-          encryptDataForFirestore(localSettings)
-        ).catch(() => {});
+        try {
+          await setDoc(
+            doc(db, 'stores', cleanId, 'settings', 'current'),
+            encryptDataForFirestore(localSettings)
+          );
+          this.clearSettingsPending(cleanId);
+        } catch {}
       }
 
       try {
@@ -287,9 +290,10 @@ export const storageService = {
                 setDoc(
                   doc(db, 'stores', cleanId, 'categories', cat.id),
                   encryptDataForFirestore(cat)
-                ).catch(() => {})
+                )
               )
             );
+            this.clearCategoriesPending(cleanId);
           }
         }
       } catch {}
@@ -403,15 +407,28 @@ export const storageService = {
       }
 
       if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
-        foundAny = true;
         const data = decryptDataFromFirestore<StoreSettings>(settingsRes.value.data());
-        localStorage.setItem(`cardapp_settings_${cleanId}`, JSON.stringify(data));
+        const isPendingSettings = Boolean(this.getPendingSettingsTimestamp(cleanId));
+        let localSettingsTs = 0;
+        try {
+          const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
+          if (existingRaw) {
+            const existing = JSON.parse(existingRaw) as StoreSettings;
+            localSettingsTs = existing?.updatedAt ? Date.parse(existing.updatedAt) || 0 : 0;
+          }
+        } catch {}
+        const remoteSettingsTs = data?.updatedAt ? Date.parse(data.updatedAt) || 0 : 0;
+
+        if (!isPendingSettings && localSettingsTs <= remoteSettingsTs) {
+          foundAny = true;
+          safeSetLocalStorage(`cardapp_settings_${cleanId}`, JSON.stringify(data));
+        }
       } else if (rootStoreName) {
         try {
           const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
           const base = existingRaw ? JSON.parse(existingRaw) : { ...INITIAL_SETTINGS };
           if (!base.storeName || base.storeName === 'Minha Loja') {
-            localStorage.setItem(
+            safeSetLocalStorage(
               `cardapp_settings_${cleanId}`,
               JSON.stringify({ ...base, storeName: rootStoreName })
             );
@@ -420,12 +437,14 @@ export const storageService = {
       }
 
       if (catsRes.status === 'fulfilled' && !catsRes.value.empty) {
-        foundAny = true;
-        const categories: Category[] = [];
-        catsRes.value.forEach((d) => {
-          categories.push(decryptDataFromFirestore<Category>(d.data()));
-        });
-        localStorage.setItem(`cardapp_categories_${cleanId}`, JSON.stringify(categories));
+        if (!this.getPendingCategoriesTimestamp(cleanId)) {
+          foundAny = true;
+          const categories: Category[] = [];
+          catsRes.value.forEach((d) => {
+            categories.push(decryptDataFromFirestore<Category>(d.data()));
+          });
+          safeSetLocalStorage(`cardapp_categories_${cleanId}`, JSON.stringify(categories));
+        }
       }
 
       if (prodsRes.status === 'fulfilled' && !prodsRes.value.empty) {
@@ -588,9 +607,31 @@ export const storageService = {
       const unsubSettings = onSnapshot(
         settingsRef,
         (snap) => {
+          if (this.currentStoreId !== targetStore) return;
           if (snap.exists()) {
             const data = decryptDataFromFirestore<StoreSettings>(snap.data());
-            localStorage.setItem(this.getSettingsKey(), JSON.stringify(data));
+            const isPending = Boolean(this.getPendingSettingsTimestamp(targetStore));
+            let localSettings: StoreSettings | null = null;
+            let localTs = 0;
+            try {
+              const rawLocal = localStorage.getItem(`cardapp_settings_${targetStore}`);
+              if (rawLocal) {
+                localSettings = JSON.parse(rawLocal) as StoreSettings;
+                localTs = localSettings?.updatedAt ? Date.parse(localSettings.updatedAt) || 0 : 0;
+              }
+            } catch {}
+            const remoteTs = data?.updatedAt ? Date.parse(data.updatedAt) || 0 : 0;
+
+            if (isPending || (localSettings && localTs > remoteTs)) {
+              if (auth.currentUser && localSettings) {
+                setDoc(settingsRef, encryptDataForFirestore(localSettings))
+                  .then(() => this.clearSettingsPending(targetStore))
+                  .catch(() => {});
+              }
+              return;
+            }
+
+            safeSetLocalStorage(`cardapp_settings_${targetStore}`, JSON.stringify(data));
             this.notifyChange();
           }
         },
@@ -659,7 +700,7 @@ export const storageService = {
             );
 
             inMemoryOrdersByStore[targetStore] = merged;
-            safeSetLocalStorage(this.getOrdersKey(), JSON.stringify(merged));
+            safeSetLocalStorage(`cardapp_orders_${targetStore}`, JSON.stringify(merged));
             this.notifyChange();
 
             if (auth.currentUser && ordersToSync.length > 0) {
@@ -744,12 +785,16 @@ export const storageService = {
       const unsubCats = onSnapshot(
         categoriesRef,
         (snap) => {
+          if (this.currentStoreId !== targetStore) return;
           if (!snap.empty) {
+            if (this.getPendingCategoriesTimestamp(targetStore)) {
+              return;
+            }
             const categories: Category[] = [];
             snap.forEach((d) => {
               categories.push(decryptDataFromFirestore<Category>(d.data()));
             });
-            localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
+            safeSetLocalStorage(`cardapp_categories_${targetStore}`, JSON.stringify(categories));
             this.notifyChange();
           }
         },
@@ -764,6 +809,28 @@ export const storageService = {
   },
 
   // CATEGORIES
+  getPendingCategoriesTimestamp(storeId?: string): number {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const val = localStorage.getItem(`cardapp_pending_categories_${cleanId}`);
+      return val ? Number(val) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  markCategoriesPending(storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    safeSetLocalStorage(`cardapp_pending_categories_${cleanId}`, String(Date.now()));
+  },
+
+  clearCategoriesPending(storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      localStorage.removeItem(`cardapp_pending_categories_${cleanId}`);
+    } catch {}
+  },
+
   getCategories(): Category[] {
     try {
       const stored = localStorage.getItem(this.getCategoriesKey());
@@ -781,18 +848,21 @@ export const storageService = {
   },
 
   saveCategories(categories: Category[]) {
-    localStorage.setItem(this.getCategoriesKey(), JSON.stringify(categories));
+    const storeId = this.currentStoreId;
+    this.markCategoriesPending(storeId);
+    safeSetLocalStorage(`cardapp_categories_${storeId}`, JSON.stringify(categories));
     this.notifyChange();
 
     // Sync to Firestore (Criptografado)
     (async () => {
-      const storeId = this.currentStoreId;
+      if (!auth.currentUser) return;
       await this.ensureStoreDocument(storeId);
       await Promise.all(
         categories.map((cat) =>
-          setDoc(doc(db, 'stores', storeId, 'categories', cat.id), encryptDataForFirestore(cat)).catch(() => {})
+          setDoc(doc(db, 'stores', storeId, 'categories', cat.id), encryptDataForFirestore(cat))
         )
       );
+      this.clearCategoriesPending(storeId);
     })().catch(() => {});
   },
 
@@ -1456,6 +1526,28 @@ export const storageService = {
   },
 
   // STORE SETTINGS
+  getPendingSettingsTimestamp(storeId?: string): number {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const val = localStorage.getItem(`cardapp_pending_settings_${cleanId}`);
+      return val ? Number(val) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  markSettingsPending(storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    safeSetLocalStorage(`cardapp_pending_settings_${cleanId}`, String(Date.now()));
+  },
+
+  clearSettingsPending(storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      localStorage.removeItem(`cardapp_pending_settings_${cleanId}`);
+    } catch {}
+  },
+
   getSettings(): StoreSettings {
     try {
       const stored = localStorage.getItem(this.getSettingsKey());
@@ -1492,17 +1584,23 @@ export const storageService = {
   },
 
   saveSettings(settings: StoreSettings) {
+    const storeId = this.currentStoreId;
+    const stampedSettings: StoreSettings = {
+      ...settings,
+      updatedAt: new Date().toISOString(),
+    };
     // Nunca permitir salvar WhatsApp pessoal no cardápio de demonstração
-    if (this.currentStoreId === 'default_store') {
-      settings.phoneWhatsapp = '';
+    if (storeId === 'default_store') {
+      stampedSettings.phoneWhatsapp = '';
     }
-    localStorage.setItem(this.getSettingsKey(), JSON.stringify(settings));
+    this.markSettingsPending(storeId);
+    safeSetLocalStorage(`cardapp_settings_${storeId}`, JSON.stringify(stampedSettings));
     this.notifyChange();
 
     try {
       broadcastChannel?.postMessage({
         type: 'DATA_UPDATED',
-        storeId: this.currentStoreId,
+        storeId,
       });
     } catch {
       // ignore
@@ -1510,13 +1608,16 @@ export const storageService = {
 
     // Sync to Firestore (Criptografado) garantindo /stores/{storeId} + /storeSlugs/{slug} primeiro
     (async () => {
-      const storeId = this.currentStoreId;
-      await this.ensureStoreDocument(storeId, settings.storeName);
+      if (!auth.currentUser || storeId === 'default_store' || storeId === 'master_admin') {
+        return;
+      }
+      await this.ensureStoreDocument(storeId, stampedSettings.storeName);
       const settingsRef = doc(db, 'stores', storeId, 'settings', 'current');
-      await setDoc(settingsRef, encryptDataForFirestore(settings)).catch((err) => {
-        console.warn('Sync saveSettings fallback:', err);
-      });
-    })().catch(() => {});
+      await setDoc(settingsRef, encryptDataForFirestore(stampedSettings));
+      this.clearSettingsPending(storeId);
+    })().catch((err) => {
+      console.warn('Sync saveSettings fallback:', err);
+    });
   },
 };
 

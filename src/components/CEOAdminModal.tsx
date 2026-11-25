@@ -146,8 +146,36 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     } catch {}
   };
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [orderFilter, setOrderFilter] = useState<'all' | OrderStatus>('all');
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [orderFilter, setOrderFilterState] = useState<'all' | OrderStatus>(() => {
+    try {
+      const saved = sessionStorage.getItem('cardapp_ceo_order_filter');
+      if (saved && ['all', 'recebido', 'em_producao', 'em_rota', 'finalizado'].includes(saved)) {
+        return saved as 'all' | OrderStatus;
+      }
+    } catch {}
+    return 'all';
+  });
+  const setOrderFilter = (filter: 'all' | OrderStatus) => {
+    setOrderFilterState(filter);
+    try {
+      sessionStorage.setItem('cardapp_ceo_order_filter', filter);
+    } catch {}
+  };
+
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cardapp_ceo_sound_enabled');
+      if (saved === 'false') return false;
+      if (saved === 'true') return true;
+    } catch {}
+    return true;
+  });
+  const setSoundEnabled = (enabled: boolean) => {
+    setSoundEnabledState(enabled);
+    try {
+      localStorage.setItem('cardapp_ceo_sound_enabled', enabled ? 'true' : 'false');
+    } catch {}
+  };
   const [copiedClientLink, setCopiedClientLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -574,6 +602,36 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Form State for Store Settings
   const [localSettings, setLocalSettings] = useState<StoreSettings>({ ...settings });
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
+  const localSettingsRef = React.useRef<StoreSettings>(localSettings);
+  localSettingsRef.current = localSettings;
+  const isSettingsDirtyRef = React.useRef<boolean>(false);
+  const lastSyncedStoreIdRef = React.useRef<string>(currentStoreId);
+  const lastSettingsSnapshotRef = React.useRef<string>(JSON.stringify(settings));
+  const settingsSavedTimeoutRef = React.useRef<number | null>(null);
+
+  const showSettingsSavedToast = () => {
+    setSettingsSavedMessage(true);
+    if (settingsSavedTimeoutRef.current) {
+      window.clearTimeout(settingsSavedTimeoutRef.current);
+    }
+    settingsSavedTimeoutRef.current = window.setTimeout(() => {
+      setSettingsSavedMessage(false);
+    }, 2500);
+  };
+
+  const applySettingAndPersist = (updater: (prev: StoreSettings) => StoreSettings) => {
+    const next = updater(localSettingsRef.current);
+    localSettingsRef.current = next;
+    isSettingsDirtyRef.current = false;
+    lastSettingsSnapshotRef.current = JSON.stringify(next);
+    setLocalSettings(next);
+    onSaveSettings(next);
+    accountService.updateStoreProfile(currentStoreId, {
+      storeName: next.storeName,
+      phoneWhatsapp: next.phoneWhatsapp,
+    });
+    showSettingsSavedToast();
+  };
 
   const effectiveStoreName = useMemo(() => {
     return (
@@ -589,8 +647,20 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   }, [currentStoreId, effectiveStoreName]);
 
   useEffect(() => {
-    setLocalSettings({ ...settings });
-  }, [settings]);
+    const nextSnapshot = JSON.stringify(settings);
+    const storeChanged = lastSyncedStoreIdRef.current !== currentStoreId;
+    if (storeChanged) {
+      lastSyncedStoreIdRef.current = currentStoreId;
+      isSettingsDirtyRef.current = false;
+      lastSettingsSnapshotRef.current = nextSnapshot;
+      setLocalSettings({ ...settings });
+      return;
+    }
+    if (!isSettingsDirtyRef.current && nextSnapshot !== lastSettingsSnapshotRef.current) {
+      lastSettingsSnapshotRef.current = nextSnapshot;
+      setLocalSettings({ ...settings });
+    }
+  }, [settings, currentStoreId]);
 
   // Group Orders by Date Key (ex: 2026-10-08)
   const groupedOrdersByDate = useMemo(() => {
@@ -839,7 +909,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     try {
       const compressed = await compressImageDataUrl(file, 450, 0.82, 150000);
       if (compressed) {
-        setLocalSettings((prev) => ({
+        applySettingAndPersist((prev) => ({
           ...prev,
           logoBase64: compressed,
         }));
@@ -960,18 +1030,20 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Save Store Settings
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSettings(localSettings);
+    const toSave = { ...localSettingsRef.current };
+    isSettingsDirtyRef.current = false;
+    lastSettingsSnapshotRef.current = JSON.stringify(toSave);
+    onSaveSettings(toSave);
     accountService.updateStoreProfile(currentStoreId, {
-      storeName: localSettings.storeName,
-      phoneWhatsapp: localSettings.phoneWhatsapp,
+      storeName: toSave.storeName,
+      phoneWhatsapp: toSave.phoneWhatsapp,
     });
     try {
-      const nextUrl = getClientAppUrl(currentStoreId, localSettings.storeName);
+      const nextUrl = getClientAppUrl(currentStoreId, toSave.storeName);
       const parsed = new URL(nextUrl);
       window.history.replaceState({}, '', parsed.pathname + parsed.search);
     } catch {}
-    setSettingsSavedMessage(true);
-    setTimeout(() => setSettingsSavedMessage(false), 2500);
+    showSettingsSavedToast();
   };
 
   // Deletion Two-Step Confirmation
@@ -990,9 +1062,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Sync Hours
   const handleSyncHours = () => {
-    if (!localSettings.operatingHours?.monday) return;
-    const monday = { ...localSettings.operatingHours.monday };
-    setLocalSettings(prev => ({
+    if (!localSettingsRef.current.operatingHours?.monday) return;
+    const monday = { ...localSettingsRef.current.operatingHours.monday };
+    applySettingAndPersist((prev) => ({
       ...prev,
       operatingHours: {
         monday,
@@ -1014,16 +1086,19 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   const handleConfirmDeleteTable = () => {
     if (!tableToDelete) return;
-    const newTables = (localSettings.tables || []).filter(t => t !== tableToDelete);
-    setLocalSettings({ ...localSettings, tables: newTables });
-    onSaveSettings({ ...localSettings, tables: newTables });
+    applySettingAndPersist((prev) => ({
+      ...prev,
+      tables: (prev.tables || []).filter((t) => t !== tableToDelete),
+    }));
     setTableToDelete(null);
     setTableDeleteStep(1);
   };
 
   const handleConfirmDeleteAllTables = () => {
-    setLocalSettings({ ...localSettings, tables: [] });
-    onSaveSettings({ ...localSettings, tables: [] });
+    applySettingAndPersist((prev) => ({
+      ...prev,
+      tables: [],
+    }));
     setDeleteAllTablesStep(1);
   };
 
@@ -1096,10 +1171,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }
 
     const newSettings: StoreSettings = {
-      ...localSettings,
+      ...localSettingsRef.current,
       deliveryNeighborhoods: updatedList,
     };
 
+    localSettingsRef.current = newSettings;
+    isSettingsDirtyRef.current = false;
+    lastSettingsSnapshotRef.current = JSON.stringify(newSettings);
     setLocalSettings(newSettings);
     onSaveSettings(newSettings);
 
@@ -1119,15 +1197,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const handleConfirmDeleteNeighborhood = () => {
     if (!neighborhoodToDelete) return;
 
-    const updatedList = (localSettings.deliveryNeighborhoods || []).filter(
+    const updatedList = (localSettingsRef.current.deliveryNeighborhoods || []).filter(
       (n) => n.id !== neighborhoodToDelete.id
     );
 
     const newSettings: StoreSettings = {
-      ...localSettings,
+      ...localSettingsRef.current,
       deliveryNeighborhoods: updatedList,
     };
 
+    localSettingsRef.current = newSettings;
+    isSettingsDirtyRef.current = false;
+    lastSettingsSnapshotRef.current = JSON.stringify(newSettings);
     setLocalSettings(newSettings);
     onSaveSettings(newSettings);
     setNeighborhoodToDelete(null);
@@ -2325,13 +2406,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           onChange={(e) => setProdCategory(e.target.value)}
                           className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none bg-white"
                         >
-                          {categories
-                            .filter((c) => c.id !== 'todos')
-                            .map((cat) => (
-                              <option key={cat.id} value={cat.id}>
-                                {cat.name}
-                              </option>
-                            ))}
+                          {categories.filter((c) => c.id !== 'todos').length > 0 ? (
+                            categories
+                              .filter((c) => c.id !== 'todos')
+                              .map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                  {cat.name}
+                                </option>
+                              ))
+                          ) : (
+                            <option value="todos">Todos os Itens</option>
+                          )}
                         </select>
                       </div>
                     </div>
@@ -2954,8 +3039,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setLocalSettings({ ...localSettings, isOpen: !localSettings.isOpen })}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                    onClick={() => applySettingAndPersist((prev) => ({ ...prev, isOpen: !prev.isOpen }))}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                       localSettings.isOpen
                         ? 'bg-emerald-500 text-white shadow-xs'
                         : 'bg-red-500 text-white shadow-xs'
@@ -2997,8 +3082,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       {localSettings.logoBase64 && (
                         <button
                           type="button"
-                          onClick={() => setLocalSettings((prev) => ({ ...prev, logoBase64: '' }))}
-                          className="block text-xs text-red-600 hover:underline font-bold mt-1"
+                          onClick={() => applySettingAndPersist((prev) => ({ ...prev, logoBase64: '' }))}
+                          className="block text-xs text-red-600 hover:underline font-bold mt-1 cursor-pointer"
                         >
                           Remover logo personalizada
                         </button>
@@ -3032,7 +3117,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         <button
                           key={font.id}
                           type="button"
-                          onClick={() => setLocalSettings((prev) => ({ ...prev, fontFamily: font.id }))}
+                          onClick={() => applySettingAndPersist((prev) => ({ ...prev, fontFamily: font.id }))}
                           className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative ${
                             isSelected
                               ? 'bg-amber-400/20 border-amber-500 shadow-xs ring-1 ring-amber-400'
@@ -3079,24 +3164,24 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200">
                   <span className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center justify-between">
                     Horários de Funcionamento:
-                    <button type="button" onClick={handleSyncHours} className="px-2 py-1 rounded bg-amber-200 text-amber-900 text-[10px] font-bold hover:bg-amber-300">Sincronizar horários</button>
+                    <button type="button" onClick={handleSyncHours} className="px-2 py-1 rounded bg-amber-200 text-amber-900 text-[10px] font-bold hover:bg-amber-300 cursor-pointer">Sincronizar horários</button>
                   </span>
                   <div className="space-y-3">
                     {[{id: 'monday', name: 'Segunda'}, {id: 'tuesday', name: 'Terça'}, {id: 'wednesday', name: 'Quarta'}, {id: 'thursday', name: 'Quinta'}, {id: 'friday', name: 'Sexta'}, {id: 'saturday', name: 'Sábado'}, {id: 'sunday', name: 'Domingo'}].map((day) => (
                       <div key={day.id} className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="w-20 font-bold">{day.name}</span>
-                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.openTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], openTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.openTime || ''} onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], openTime: e.target.value }}}); }} className="p-1 rounded border border-slate-300" />
                         <span>às</span>
-                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.closeTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], closeTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
-                        <label className="flex items-center gap-1 ml-2">
-                          <input type="checkbox" checked={!!localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.hasBreak} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], hasBreak: e.target.checked }}})} />
+                        <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.closeTime || ''} onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], closeTime: e.target.value }}}); }} className="p-1 rounded border border-slate-300" />
+                        <label className="flex items-center gap-1 ml-2 cursor-pointer">
+                          <input type="checkbox" checked={!!localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.hasBreak} onChange={(e) => applySettingAndPersist((prev) => ({...prev, operatingHours: { ...prev.operatingHours, [day.id]: { ...prev.operatingHours?.[day.id as keyof StoreOperatingHours], hasBreak: e.target.checked }}}))} />
                           <span>Intervalo?</span>
                         </label>
                         {localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.hasBreak && (
                           <div className="flex items-center gap-1">
-                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakStartTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakStartTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakStartTime || ''} onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakStartTime: e.target.value }}}); }} className="p-1 rounded border border-slate-300" />
                             <span>-</span>
-                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakEndTime || ''} onChange={(e) => setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakEndTime: e.target.value }}})} className="p-1 rounded border border-slate-300" />
+                            <input type="time" value={localSettings.operatingHours?.[day.id as keyof StoreOperatingHours]?.breakEndTime || ''} onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({...localSettings, operatingHours: { ...localSettings.operatingHours, [day.id]: { ...localSettings.operatingHours?.[day.id as keyof StoreOperatingHours], breakEndTime: e.target.value }}}); }} className="p-1 rounded border border-slate-300" />
                           </div>
                         )}
                       </div>
@@ -3114,7 +3199,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <input
                       type="text"
                       value={localSettings.instagramHandle}
-                      onChange={(e) => setLocalSettings({ ...localSettings, instagramHandle: e.target.value })}
+                      onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({ ...localSettings, instagramHandle: e.target.value }); }}
                       placeholder="@nomedasualoja"
                       className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                     />
@@ -3128,7 +3213,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <input
                       type="text"
                       value={localSettings.phoneWhatsapp}
-                      onChange={(e) => setLocalSettings({ ...localSettings, phoneWhatsapp: e.target.value })}
+                      onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({ ...localSettings, phoneWhatsapp: e.target.value }); }}
                       placeholder="5511999999999"
                       className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                     />
@@ -3146,10 +3231,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.serviceModes.allowDelivery}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            serviceModes: { ...localSettings.serviceModes, allowDelivery: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            serviceModes: { ...prev.serviceModes, allowDelivery: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3161,10 +3246,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.serviceModes.allowRetirada}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            serviceModes: { ...localSettings.serviceModes, allowRetirada: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            serviceModes: { ...prev.serviceModes, allowRetirada: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3176,10 +3261,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.serviceModes.allowMesa}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            serviceModes: { ...localSettings.serviceModes, allowMesa: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            serviceModes: { ...prev.serviceModes, allowMesa: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3199,10 +3284,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.paymentMethods.allowPix}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            paymentMethods: { ...localSettings.paymentMethods, allowPix: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            paymentMethods: { ...prev.paymentMethods, allowPix: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3214,10 +3299,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.paymentMethods.allowCreditCard}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            paymentMethods: { ...localSettings.paymentMethods, allowCreditCard: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            paymentMethods: { ...prev.paymentMethods, allowCreditCard: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3229,10 +3314,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.paymentMethods.allowDebitCard}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            paymentMethods: { ...localSettings.paymentMethods, allowDebitCard: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            paymentMethods: { ...prev.paymentMethods, allowDebitCard: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3244,10 +3329,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         type="checkbox"
                         checked={localSettings.paymentMethods.allowCash}
                         onChange={(e) =>
-                          setLocalSettings({
-                            ...localSettings,
-                            paymentMethods: { ...localSettings.paymentMethods, allowCash: e.target.checked },
-                          })
+                          applySettingAndPersist((prev) => ({
+                            ...prev,
+                            paymentMethods: { ...prev.paymentMethods, allowCash: e.target.checked },
+                          }))
                         }
                         className="w-4 h-4 text-amber-500 accent-amber-500"
                       />
@@ -3281,10 +3366,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           <select
                             value={localSettings.pixKeyType || 'aleatoria'}
                             onChange={(e) =>
-                              setLocalSettings({
-                                ...localSettings,
+                              applySettingAndPersist((prev) => ({
+                                ...prev,
                                 pixKeyType: e.target.value as StoreSettings['pixKeyType'],
-                              })
+                              }))
                             }
                             className="w-full p-2.5 rounded-xl bg-white border border-emerald-300 text-xs font-bold text-slate-900 outline-none focus:border-emerald-600"
                           >
@@ -3303,12 +3388,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           <input
                             type="text"
                             value={localSettings.pixKey || ''}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              isSettingsDirtyRef.current = true;
                               setLocalSettings({
                                 ...localSettings,
                                 pixKey: e.target.value,
-                              })
-                            }
+                              });
+                            }}
                             placeholder="Ex: seuemail@loja.com, CNPJ, telefone ou chave aleatória"
                             className="w-full p-2.5 rounded-xl bg-white border border-emerald-300 text-xs font-mono font-bold text-slate-900 outline-none focus:border-emerald-600"
                           />
@@ -3441,14 +3527,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                           const input = document.getElementById('num-tables-input') as HTMLInputElement;
                           const qty = parseInt(input.value);
                           if (!isNaN(qty) && qty > 0) {
-                            const currentTables = localSettings.tables || [];
-                            const newTables = [...currentTables];
-                            for (let i = 1; i <= qty; i++) {
-                              const nextNumber = (currentTables.length + i).toString().padStart(2, '0');
-                              newTables.push(`Mesa ${nextNumber}`);
-                            }
-                            setLocalSettings({ ...localSettings, tables: newTables });
-                            onSaveSettings({ ...localSettings, tables: newTables });
+                            applySettingAndPersist((prev) => {
+                              const currentTables = prev.tables || [];
+                              const newTables = [...currentTables];
+                              for (let i = 1; i <= qty; i++) {
+                                const nextNumber = (currentTables.length + i).toString().padStart(2, '0');
+                                newTables.push(`Mesa ${nextNumber}`);
+                              }
+                              return { ...prev, tables: newTables };
+                            });
                             input.value = '';
                           }
                         }}
@@ -3479,7 +3566,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <input
                       type="text"
                       value={localSettings.storeName}
-                      onChange={(e) => setLocalSettings({ ...localSettings, storeName: e.target.value })}
+                      onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({ ...localSettings, storeName: e.target.value }); }}
                       className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                     />
                   </div>
@@ -3492,9 +3579,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       type="number"
                       step="0.50"
                       value={localSettings.deliveryFee}
-                      onChange={(e) =>
-                        setLocalSettings({ ...localSettings, deliveryFee: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => {
+                        isSettingsDirtyRef.current = true;
+                        setLocalSettings({ ...localSettings, deliveryFee: parseFloat(e.target.value) || 0 });
+                      }}
                       className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                     />
                   </div>
@@ -3507,7 +3595,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <input
                     type="text"
                     value={localSettings.address}
-                    onChange={(e) => setLocalSettings({ ...localSettings, address: e.target.value })}
+                    onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({ ...localSettings, address: e.target.value }); }}
                     className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                   />
                 </div>

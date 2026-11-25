@@ -147,6 +147,7 @@ export interface StoreSettings {
   deliveryNeighborhoods?: NeighborhoodDeliveryFee[];
   tables?: string[];
   fontFamily?: string;
+  updatedAt?: string;
 }
 
 export type PlanPeriod = 'mensal' | 'trimestral' | 'semestral' | 'anual' | 'vitalicio';
