@@ -87,6 +87,7 @@ function safeSetLocalStorage(key: string, value: string): boolean {
 
 const inMemoryProductsByStore: Record<string, Product[]> = {};
 const inMemoryOrdersByStore: Record<string, Order[]> = {};
+const inMemoryPendingOrdersByStore: Record<string, Record<string, number>> = {};
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
 
 function compactOrderForStorage(order: Order): Order {
@@ -103,14 +104,20 @@ export const storageService = {
   currentStoreId: 'default_store',
   authRole: null as 'super_admin' | 'store_admin' | null,
   authStoreId: null as string | null,
+  authUid: null as string | null,
   listeners: [] as (() => void)[],
   unsubscribers: [] as Unsubscribe[],
   watchedClientOrderKeys: new Set<string>(),
 
   setAuthContext(role: 'super_admin' | 'store_admin' | null, storeId: string | null) {
-    const changed = this.authRole !== role || this.authStoreId !== storeId;
+    const nextUid = auth.currentUser?.uid || null;
+    const changed =
+      this.authRole !== role ||
+      this.authStoreId !== storeId ||
+      this.authUid !== nextUid;
     this.authRole = role;
     this.authStoreId = storeId;
+    this.authUid = nextUid;
     if (changed) {
       this.initFirestoreSync();
     }
@@ -537,6 +544,9 @@ export const storageService = {
     if (!targetStore || !orderId || targetStore === 'default_store' || targetStore === 'master_admin') {
       return;
     }
+    if (this.canAccessStoreOrders(targetStore)) {
+      return;
+    }
     const watchKey = `${targetStore}:${orderId}`;
     if (this.watchedClientOrderKeys.has(watchKey)) return;
     this.watchedClientOrderKeys.add(watchKey);
@@ -546,27 +556,51 @@ export const storageService = {
       const unsubStatus = onSnapshot(
         statusRef,
         (snap) => {
+          if (this.currentStoreId !== targetStore) return;
+          if (this.canAccessStoreOrders(targetStore)) return;
           if (!snap.exists()) return;
           const statusData = snap.data() as {
             status?: OrderStatus;
             statusHistory?: Order['statusHistory'];
+            updatedAt?: string;
           };
           if (!statusData?.status) return;
+
+          const pendingOrderMap = this.getPendingOrderMap(targetStore);
+          if (pendingOrderMap[orderId]) {
+            return;
+          }
+
           const currentOrders = this.readRawOrdersForStore(targetStore);
           let updatedAny = false;
           const nextOrders = currentOrders.map((o) => {
+            if (o.id !== orderId) return o;
+
+            const localHist = o.statusHistory || [];
+            const remoteHist = Array.isArray(statusData.statusHistory) ? statusData.statusHistory : [];
+            const localLastTs = localHist.length
+              ? Date.parse(localHist[localHist.length - 1].timestamp || '') || 0
+              : 0;
+            const remoteLastTs = remoteHist.length
+              ? Date.parse(remoteHist[remoteHist.length - 1].timestamp || '') || 0
+              : statusData.updatedAt
+              ? Date.parse(statusData.updatedAt) || 0
+              : 0;
+
+            const isRemoteNewer =
+              remoteHist.length > localHist.length ||
+              (remoteHist.length === localHist.length && remoteLastTs > localLastTs) ||
+              (localHist.length === 0 && o.status !== statusData.status);
+
             if (
-              o.id === orderId &&
-              (o.status !== statusData.status ||
-                (statusData.statusHistory?.length || 0) !== (o.statusHistory?.length || 0))
+              isRemoteNewer &&
+              (o.status !== statusData.status || remoteHist.length !== localHist.length)
             ) {
               updatedAny = true;
               return {
                 ...o,
                 status: statusData.status!,
-                statusHistory: Array.isArray(statusData.statusHistory)
-                  ? statusData.statusHistory
-                  : o.statusHistory,
+                statusHistory: remoteHist.length > 0 ? remoteHist : o.statusHistory,
               };
             }
             return o;
@@ -647,6 +681,7 @@ export const storageService = {
         const unsubOrders = onSnapshot(
           ordersRef,
           (snap) => {
+            if (this.currentStoreId !== targetStore) return;
             const remoteOrders: Order[] = [];
             snap.forEach((d) => {
               remoteOrders.push(decryptDataFromFirestore<Order>(d.data()));
@@ -1163,27 +1198,38 @@ export const storageService = {
   // ORDERS
   getPendingOrderMap(storeId?: string): Record<string, number> {
     const cleanId = storeId || this.currentStoreId;
+    const memMap = inMemoryPendingOrdersByStore[cleanId] || {};
     try {
       const stored = localStorage.getItem(`cardapp_pending_orders_${cleanId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') return parsed;
+        if (parsed && typeof parsed === 'object') {
+          return { ...parsed, ...memMap };
+        }
       }
     } catch {}
-    return {};
+    return { ...memMap };
   },
 
   markOrderPending(orderId: string, storeId?: string) {
     const cleanId = storeId || this.currentStoreId;
+    const now = Date.now();
+    inMemoryPendingOrdersByStore[cleanId] = {
+      ...(inMemoryPendingOrdersByStore[cleanId] || {}),
+      [orderId]: now,
+    };
     try {
       const map = this.getPendingOrderMap(cleanId);
-      map[orderId] = Date.now();
+      map[orderId] = now;
       safeSetLocalStorage(`cardapp_pending_orders_${cleanId}`, JSON.stringify(map));
     } catch {}
   },
 
   clearOrderPending(orderId: string, storeId?: string) {
     const cleanId = storeId || this.currentStoreId;
+    if (inMemoryPendingOrdersByStore[cleanId] && orderId in inMemoryPendingOrdersByStore[cleanId]) {
+      delete inMemoryPendingOrdersByStore[cleanId][orderId];
+    }
     try {
       const map = this.getPendingOrderMap(cleanId);
       if (orderId in map) {
@@ -1217,6 +1263,9 @@ export const storageService = {
   async syncOrderToFirestore(storeId: string, order: Order): Promise<boolean> {
     if (!storeId || storeId === 'default_store' || storeId === 'master_admin') {
       return false;
+    }
+    if (auth.currentUser) {
+      await this.ensureStoreDocument(storeId).catch(() => {});
     }
     const compactOrder = compactOrderForStorage(order);
     const trimmedHistory = (compactOrder.statusHistory || []).slice(-25);
@@ -1383,9 +1432,13 @@ export const storageService = {
     const index = orders.findIndex((o) => o.id === orderId);
     if (index !== -1) {
       const current = orders[index];
-      const nowIso = new Date().toISOString();
+      const existingHistory = current.statusHistory || [];
+      const prevLastTs = existingHistory.length
+        ? Date.parse(existingHistory[existingHistory.length - 1].timestamp || '') || 0
+        : 0;
+      const nowIso = new Date(Math.max(Date.now(), prevLastTs + 1)).toISOString();
       const updatedHistory = [
-        ...(current.statusHistory || []),
+        ...existingHistory,
         {
           status: newStatus,
           timestamp: nowIso,
