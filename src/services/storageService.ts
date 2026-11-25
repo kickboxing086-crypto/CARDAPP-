@@ -20,11 +20,18 @@ import { encryptDataForFirestore, decryptDataFromFirestore } from '../utils/cryp
 import { slugifyStoreName } from '../utils/constants';
 
 let broadcastChannel: BroadcastChannel | null = null;
+const localStorageQuotaFallbackKeys = new Set<string>();
+
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     broadcastChannel = new BroadcastChannel('cardapp_orders_realtime_sync');
     broadcastChannel.onmessage = (event) => {
       if (event.data?.type === 'ORDER_CREATED' || event.data?.type === 'DATA_UPDATED') {
+        const targetStore = event.data?.storeId as string | undefined;
+        if (targetStore) {
+          localStorageQuotaFallbackKeys.delete(`cardapp_orders_${targetStore}`);
+          localStorageQuotaFallbackKeys.delete(`cardapp_products_${targetStore}`);
+        }
         storageService.notifyChange();
       }
     };
@@ -35,10 +42,27 @@ try {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key && e.key.startsWith('cardapp_')) {
+    if (!e.key || e.key.startsWith('cardapp_')) {
+      if (e.key) {
+        localStorageQuotaFallbackKeys.delete(e.key);
+      } else {
+        localStorageQuotaFallbackKeys.clear();
+      }
       storageService.notifyChange();
     }
   });
+
+  window.addEventListener('focus', () => {
+    storageService.notifyChange();
+  });
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        storageService.notifyChange();
+      }
+    });
+  }
 }
 
 export function sanitizeForFirestore<T>(data: T): T {
@@ -52,8 +76,10 @@ export function sanitizeForFirestore<T>(data: T): T {
 function safeSetLocalStorage(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
+    localStorageQuotaFallbackKeys.delete(key);
     return true;
   } catch (err) {
+    localStorageQuotaFallbackKeys.add(key);
     console.warn(`localStorage write warning (${key}):`, err);
     return false;
   }
@@ -79,6 +105,7 @@ export const storageService = {
   authStoreId: null as string | null,
   listeners: [] as (() => void)[],
   unsubscribers: [] as Unsubscribe[],
+  watchedClientOrderKeys: new Set<string>(),
 
   setAuthContext(role: 'super_admin' | 'store_admin' | null, storeId: string | null) {
     const changed = this.authRole !== role || this.authStoreId !== storeId;
@@ -488,6 +515,13 @@ export const storageService = {
   },
 
   watchClientOrderStatus(targetStore: string, orderId: string) {
+    if (!targetStore || !orderId || targetStore === 'default_store' || targetStore === 'master_admin') {
+      return;
+    }
+    const watchKey = `${targetStore}:${orderId}`;
+    if (this.watchedClientOrderKeys.has(watchKey)) return;
+    this.watchedClientOrderKeys.add(watchKey);
+
     try {
       const statusRef = doc(db, 'stores', targetStore, 'orderStatus', orderId);
       const unsubStatus = onSnapshot(
@@ -499,7 +533,7 @@ export const storageService = {
             statusHistory?: Order['statusHistory'];
           };
           if (!statusData?.status) return;
-          const currentOrders = this.getOrders();
+          const currentOrders = this.readRawOrdersForStore(targetStore);
           let updatedAny = false;
           const nextOrders = currentOrders.map((o) => {
             if (
@@ -519,7 +553,8 @@ export const storageService = {
             return o;
           });
           if (updatedAny) {
-            localStorage.setItem(this.getOrdersKey(), JSON.stringify(nextOrders));
+            inMemoryOrdersByStore[targetStore] = nextOrders;
+            safeSetLocalStorage(`cardapp_orders_${targetStore}`, JSON.stringify(nextOrders));
             this.notifyChange();
           }
         },
@@ -543,6 +578,7 @@ export const storageService = {
       }
     });
     this.unsubscribers = [];
+    this.watchedClientOrderKeys.clear();
 
     const targetStore = this.currentStoreId;
 
@@ -639,8 +675,11 @@ export const storageService = {
         this.unsubscribers.push(unsubOrders);
       } else {
         // Cliente público: acompanha APENAS o status não-PII dos próprios pedidos desta sessão
-        const clientOrderIds = this.getClientOrderIds().slice(0, 10);
-        clientOrderIds.forEach((orderId) => {
+        const activeId = this.getActiveOrderId();
+        const combinedIds = Array.from(
+          new Set([...(activeId ? [activeId] : []), ...this.getClientOrderIds()])
+        ).slice(0, 10);
+        combinedIds.forEach((orderId) => {
           this.watchClientOrderStatus(targetStore, orderId);
         });
       }
@@ -861,16 +900,23 @@ export const storageService = {
   },
 
   readRawProductsForStore(storeId: string): Product[] {
-    if (Array.isArray(inMemoryProductsByStore[storeId])) {
+    const key = `cardapp_products_${storeId}`;
+    if (localStorageQuotaFallbackKeys.has(key) && Array.isArray(inMemoryProductsByStore[storeId])) {
       return inMemoryProductsByStore[storeId];
     }
     try {
-      const stored = localStorage.getItem(`cardapp_products_${storeId}`);
+      const stored = localStorage.getItem(key);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          inMemoryProductsByStore[storeId] = parsed;
+          return parsed;
+        }
       }
     } catch {}
+    if (Array.isArray(inMemoryProductsByStore[storeId])) {
+      return inMemoryProductsByStore[storeId];
+    }
     return [];
   },
 
@@ -936,11 +982,12 @@ export const storageService = {
   },
 
   getProducts(): Product[] {
-    if (Array.isArray(inMemoryProductsByStore[this.currentStoreId])) {
+    const key = this.getProductsKey();
+    if (localStorageQuotaFallbackKeys.has(key) && Array.isArray(inMemoryProductsByStore[this.currentStoreId])) {
       return inMemoryProductsByStore[this.currentStoreId];
     }
     try {
-      const stored = localStorage.getItem(this.getProductsKey());
+      const stored = localStorage.getItem(key);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
@@ -951,14 +998,17 @@ export const storageService = {
     } catch {
       // fallback
     }
+    if (Array.isArray(inMemoryProductsByStore[this.currentStoreId])) {
+      return inMemoryProductsByStore[this.currentStoreId];
+    }
     if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
       inMemoryProductsByStore[this.currentStoreId] = INITIAL_PRODUCTS;
-      safeSetLocalStorage(this.getProductsKey(), JSON.stringify(INITIAL_PRODUCTS));
+      safeSetLocalStorage(key, JSON.stringify(INITIAL_PRODUCTS));
       return INITIAL_PRODUCTS;
     }
     // Para contas novas de clientes/lojistas: começa 100% zerado
     inMemoryProductsByStore[this.currentStoreId] = [];
-    safeSetLocalStorage(this.getProductsKey(), JSON.stringify([]));
+    safeSetLocalStorage(key, JSON.stringify([]));
     return [];
   },
 
@@ -1074,16 +1124,23 @@ export const storageService = {
   },
 
   readRawOrdersForStore(storeId: string): Order[] {
-    if (Array.isArray(inMemoryOrdersByStore[storeId])) {
+    const key = `cardapp_orders_${storeId}`;
+    if (localStorageQuotaFallbackKeys.has(key) && Array.isArray(inMemoryOrdersByStore[storeId])) {
       return inMemoryOrdersByStore[storeId];
     }
     try {
-      const stored = localStorage.getItem(`cardapp_orders_${storeId}`);
+      const stored = localStorage.getItem(key);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          inMemoryOrdersByStore[storeId] = parsed;
+          return parsed;
+        }
       }
     } catch {}
+    if (Array.isArray(inMemoryOrdersByStore[storeId])) {
+      return inMemoryOrdersByStore[storeId];
+    }
     return [];
   },
 
@@ -1134,11 +1191,12 @@ export const storageService = {
   },
 
   getOrders(): Order[] {
-    if (Array.isArray(inMemoryOrdersByStore[this.currentStoreId])) {
+    const key = this.getOrdersKey();
+    if (localStorageQuotaFallbackKeys.has(key) && Array.isArray(inMemoryOrdersByStore[this.currentStoreId])) {
       return inMemoryOrdersByStore[this.currentStoreId];
     }
     try {
-      const stored = localStorage.getItem(this.getOrdersKey());
+      const stored = localStorage.getItem(key);
       if (stored !== null) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
@@ -1149,14 +1207,17 @@ export const storageService = {
     } catch {
       // fallback
     }
+    if (Array.isArray(inMemoryOrdersByStore[this.currentStoreId])) {
+      return inMemoryOrdersByStore[this.currentStoreId];
+    }
     if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
       inMemoryOrdersByStore[this.currentStoreId] = INITIAL_ORDERS;
-      safeSetLocalStorage(this.getOrdersKey(), JSON.stringify(INITIAL_ORDERS));
+      safeSetLocalStorage(key, JSON.stringify(INITIAL_ORDERS));
       return INITIAL_ORDERS;
     }
     // Para contas novas de clientes/lojistas: começa 100% zerado
     inMemoryOrdersByStore[this.currentStoreId] = [];
-    safeSetLocalStorage(this.getOrdersKey(), JSON.stringify([]));
+    safeSetLocalStorage(key, JSON.stringify([]));
     return [];
   },
 

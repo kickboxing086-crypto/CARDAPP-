@@ -340,14 +340,18 @@ export default function App() {
             );
             localStorage.setItem('cardapp_last_store_id', localTarget.storeId);
             setProducts(storageService.getProducts());
+            setOrders(storageService.getOrders());
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());
+            setActiveOrderId(storageService.getActiveOrderId());
             setIsResolvingStore(false);
             storageService.loadStoreFromFirestoreOnce(localTarget.storeId).then(() => {
               if (!isMounted) return;
               setProducts(storageService.getProducts());
+              setOrders(storageService.getOrders());
               setCategories(storageService.getCategories());
               setSettings(storageService.getSettings());
+              setActiveOrderId(storageService.getActiveOrderId());
             });
             return;
           }
@@ -380,8 +384,10 @@ export default function App() {
             storageService.setStoreId(resolvedStoreId, resolved?.storeName);
             localStorage.setItem('cardapp_last_store_id', resolvedStoreId);
             setProducts(storageService.getProducts());
+            setOrders(storageService.getOrders());
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());
+            setActiveOrderId(storageService.getActiveOrderId());
             setIsResolvingStore(false);
           })();
           return;
@@ -532,10 +538,10 @@ export default function App() {
     return orders;
   }, [orders, clientOrderIds]);
 
-  // Active Order for Step 4 (ignores finalized orders so they disappear from client active tracking and stay only in history)
+  // Active/Tracked Order for Step 4 (keeps the tracked order visible when finalized so customer receives live "Entregue" update)
   const currentActiveOrder = useMemo(() => {
     if (activeOrderId) {
-      const found = orders.find((o) => o.id === activeOrderId && o.status !== 'finalizado');
+      const found = orders.find((o) => o.id === activeOrderId);
       if (found) return found;
     }
     const unfinishedClient = clientOrders.find((o) => o.status !== 'finalizado');
@@ -940,6 +946,10 @@ export default function App() {
   };
 
   const handleStartNewOrder = () => {
+    if (currentActiveOrder?.status === 'finalizado') {
+      storageService.clearActiveOrderId();
+      setActiveOrderId(null);
+    }
     setCartItems([]);
     setCurrentStep(1);
   };
@@ -1082,7 +1092,7 @@ export default function App() {
             onOpenCart={() => setCurrentStep(2)}
             onOpenStoreInfo={() => setIsStoreInfoOpen(true)}
             onViewMenuClick={() => setCurrentStep(1)}
-            hasActiveOrder={Boolean(currentActiveOrder)}
+            hasActiveOrder={Boolean(currentActiveOrder && currentActiveOrder.status !== 'finalizado')}
             activeOrderStatus={currentActiveOrder?.status}
             activeOrderDisplayId={currentActiveOrder?.displayId}
             customerOrdersCount={clientOrders.length}
@@ -1095,7 +1105,7 @@ export default function App() {
             currentStep={currentStep}
             onStepClick={(step) => setCurrentStep(step)}
             cartCount={totalCartCount}
-            hasActiveOrder={Boolean(currentActiveOrder)}
+            hasActiveOrder={Boolean(currentActiveOrder) || clientOrders.length > 0}
           />
 
           {/* MAIN CONTENT AREA */}

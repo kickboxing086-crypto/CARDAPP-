@@ -151,6 +151,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [copiedClientLink, setCopiedClientLink] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderActionFeedback, setOrderActionFeedback] = useState<string | null>(null);
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
 
   // Loja Oficial com ID real da loja do CEO
@@ -672,10 +673,30 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }
   };
 
+  // Counts by status for CEO tabs & badges
+  const orderCounts = useMemo(() => {
+    let active = 0;
+    let recebido = 0;
+    let em_producao = 0;
+    let em_rota = 0;
+    let finalizado = 0;
+    orders.forEach((o) => {
+      if (o.status === 'finalizado') {
+        finalizado++;
+      } else {
+        active++;
+        if (o.status === 'recebido') recebido++;
+        else if (o.status === 'em_producao') em_producao++;
+        else if (o.status === 'em_rota') em_rota++;
+      }
+    });
+    return { active, recebido, em_producao, em_rota, finalizado };
+  }, [orders]);
+
   // Total matching orders for search & status filter
   const totalMatchingOrders = useMemo(() => {
     return orders.filter((o) => {
-      const matchesStatus = orderFilter === 'all' ? true : o.status === orderFilter;
+      const matchesStatus = orderFilter === 'all' ? o.status !== 'finalizado' : o.status === orderFilter;
       if (!matchesStatus) return false;
       if (!orderSearchQuery.trim()) return true;
       const query = orderSearchQuery.toLowerCase().trim();
@@ -1160,7 +1181,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
           <div className="px-4 py-2.5 bg-amber-50/80 border-b border-amber-200/80 flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-amber-950">
             <span>Barra de Opções do CEO</span>
             <span className="text-[10px] text-amber-800 font-bold font-mono">
-              {orders.length} pedidos
+              {orderCounts.active} ativos
             </span>
           </div>
 
@@ -1195,13 +1216,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <Lock className="w-3.5 h-3.5 text-red-500" />
-              ) : orders.length > 0 ? (
+              ) : orderCounts.active > 0 ? (
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
                     activeTab === 'orders' ? 'bg-slate-950 text-amber-300' : 'bg-amber-200 text-amber-950'
                   }`}
                 >
-                  {orders.length}
+                  {orderCounts.active}
                 </span>
               ) : null}
             </button>
@@ -1628,67 +1649,86 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setOrderFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       orderFilter === 'all'
                         ? 'bg-white text-slate-950 shadow-xs'
                         : 'text-slate-600 hover:text-slate-950'
                     }`}
                   >
-                    Todos ({orders.length})
+                    Ativos ({orderCounts.active})
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderFilter('recebido')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       orderFilter === 'recebido'
                         ? 'bg-amber-400 text-slate-950 shadow-xs'
                         : 'text-slate-600 hover:text-slate-950'
                     }`}
                   >
-                    Recebido
+                    Recebido ({orderCounts.recebido})
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderFilter('em_producao')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       orderFilter === 'em_producao'
                         ? 'bg-blue-400 text-slate-950 shadow-xs'
                         : 'text-slate-600 hover:text-slate-950'
                     }`}
                   >
-                    Em Produção
+                    Em Produção ({orderCounts.em_producao})
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderFilter('em_rota')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       orderFilter === 'em_rota'
                         ? 'bg-purple-400 text-slate-950 shadow-xs'
                         : 'text-slate-600 hover:text-slate-950'
                     }`}
                   >
-                    Em Rota
+                    Em Rota ({orderCounts.em_rota})
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderFilter('finalizado')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       orderFilter === 'finalizado'
                         ? 'bg-emerald-400 text-slate-950 shadow-xs'
                         : 'text-slate-600 hover:text-slate-950'
                     }`}
                   >
-                    Finalizado
+                    Finalizados ({orderCounts.finalizado})
                   </button>
                 </div>
 
                 <div className="text-xs text-slate-500 font-medium">
-                  {orders.length} pedidos organizados por data
+                  {orderCounts.active} ativos • {orderCounts.finalizado} finalizados
                 </div>
               </div>
 
+              {orderActionFeedback && (
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold shadow-2xs animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{orderActionFeedback}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderFilter('finalizado');
+                      setOrderActionFeedback(null);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] cursor-pointer transition-colors"
+                  >
+                    Ver Finalizados ({orderCounts.finalizado})
+                  </button>
+                </div>
+              )}
+
               {/* Grouped by Date List */}
-              {groupedOrdersByDate.length === 0 ? (
+              {orders.length === 0 ? (
                 <div className="bg-white rounded-3xl border border-amber-200 p-12 text-center">
                   <PackageCheck className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                   <h3 className="font-bold text-slate-800 text-base mb-1">Nenhum pedido no sistema</h3>
@@ -1696,11 +1736,54 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     Os pedidos realizados pelos clientes aparecerão aqui organizados por dia.
                   </p>
                 </div>
+              ) : totalMatchingOrders === 0 ? (
+                <div className="bg-white rounded-3xl border border-amber-200 p-10 text-center space-y-3">
+                  <PackageCheck className="w-11 h-11 text-emerald-500 mx-auto" />
+                  <h3 className="font-black text-slate-900 text-base">
+                    {orderFilter === 'all' && orderCounts.finalizado > 0 && !orderSearchQuery.trim()
+                      ? 'Todos os pedidos atuais foram finalizados'
+                      : 'Nenhum pedido encontrado nesta categoria'}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    {orderFilter === 'all' && orderCounts.finalizado > 0 && !orderSearchQuery.trim()
+                      ? `Você possui ${orderCounts.finalizado} ${orderCounts.finalizado === 1 ? 'pedido arquivado' : 'pedidos arquivados'} na categoria Finalizados.`
+                      : 'Altere o filtro acima ou limpe a busca para visualizar outros pedidos.'}
+                  </p>
+                  <div className="flex items-center justify-center gap-2 pt-1">
+                    {orderFilter === 'all' && orderCounts.finalizado > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderFilter('finalizado')}
+                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs cursor-pointer transition-colors"
+                      >
+                        Ver Finalizados ({orderCounts.finalizado})
+                      </button>
+                    )}
+                    {orderFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderFilter('all')}
+                        className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer transition-colors"
+                      >
+                        Ver Pedidos Ativos ({orderCounts.active})
+                      </button>
+                    )}
+                    {orderSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderSearchQuery('')}
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+                      >
+                        Limpar Busca
+                      </button>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-8">
                   {groupedOrdersByDate.map(([dateKey, dateOrders]) => {
                     const filtered = dateOrders.filter((o) => {
-                      const matchesStatus = orderFilter === 'all' ? true : o.status === orderFilter;
+                      const matchesStatus = orderFilter === 'all' ? o.status !== 'finalizado' : o.status === orderFilter;
                       if (!matchesStatus) return false;
                       if (!orderSearchQuery.trim()) return true;
 
@@ -1961,7 +2044,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                                   <button
                                     type="button"
-                                    onClick={() => onUpdateOrderStatus(order.id, 'finalizado')}
+                                    onClick={() => {
+                                      onUpdateOrderStatus(order.id, 'finalizado');
+                                      if (orderFilter !== 'finalizado') {
+                                        setOrderActionFeedback(
+                                          `Pedido #${order.displayId} finalizado e movido para a categoria Finalizados.`
+                                        );
+                                        setTimeout(() => setOrderActionFeedback(null), 3500);
+                                      }
+                                    }}
                                     className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                                       order.status === 'finalizado'
                                         ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300'
