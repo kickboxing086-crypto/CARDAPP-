@@ -786,6 +786,7 @@ export default function App() {
   // CEO Actions
   const handleUpdateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
     storageService.updateOrderStatus(orderId, newStatus);
+    setOrders(storageService.getOrders());
   };
 
   const handleDeleteOrder = (orderId: string) => {

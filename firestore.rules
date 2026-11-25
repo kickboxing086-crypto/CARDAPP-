@@ -284,7 +284,11 @@ service cloud.firestore {
           && orderId.size() >= 10
           && isValidOrderStatusDoc(request.resource.data)
           && request.resource.data.id == orderId
-          && request.resource.data.status == 'recebido';
+          && (
+            request.resource.data.status == 'recebido'
+            || isAdmin()
+            || isStoreOwner(storeId)
+          );
         allow update: if isValidId(storeId)
           && isValidId(orderId)
           && (isAdmin() || isStoreOwner(storeId))

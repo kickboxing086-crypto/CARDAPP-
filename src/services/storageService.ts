@@ -60,7 +60,18 @@ function safeSetLocalStorage(key: string, value: string): boolean {
 }
 
 const inMemoryProductsByStore: Record<string, Product[]> = {};
+const inMemoryOrdersByStore: Record<string, Order[]> = {};
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
+
+function compactOrderForStorage(order: Order): Order {
+  return {
+    ...order,
+    items: (order.items || []).map((item) => ({
+      ...item,
+      product: item.product?.image ? { ...item.product, image: '' } : item.product,
+    })),
+  };
+}
 
 export const storageService = {
   currentStoreId: 'default_store',
@@ -565,24 +576,45 @@ export const storageService = {
             });
 
             const deletedIds = this.getDeletedOrderIds();
-            const localOrders = this.getOrders();
+            const pendingOrderMap = this.getPendingOrderMap(targetStore);
+            const localOrders = this.readRawOrdersForStore(targetStore);
             const ordersMap = new Map<string, Order>();
 
             remoteOrders.forEach((o) => {
-              if (!deletedIds.has(o.id)) {
-                ordersMap.set(o.id, o);
+              if (o?.id && !deletedIds.has(o.id)) {
+                ordersMap.set(o.id, compactOrderForStorage(o));
               }
             });
 
-            localOrders.forEach((o) => {
-              if (!deletedIds.has(o.id) && !ordersMap.has(o.id)) {
-                ordersMap.set(o.id, o);
-                try {
-                  const pendingRef = doc(db, 'stores', targetStore, 'orders', o.id);
-                  setDoc(pendingRef, encryptDataForFirestore(o)).catch(() => {});
-                } catch {
-                  // ignore
-                }
+            const ordersToSync: Order[] = [];
+            localOrders.forEach((rawLocal) => {
+              if (!rawLocal?.id || deletedIds.has(rawLocal.id)) return;
+              const localOrder = compactOrderForStorage(rawLocal);
+              const remoteOrder = ordersMap.get(localOrder.id);
+              const isPending = Boolean(pendingOrderMap[localOrder.id]);
+
+              if (!remoteOrder) {
+                ordersMap.set(localOrder.id, localOrder);
+                ordersToSync.push(localOrder);
+                return;
+              }
+
+              const localHist = localOrder.statusHistory || [];
+              const remoteHist = remoteOrder.statusHistory || [];
+              const localLastTs = localHist.length
+                ? Date.parse(localHist[localHist.length - 1].timestamp || '') || 0
+                : 0;
+              const remoteLastTs = remoteHist.length
+                ? Date.parse(remoteHist[remoteHist.length - 1].timestamp || '') || 0
+                : 0;
+
+              if (
+                isPending ||
+                localHist.length > remoteHist.length ||
+                localLastTs > remoteLastTs
+              ) {
+                ordersMap.set(localOrder.id, localOrder);
+                ordersToSync.push(localOrder);
               }
             });
 
@@ -590,8 +622,15 @@ export const storageService = {
               (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
 
-            localStorage.setItem(this.getOrdersKey(), JSON.stringify(merged));
+            inMemoryOrdersByStore[targetStore] = merged;
+            safeSetLocalStorage(this.getOrdersKey(), JSON.stringify(merged));
             this.notifyChange();
+
+            if (auth.currentUser && ordersToSync.length > 0) {
+              ordersToSync.forEach((o) => {
+                this.syncOrderToFirestore(targetStore, o).catch(() => {});
+              });
+            }
           },
           (error) => {
             console.warn('Firestore orders listener offline/protected:', error?.message);
@@ -1002,27 +1041,129 @@ export const storageService = {
   },
 
   // ORDERS
+  getPendingOrderMap(storeId?: string): Record<string, number> {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const stored = localStorage.getItem(`cardapp_pending_orders_${cleanId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {};
+  },
+
+  markOrderPending(orderId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const map = this.getPendingOrderMap(cleanId);
+      map[orderId] = Date.now();
+      safeSetLocalStorage(`cardapp_pending_orders_${cleanId}`, JSON.stringify(map));
+    } catch {}
+  },
+
+  clearOrderPending(orderId: string, storeId?: string) {
+    const cleanId = storeId || this.currentStoreId;
+    try {
+      const map = this.getPendingOrderMap(cleanId);
+      if (orderId in map) {
+        delete map[orderId];
+        safeSetLocalStorage(`cardapp_pending_orders_${cleanId}`, JSON.stringify(map));
+      }
+    } catch {}
+  },
+
+  readRawOrdersForStore(storeId: string): Order[] {
+    if (Array.isArray(inMemoryOrdersByStore[storeId])) {
+      return inMemoryOrdersByStore[storeId];
+    }
+    try {
+      const stored = localStorage.getItem(`cardapp_orders_${storeId}`);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  },
+
+  async syncOrderToFirestore(storeId: string, order: Order): Promise<boolean> {
+    if (!storeId || storeId === 'default_store' || storeId === 'master_admin') {
+      return false;
+    }
+    const compactOrder = compactOrderForStorage(order);
+    const trimmedHistory = (compactOrder.statusHistory || []).slice(-25);
+    const nowIso =
+      trimmedHistory.length > 0
+        ? trimmedHistory[trimmedHistory.length - 1].timestamp
+        : compactOrder.createdAt;
+    let orderOk = false;
+    try {
+      const orderRef = doc(db, 'stores', storeId, 'orders', compactOrder.id);
+      const encrypted = encryptDataForFirestore(compactOrder);
+      if (typeof encrypted?.payload === 'string' && encrypted.payload.length < 195000) {
+        await setDoc(orderRef, encrypted);
+        orderOk = true;
+      }
+    } catch (err) {
+      console.warn('Sync order fallback:', err);
+    }
+
+    try {
+      const statusRef = doc(db, 'stores', storeId, 'orderStatus', compactOrder.id);
+      await setDoc(
+        statusRef,
+        {
+          id: compactOrder.id,
+          displayId: compactOrder.displayId,
+          status: compactOrder.status,
+          statusHistory: trimmedHistory,
+          deliveryType: compactOrder.customer.deliveryType,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('Sync orderStatus fallback:', err);
+    }
+
+    if (orderOk) {
+      this.clearOrderPending(compactOrder.id, storeId);
+    }
+    return orderOk;
+  },
+
   getOrders(): Order[] {
+    if (Array.isArray(inMemoryOrdersByStore[this.currentStoreId])) {
+      return inMemoryOrdersByStore[this.currentStoreId];
+    }
     try {
       const stored = localStorage.getItem(this.getOrdersKey());
       if (stored !== null) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          inMemoryOrdersByStore[this.currentStoreId] = parsed;
+          return parsed;
+        }
       }
     } catch {
       // fallback
     }
     if (this.currentStoreId === 'default_store' || this.currentStoreId === 'master_admin') {
-      localStorage.setItem(this.getOrdersKey(), JSON.stringify(INITIAL_ORDERS));
+      inMemoryOrdersByStore[this.currentStoreId] = INITIAL_ORDERS;
+      safeSetLocalStorage(this.getOrdersKey(), JSON.stringify(INITIAL_ORDERS));
       return INITIAL_ORDERS;
     }
     // Para contas novas de clientes/lojistas: começa 100% zerado
-    localStorage.setItem(this.getOrdersKey(), JSON.stringify([]));
+    inMemoryOrdersByStore[this.currentStoreId] = [];
+    safeSetLocalStorage(this.getOrdersKey(), JSON.stringify([]));
     return [];
   },
 
   saveOrders(orders: Order[]) {
-    localStorage.setItem(this.getOrdersKey(), JSON.stringify(orders));
+    const compacted = orders.map(compactOrderForStorage);
+    inMemoryOrdersByStore[this.currentStoreId] = compacted;
+    safeSetLocalStorage(this.getOrdersKey(), JSON.stringify(compacted));
     this.notifyChange();
   },
 
@@ -1032,6 +1173,7 @@ export const storageService = {
       'id' | 'displayId' | 'createdAt' | 'dateKey' | 'status' | 'statusHistory'
     >
   ): Order {
+    const storeId = this.currentStoreId;
     const orders = this.getOrders();
     const nowIso = new Date().toISOString();
     const dateKey = nowIso.split('T')[0];
@@ -1062,7 +1204,7 @@ export const storageService = {
       // ignore
     }
 
-    const newOrder: Order = {
+    const newOrder: Order = compactOrderForStorage({
       ...orderData,
       id: `ord-${Date.now()}-${randomHex}`,
       displayId,
@@ -1076,21 +1218,22 @@ export const storageService = {
           note: 'Pedido recebido com sucesso',
         },
       ],
-    };
+    });
 
     const updated = [newOrder, ...orders];
+    this.markOrderPending(newOrder.id, storeId);
     this.saveOrders(updated);
     this.setActiveOrderId(newOrder.id);
     this.addClientOrderId(newOrder.id);
-    if (!this.canAccessStoreOrders(this.currentStoreId)) {
-      this.watchClientOrderStatus(this.currentStoreId, newOrder.id);
+    if (!this.canAccessStoreOrders(storeId)) {
+      this.watchClientOrderStatus(storeId, newOrder.id);
     }
 
     // Notifica instantaneamente qualquer aba aberta (ex: tela do CEO)
     try {
       broadcastChannel?.postMessage({
         type: 'ORDER_CREATED',
-        storeId: this.currentStoreId,
+        storeId,
         orderId: newOrder.id,
       });
     } catch {
@@ -1098,56 +1241,42 @@ export const storageService = {
     }
 
     // Sync to Firestore: pedido completo (PII criptografada) + espelho público de status (sem PII)
-    try {
-      const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', newOrder.id);
-      setDoc(orderRef, encryptDataForFirestore(newOrder)).catch((err) => {
-        console.warn('Sync createOrder fallback:', err);
-      });
-
-      const statusRef = doc(db, 'stores', this.currentStoreId, 'orderStatus', newOrder.id);
-      setDoc(statusRef, {
-        id: newOrder.id,
-        displayId: newOrder.displayId,
-        status: newOrder.status,
-        statusHistory: newOrder.statusHistory,
-        deliveryType: newOrder.customer.deliveryType,
-        updatedAt: newOrder.createdAt,
-      }).catch(() => {});
-    } catch {
-      // ignore
-    }
+    this.syncOrderToFirestore(storeId, newOrder).catch(() => {});
 
     return newOrder;
   },
 
   updateOrderStatus(orderId: string, newStatus: OrderStatus, note?: string) {
+    const storeId = this.currentStoreId;
     const orders = this.getOrders();
     const index = orders.findIndex((o) => o.id === orderId);
     if (index !== -1) {
       const current = orders[index];
       const nowIso = new Date().toISOString();
       const updatedHistory = [
-        ...current.statusHistory,
+        ...(current.statusHistory || []),
         {
           status: newStatus,
           timestamp: nowIso,
           note: note || `Status alterado para ${newStatus}`,
         },
-      ];
+      ].slice(-25);
 
-      const updatedOrder: Order = {
+      const updatedOrder: Order = compactOrderForStorage({
         ...current,
         status: newStatus,
         statusHistory: updatedHistory,
-      };
+      });
 
-      orders[index] = updatedOrder;
-      this.saveOrders(orders);
+      const nextOrders = [...orders];
+      nextOrders[index] = updatedOrder;
+      this.markOrderPending(orderId, storeId);
+      this.saveOrders(nextOrders);
 
       try {
         broadcastChannel?.postMessage({
           type: 'DATA_UPDATED',
-          storeId: this.currentStoreId,
+          storeId,
           orderId,
         });
       } catch {
@@ -1155,28 +1284,7 @@ export const storageService = {
       }
 
       // Sync to Firestore (Criptografado + espelho de status sem PII)
-      try {
-        const orderRef = doc(db, 'stores', this.currentStoreId, 'orders', orderId);
-        setDoc(orderRef, encryptDataForFirestore(updatedOrder)).catch((err) => {
-          console.warn('Sync updateOrderStatus fallback:', err);
-        });
-
-        const statusRef = doc(db, 'stores', this.currentStoreId, 'orderStatus', orderId);
-        setDoc(
-          statusRef,
-          {
-            id: updatedOrder.id,
-            displayId: updatedOrder.displayId,
-            status: updatedOrder.status,
-            statusHistory: updatedOrder.statusHistory,
-            deliveryType: updatedOrder.customer.deliveryType,
-            updatedAt: nowIso,
-          },
-          { merge: true }
-        ).catch(() => {});
-      } catch {
-        // ignore
-      }
+      this.syncOrderToFirestore(storeId, updatedOrder).catch(() => {});
     }
   },
 
