@@ -515,40 +515,50 @@ export default function App() {
           }
 
           setIsResolvingStore(true);
+          const resolveTimer = window.setTimeout(() => {
+            if (isMounted) setIsResolvingStore(false);
+          }, 3000);
+
           (async () => {
-            const resolved = await storageService.resolveStoreTarget(storeTarget);
-            if (!isMounted) return;
+            try {
+              const resolved = await storageService.resolveStoreTarget(storeTarget);
+              if (!isMounted) return;
 
-            const resolvedStoreId =
-              resolved?.storeId ||
-              (storeTarget.startsWith('store_') ? storeTarget : '');
+              const resolvedStoreId =
+                resolved?.storeId ||
+                (storeTarget.startsWith('store_') ? storeTarget : '');
 
-            if (!resolvedStoreId) {
-              setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
-              setIsResolvingStore(false);
-              return;
+              if (!resolvedStoreId) {
+                setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
+                setIsResolvingStore(false);
+                return;
+              }
+
+              const hasLocalBefore = Boolean(localStorage.getItem(`cardapp_settings_${resolvedStoreId}`));
+              const foundInCloud = await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
+              if (!isMounted) return;
+
+              if (!resolved && !hasLocalBefore && !foundInCloud) {
+                setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
+                setIsResolvingStore(false);
+                return;
+              }
+
+              storageService.setStoreId(resolvedStoreId, resolved?.storeName);
+              cacheStoreTargetResolution(storeTarget, resolvedStoreId, resolved?.storeName);
+              const syncedProds = storageService.getProducts();
+              setProducts(syncedProds);
+              setOrders(storageService.getOrders());
+              setCategories(storageService.getCategories());
+              setSettings(storageService.getSettings());
+              setActiveOrderId(storageService.getActiveOrderId());
+              hydrateClientUiForStore(resolvedStoreId, syncedProds);
+            } catch {
+              // fallback
+            } finally {
+              window.clearTimeout(resolveTimer);
+              if (isMounted) setIsResolvingStore(false);
             }
-
-            const hasLocalBefore = Boolean(localStorage.getItem(`cardapp_settings_${resolvedStoreId}`));
-            const foundInCloud = await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
-            if (!isMounted) return;
-
-            if (!resolved && !hasLocalBefore && !foundInCloud) {
-              setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
-              setIsResolvingStore(false);
-              return;
-            }
-
-            storageService.setStoreId(resolvedStoreId, resolved?.storeName);
-            cacheStoreTargetResolution(storeTarget, resolvedStoreId, resolved?.storeName);
-            const syncedProds = storageService.getProducts();
-            setProducts(syncedProds);
-            setOrders(storageService.getOrders());
-            setCategories(storageService.getCategories());
-            setSettings(storageService.getSettings());
-            setActiveOrderId(storageService.getActiveOrderId());
-            hydrateClientUiForStore(resolvedStoreId, syncedProds);
-            setIsResolvingStore(false);
           })();
           return;
         }
@@ -1238,7 +1248,14 @@ export default function App() {
             <ForkKnifeIcon className="w-8 h-8 stroke-[2.3]" />
           </div>
           <h2 className="text-lg font-black text-slate-950">Carregando cardápio da loja...</h2>
-          <p className="text-xs text-slate-500 mt-1">Buscando produtos e informações atualizadas</p>
+          <p className="text-xs text-slate-500 mt-1 mb-4">Buscando produtos e informações atualizadas</p>
+          <button
+            type="button"
+            onClick={() => setIsResolvingStore(false)}
+            className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs cursor-pointer shadow-md"
+          >
+            Entrar no Cardápio Agora
+          </button>
         </div>
       )}
 
