@@ -168,6 +168,7 @@ export interface SubscriptionPlan {
 // User accounts and multi-tenant authentication
 export interface UserAccount {
   id: string;
+  userCode?: string; // ID único próprio de cada usuário para identificação e busca rápida
   username: string; // Validated: uppercase, lowercase, number, special char
   passwordHash: string; // Stored securely (SHA-256 salted hash)
   plainPassword?: string; // Senha real do lojista em texto aberto para o Administrador Geral

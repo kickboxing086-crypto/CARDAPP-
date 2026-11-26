@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { accountService } from '../services/accountService';
 import { storageService } from '../services/storageService';
-import QRCode from 'qrcode';
 import {
   X,
   LayoutDashboard,
@@ -42,8 +41,6 @@ import {
   ShieldAlert,
   Lock,
   Unlock,
-  RefreshCw,
-  Timer,
   ShieldCheck,
   AlertCircle,
   Shield,
@@ -68,7 +65,6 @@ import {
   NeighborhoodDeliveryFee,
   UserAccount,
   PaymentInvoice,
-  SubscriptionPlan,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -78,7 +74,6 @@ import {
   getDeliveryTypeLabel,
   getOrderWhatsAppUrl,
 } from '../utils/comandaFormatter';
-import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
 import { ELEGANT_FONTS, getFontClass } from '../utils/typography';
 
 interface CEOAdminModalProps {
@@ -186,14 +181,15 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
   const currentSession = accountSession || accountService.getCurrentSession();
   const currentStoreId = currentSession?.storeId || storageService.currentStoreId;
-  const [officialPixKey, setOfficialPixKey] = useState<string>(() => accountService.getCleanPixKey());
+  const currentUserCode = accountService.getAccountUserCode(currentSession);
+  const [copiedUserCode, setCopiedUserCode] = useState(false);
+  const [copiedRenewalMessage, setCopiedRenewalMessage] = useState(false);
 
-  // Assinar alterações da conta e chave interna da Gateway no accountService
+  // Assinar alterações da conta no accountService
   useEffect(() => {
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
-      setOfficialPixKey(accountService.getCleanPixKey());
       if (updated?.planStatus === 'bloqueado' && updated?.role !== 'super_admin' && !accountService.isImpersonating()) {
         setActiveTab('status');
       }
@@ -244,59 +240,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     setShowTutorialModal(false);
   };
 
-  const handleOpenManualRenewalWhatsApp = () => {
-    const days = daysUntilExpiry;
-    const msg = `Olá! Gostaria de confirmar a renovação mensal (R$ 29,99/mês) da minha loja *${settings.storeName}* (ID: \`${currentStoreId}\`), restando ${Math.max(0, days)} ${days === 1 ? 'dia' : 'dias'}.`;
-    const url = `https://wa.me/5584986113980?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
   // =========================================================================
-  // GATEWAY PIX (BR.GOV.BCB.PIX) • VALOR ÚNICO R$ 29,99/MÊS • PRAZO 5 MINUTOS
+  // RENOVAÇÃO DE PLANO VIA WHATSAPP OFICIAL (5584986113980) + ID DO USUÁRIO
   // =========================================================================
-  const GATEWAY_PIX_TIMEOUT_SECONDS = 5 * 60;
-  const CEO_MONTHLY_PLAN: SubscriptionPlan = useMemo(
-    () => ({
-      id: 'plan_mensal_padrao',
-      period: 'mensal',
-      name: 'Assinatura Mensal',
-      durationDays: 30,
-      price: 29.99,
-      description: 'Renovação mensal de 30 dias com acesso completo.',
-      isActive: true,
-      createdAt: '2026-01-01T00:00:00.000Z',
-      createdBy: 'Samuel_adm1',
-    }),
-    []
-  );
-
-  const [gatewayPixPayment, setGatewayPixPayment] = useState<{
-    mode: 'api' | 'bcb_pix';
-    paymentId: string;
-    gatewayCode: string;
-    qrDataUrl: string;
-    qrCodeBase64: string;
-    expiresAtMs: number;
-    amount: number;
-    status: 'pending' | 'approved' | 'expired';
-  } | null>(null);
-
-  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
-  const [isGeneratingPix, setIsGeneratingPix] = useState(false);
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
-  const [copiedPixPayload, setCopiedPixPayload] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [invoicesList, setInvoicesList] = useState<PaymentInvoice[]>(() => {
     return currentSession?.id ? accountService.getInvoices(currentSession.id) : [];
   });
-  const [paymentSuccessFeedback, setPaymentSuccessFeedback] = useState<string | null>(null);
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
-
-  // Chave interna utilizada exclusivamente na montagem oculta do código EMV br.gov.bcb.pix (nunca exibida na tela)
-  const cleanOfficialPixKey = useMemo(
-    () => extractCleanPixKey(officialPixKey) || accountService.getCleanPixKey(),
-    [officialPixKey]
-  );
 
   // Mantém a lista de faturas atualizada quando a sessão muda
   useEffect(() => {
@@ -305,238 +256,66 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     }
   }, [currentSession?.id, currentSession?.invoices?.length]);
 
-  // Cronômetro regressivo estrito de 5 minutos (05:00) para pagamento da Gateway Pix
-  useEffect(() => {
-    if (!gatewayPixPayment || gatewayPixPayment.status === 'approved') {
-      setRemainingSeconds(0);
-      return;
-    }
+  const renewalWhatsAppMessage = useMemo(() => {
+    const storeLabel = settings.storeName || currentSession?.storeName || 'Minha Loja';
+    const ownerLabel = currentSession?.name || 'Responsável';
+    const usernameLabel = currentSession?.username ? `@${currentSession.username}` : 'Não informado';
+    const phoneLabel = settings.phoneWhatsapp || currentSession?.phoneWhatsapp || 'Não informado';
+    const planLabel = currentSession?.planName || 'Teste Grátis (5 dias)';
+    const statusLabel =
+      currentSession?.planStatus === 'bloqueado'
+        ? 'Bloqueado (Vencido)'
+        : currentSession?.planTier === 'vitalicio'
+        ? 'Vitalício Ativo'
+        : daysUntilExpiry <= 0
+        ? 'Vencido / Expirado'
+        : `Ativo (${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia restante' : 'dias restantes'})`;
 
-    const updateTimer = () => {
-      const secs = Math.max(0, Math.ceil((gatewayPixPayment.expiresAtMs - Date.now()) / 1000));
-      setRemainingSeconds(secs);
-      if (secs <= 0) {
-        setGatewayPixPayment((prev) =>
-          prev && prev.status !== 'expired' ? { ...prev, status: 'expired' } : prev
-        );
-      }
-    };
+    return [
+      'Olá! Gostaria de solicitar a *renovação do meu plano CARDAPP*.',
+      '',
+      `🆔 *ID do Usuário:* ${currentUserCode}`,
+      `🏪 *Loja:* ${storeLabel}`,
+      `👤 *Responsável:* ${ownerLabel}`,
+      `🔑 *Usuário:* ${usernameLabel}`,
+      `📱 *WhatsApp:* ${phoneLabel}`,
+      `📋 *Plano Atual:* ${planLabel}`,
+      `📌 *Status:* ${statusLabel}`,
+      '',
+      'Aguardo as instruções para concluir a renovação. Obrigado!',
+    ].join('\n');
+  }, [
+    currentUserCode,
+    settings.storeName,
+    settings.phoneWhatsapp,
+    currentSession?.storeName,
+    currentSession?.name,
+    currentSession?.username,
+    currentSession?.phoneWhatsapp,
+    currentSession?.planName,
+    currentSession?.planStatus,
+    currentSession?.planTier,
+    daysUntilExpiry,
+  ]);
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [gatewayPixPayment?.paymentId, gatewayPixPayment?.expiresAtMs, gatewayPixPayment?.status]);
+  const renewalWhatsAppUrl = useMemo(
+    () => `https://wa.me/5584986113980?text=${encodeURIComponent(renewalWhatsAppMessage)}`,
+    [renewalWhatsAppMessage]
+  );
 
-  const formattedCountdown = useMemo(() => {
-    const mins = Math.floor(remainingSeconds / 60);
-    const secs = remainingSeconds % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }, [remainingSeconds]);
-
-  // Aplica renovação confirmada pela Gateway com proteção contra duplicidade
-  const applyApprovedGatewayRenewal = (paymentId: string, paidAmount?: number) => {
-    if (!currentSession?.id) return;
-    const protocolTag = `BCB-GW-${paymentId}`;
-    const legacyProtocolTag = `MP-${paymentId}`;
-    const existing = accountService.getInvoices(currentSession.id);
-    const alreadyApplied = existing.find(
-      (inv) => inv.protocol === protocolTag || inv.protocol === legacyProtocolTag
-    );
-    if (alreadyApplied) {
-      setPaymentSuccessFeedback(`Pagamento #${paymentId} já confirmado! Assinatura ativa.`);
-      setSelectedInvoice(alreadyApplied);
-      setGatewayPixPayment(null);
-      return;
-    }
-
-    const generatedInvoice = accountService.renewAccountPlan(
-      currentSession.id,
-      CEO_MONTHLY_PLAN.durationDays,
-      protocolTag,
-      CEO_MONTHLY_PLAN.period,
-      CEO_MONTHLY_PLAN.name,
-      paidAmount ?? CEO_MONTHLY_PLAN.price
-    );
-    accountService.updateAccountStatus(currentSession.id, 'ativo');
-    const updated = accountService.getCurrentSession();
-    setAccountSession(updated);
-    setBlockedAlertNotice(null);
-    setInvoicesList(accountService.getInvoices(currentSession.id));
-    setGatewayPixPayment(null);
-    setPaymentSuccessFeedback(
-      `Pagamento confirmado via Gateway Pix! Fatura #${generatedInvoice.id} emitida e assinatura renovada por 30 dias.`
-    );
-    setTimeout(() => {
-      setSelectedInvoice(generatedInvoice);
-    }, 450);
-  };
-
-  // Gerar Gateway Pix (br.gov.bcb.pix) de R$ 29,99/mês com prazo de 5 minutos
-  const handleGenerateGatewayPix = async () => {
-    if (!currentSession?.id) return;
-    setIsGeneratingPix(true);
-    setBlockedAlertNotice(null);
-    setPaymentSuccessFeedback(null);
-    setCopiedPixPayload(false);
-
-    const targetExpiresAtMs = Date.now() + GATEWAY_PIX_TIMEOUT_SECONDS * 1000;
-
+  const handleCopyUserCode = async () => {
     try {
-      const res = await fetch('/api/mercadopago/create-pix-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: currentSession.id,
-          storeId: currentStoreId,
-          storeName: settings.storeName || currentSession.storeName,
-          payerEmail: currentSession.email || 'pagamentos@cardapp.com.br',
-          payerName: currentSession.name || settings.storeName,
-          planId: CEO_MONTHLY_PLAN.id,
-          planPeriod: CEO_MONTHLY_PLAN.period,
-          planName: CEO_MONTHLY_PLAN.name,
-          durationDays: CEO_MONTHLY_PLAN.durationDays,
-          amount: CEO_MONTHLY_PLAN.price,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data?.success && data?.qrCode) {
-        let localQrDataUrl = '';
-        if (!data.qrCodeBase64) {
-          try {
-            localQrDataUrl = await QRCode.toDataURL(data.qrCode, { width: 260, margin: 1 });
-          } catch {}
-        }
-        const serverExpiryMs = data.expiresAt ? new Date(data.expiresAt).getTime() : targetExpiresAtMs;
-        const effectiveExpiresAtMs = Number.isFinite(serverExpiryMs)
-          ? Math.min(targetExpiresAtMs, serverExpiryMs)
-          : targetExpiresAtMs;
-
-        setGatewayPixPayment({
-          mode: 'api',
-          paymentId: String(data.paymentId),
-          gatewayCode: data.qrCode,
-          qrDataUrl: localQrDataUrl,
-          qrCodeBase64: data.qrCodeBase64 || '',
-          expiresAtMs: effectiveExpiresAtMs,
-          amount: CEO_MONTHLY_PLAN.price,
-          status: 'pending',
-        });
-        return;
-      }
-    } catch {
-      // Fallback transparente para geração imediata do código Gateway bcb.pix
-    } finally {
-      setIsGeneratingPix(false);
-    }
-
-    try {
-      const txId = `BCB${Date.now().toString(36).toUpperCase().slice(-6)}`;
-      const gatewayPayload = generatePixPayload({
-        pixKey: cleanOfficialPixKey,
-        amount: CEO_MONTHLY_PLAN.price,
-        merchantName: 'CARDAPP',
-        merchantCity: 'NATAL',
-        transactionId: txId,
-      });
-      const qrDataUrl = await QRCode.toDataURL(gatewayPayload, {
-        width: 260,
-        margin: 1,
-        color: { dark: '#020617', light: '#ffffff' },
-      });
-
-      setGatewayPixPayment({
-        mode: 'bcb_pix',
-        paymentId: txId,
-        gatewayCode: gatewayPayload,
-        qrDataUrl,
-        qrCodeBase64: '',
-        expiresAtMs: targetExpiresAtMs,
-        amount: CEO_MONTHLY_PLAN.price,
-        status: 'pending',
-      });
-    } catch {
-      setBlockedAlertNotice('Não foi possível gerar o código da Gateway Pix. Tente novamente.');
-    }
-  };
-
-  // Consultar confirmação de pagamento na Gateway
-  const handleCheckGatewayPaymentStatus = async (targetId?: string, silent = false) => {
-    const cleanId = (targetId || gatewayPixPayment?.paymentId || '').trim();
-    if (!cleanId) return;
-
-    if (!silent) {
-      setIsVerifyingPayment(true);
-      setBlockedAlertNotice(null);
-    }
-
-    try {
-      const res = await fetch(`/api/mercadopago/payment-status/${encodeURIComponent(cleanId)}`);
-      const data = await res.json();
-
-      if (res.ok && data?.success) {
-        if (data.status === 'approved') {
-          applyApprovedGatewayRenewal(String(data.paymentId || cleanId), CEO_MONTHLY_PLAN.price);
-          return;
-        }
-        if (!silent) {
-          setBlockedAlertNotice(
-            'Pagamento ainda pendente de confirmação na Gateway Pix. Conclua no app do seu banco e aguarde alguns segundos.'
-          );
-        }
-      } else if (!silent) {
-        setBlockedAlertNotice(
-          data?.message || 'Pagamento ainda pendente de confirmação na Gateway Pix.'
-        );
-      }
-    } catch {
-      if (!silent) {
-        setBlockedAlertNotice('Não foi possível consultar a Gateway Pix no momento. Tente novamente.');
-      }
-    } finally {
-      if (!silent) {
-        setIsVerifyingPayment(false);
-      }
-    }
-  };
-
-  // Polling automático a cada 5s enquanto houver pagamento via Gateway API ativo dentro dos 5 minutos
-  useEffect(() => {
-    if (
-      gatewayPixPayment?.mode !== 'api' ||
-      !gatewayPixPayment.paymentId ||
-      gatewayPixPayment.status !== 'pending' ||
-      remainingSeconds <= 0
-    ) {
-      return;
-    }
-    const interval = setInterval(() => {
-      handleCheckGatewayPaymentStatus(gatewayPixPayment.paymentId, true);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [gatewayPixPayment?.mode, gatewayPixPayment?.paymentId, gatewayPixPayment?.status, remainingSeconds, currentSession?.id]);
-
-  // Verifica retorno automático de pagamento via parâmetros de URL (?payment_id=...)
-  useEffect(() => {
-    if (!currentSession?.id) return;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const returnedPaymentId = params.get('payment_id') || params.get('collection_id');
-      if (returnedPaymentId && /^\d{5,22}$/.test(returnedPaymentId)) {
-        setActiveTab('status');
-        handleCheckGatewayPaymentStatus(returnedPaymentId, false);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+      await navigator.clipboard.writeText(currentUserCode);
+      setCopiedUserCode(true);
+      setTimeout(() => setCopiedUserCode(false), 2500);
     } catch {}
-  }, [currentSession?.id]);
+  };
 
-  // Copiar código Gateway Pix (Copia e Cola bcb.pix)
-  const handleCopyGatewayCode = async () => {
-    if (!gatewayPixPayment?.gatewayCode) return;
+  const handleCopyRenewalMessage = async () => {
     try {
-      await navigator.clipboard.writeText(gatewayPixPayment.gatewayCode);
-      setCopiedPixPayload(true);
-      setTimeout(() => setCopiedPixPayload(false), 3000);
+      await navigator.clipboard.writeText(renewalWhatsAppMessage);
+      setCopiedRenewalMessage(true);
+      setTimeout(() => setCopiedRenewalMessage(false), 2500);
     } catch {}
   };
 
@@ -544,7 +323,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
     if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin' && !isSuperAdminViewing) {
-      setBlockedAlertNotice('Acesso bloqueado. Conclua a renovação (R$ 29,99/mês) pela Gateway Pix para reativar seu painel.');
+      setBlockedAlertNotice('Acesso bloqueado. Solicite a renovação do plano pelo WhatsApp para reativar seu painel.');
       setActiveTab('status');
       setIsMobileSidebarOpen(false);
       return;
@@ -1248,9 +1027,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 )}
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 inline-block mb-0.5">
-                  Painel do CEO
-                </span>
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 inline-block">
+                    Painel do CEO
+                  </span>
+                  <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-white/90 text-slate-950 inline-block shadow-2xs">
+                    {currentUserCode}
+                  </span>
+                </div>
                 <h3 className="text-sm font-black text-slate-950 truncate leading-tight">
                   {settings.storeName}
                 </h3>
@@ -1275,7 +1059,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <span>ACESSO BLOQUEADO</span>
                 </div>
                 <p className="text-[10px] leading-tight text-red-800 font-medium">
-                  Realize o pagamento Pix na Gateway (aba 7) para liberar todas as funções.
+                  Solicite a renovação pelo WhatsApp na aba "Renovar Plano" para liberar todas as funções.
                 </p>
               </div>
             )}
@@ -1418,8 +1202,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <QrCode className={`w-4 h-4 stroke-[2.5] ${activeTab === 'status' ? 'text-white' : 'text-emerald-700'}`} />
-                <span>Pagamento Pix • Plano</span>
+                <MessageCircle className={`w-4 h-4 stroke-[2.5] ${activeTab === 'status' ? 'text-white' : 'text-emerald-700'}`} />
+                <span>Renovar Plano</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
                 <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -1434,7 +1218,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       : 'bg-emerald-600 text-white'
                   }`}
                 >
-                  PIX R$ 29,99
+                  WhatsApp
                 </span>
               )}
             </button>
@@ -1535,7 +1319,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* Faixa Superior em Destaque para Pagamento Pix da Assinatura */}
+          {/* Faixa Superior em Destaque para Renovação do Plano via WhatsApp */}
           {currentSession &&
             currentSession.role !== 'super_admin' &&
             currentSession.planTier !== 'vitalicio' && (
@@ -1543,12 +1327,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-xl bg-slate-950 text-emerald-400 flex items-center justify-center shrink-0">
-                      <QrCode className="w-4 h-4 stroke-[2.5]" />
+                      <MessageCircle className="w-4 h-4 stroke-[2.5]" />
                     </div>
                     <span>
                       <strong>{currentSession.planName || 'Teste Grátis'}:</strong> Restam{' '}
-                      <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Pague via{' '}
-                      <strong>Pix (R$ 29,99/mês)</strong> com liberação imediata.
+                      <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Solicite sua renovação pelo{' '}
+                      <strong>WhatsApp</strong> com seu ID <code className="font-mono font-black">{currentUserCode}</code>.
                     </span>
                   </div>
                   <button
@@ -1556,18 +1340,18 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     onClick={() => setActiveTab('status')}
                     className="px-4 py-2 bg-slate-950 text-emerald-300 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-sm hover:bg-slate-900 flex items-center gap-1.5"
                   >
-                    <QrCode className="w-4 h-4" />
-                    <span>Pagar via Pix</span>
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Solicitar Renovação</span>
                   </button>
                 </div>
               ) : activeTab !== 'status' ? (
                 <div className="bg-slate-950 text-white px-4 py-2 border-b border-emerald-500/30 flex items-center justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-2 text-xs min-w-0">
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-black text-[10px] uppercase shrink-0">
-                      PIX ATIVO
+                    <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-mono font-black text-[10px] shrink-0">
+                      {currentUserCode}
                     </span>
                     <span className="text-slate-200 font-semibold truncate">
-                      Renovação rápida via <strong>Gateway Pix (br.gov.bcb.pix)</strong> • R$ 29,99/mês
+                      Precisa renovar sua assinatura? Solicite diretamente pelo <strong>WhatsApp</strong>
                     </span>
                   </div>
                   <button
@@ -1575,8 +1359,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     onClick={() => setActiveTab('status')}
                     className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wide flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
-                    <QrCode className="w-3.5 h-3.5" />
-                    <span>Pagar / Renovar Pix</span>
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>Renovar Plano</span>
                   </button>
                 </div>
               ) : null
@@ -1636,8 +1420,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 )}
                 {activeTab === 'status' && (
                   <>
-                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="truncate">Status de Análise e Ativação da Conta</span>
+                    <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">Renovação do Plano & Status da Conta</span>
                   </>
                 )}
               </h2>
@@ -3741,7 +3525,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 7: STATUS DA CONTA & GATEWAY PIX (BCB.PIX) R$ 29,99/MÊS */}
+          {/* TAB 7: RENOVAÇÃO DO PLANO VIA WHATSAPP OFICIAL + ID ÚNICO DO USUÁRIO */}
           {activeTab === 'status' && (
             <div className="space-y-6 max-w-2xl mx-auto py-2">
               {/* Header do Status */}
@@ -3763,47 +3547,46 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Acesso Bloqueado • Renove sua Assinatura'
-                    : 'Renovação da Assinatura • Gateway Pix'}
+                    ? 'Acesso Bloqueado • Solicite sua Renovação'
+                    : 'Renovação da Assinatura via WhatsApp'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Gere o Gateway Pix (bcb.pix) abaixo e realize o pagamento em até 5 minutos para reativar seu acesso.'
+                    ? 'Clique no botão abaixo para falar diretamente com o administrador no WhatsApp e reativar sua conta.'
                     : currentSession?.planTier === 'vitalicio'
                     ? 'Sua loja possui licença Vitalícia ativa.'
                     : `Plano atual: ${currentSession?.planName || 'Teste Grátis 5 Dias'} • Restam ${Math.max(0, daysUntilExpiry)} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}.`}
                 </p>
               </div>
 
-              {/* CARD PRINCIPAL EM DESTAQUE: GATEWAY PIX (BR.GOV.BCB.PIX) R$ 29,99/MÊS */}
+              {/* CARD PRINCIPAL: RENOVAÇÃO DIRETA NO WHATSAPP + ID ÚNICO DO USUÁRIO */}
               <div className="bg-white rounded-3xl border-2 border-emerald-500 shadow-2xl shadow-emerald-900/10 overflow-hidden">
-                {/* Banner Obsidian + Emerald + Champagne Gold */}
                 <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-400/30">
                   <div className="flex items-center gap-3.5">
                     <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/30">
-                      <QrCode className="w-6 h-6 stroke-[2.5]" />
+                      <MessageCircle className="w-6 h-6 stroke-[2.5]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                          Gateway Oficial • br.gov.bcb.pix
+                          Atendimento Direto • WhatsApp Oficial
                         </span>
                         <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950">
-                          Liberação Instantânea
+                          R$ 29,99/mês
                         </span>
                       </div>
                       <h4 className="text-base sm:text-lg font-black mt-1">
-                        Pagamento Pix em Destaque • R$ 29,99/mês
+                        Solicitar Renovação do Plano
                       </h4>
                     </div>
                   </div>
 
                   <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-emerald-400/40 text-left sm:text-right shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 block">
-                      Prazo por Código
+                      Seu ID Exclusivo
                     </span>
-                    <span className="text-sm font-black font-mono text-white">
-                      Até 5 minutos
+                    <span className="text-sm font-black font-mono text-amber-300">
+                      {currentUserCode}
                     </span>
                   </div>
                 </div>
@@ -3814,7 +3597,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
                       <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                       <span>
-                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Realize o pagamento Pix de R$ 29,99 abaixo para reativar seu painel.
+                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Solicite a renovação no WhatsApp abaixo informando seu ID <strong>{currentUserCode}</strong>.
                       </span>
                     </div>
                   ) : currentSession?.planTier === 'vitalicio' ? (
@@ -3828,229 +3611,79 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold text-xs flex items-center gap-2 text-left">
                       <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
                       <span>
-                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Gere seu código Pix abaixo para renovar por 30 dias.
+                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Clique abaixo para solicitar sua renovação diretamente no WhatsApp.
                       </span>
                     </div>
                   )}
 
-                  {/* Feedback de Sucesso */}
-                  {paymentSuccessFeedback && (
-                    <div className="w-full p-4 rounded-2xl bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg animate-in zoom-in-95">
-                      <CheckCircle2 className="w-5 h-5 shrink-0 stroke-[2.5]" />
-                      <span>{paymentSuccessFeedback}</span>
-                    </div>
-                  )}
-
-                  {/* Alerta ou Erro */}
-                  {blockedAlertNotice && !paymentSuccessFeedback && (
+                  {/* Alerta quando bloqueado tentar navegar */}
+                  {blockedAlertNotice && (
                     <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
                       <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                       <span>{blockedAlertNotice}</span>
                     </div>
                   )}
 
-                  {/* BOTÃO PRINCIPAL: REALIZAR PAGAMENTO */}
-                  {!gatewayPixPayment && (
-                    <div className="space-y-2.5">
+                  {/* Card do ID Próprio do Usuário */}
+                  <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 block">
+                        Seu ID Próprio de Identificação no Sistema
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-black font-mono text-slate-950 tracking-wide select-all">
+                          {currentUserCode}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-900/80">
+                        Esse ID vai automaticamente na mensagem para o administrador localizar sua conta na hora.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyUserCode}
+                      className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-300 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
+                    >
+                      {copiedUserCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedUserCode ? 'ID Copiado!' : 'Copiar ID'}</span>
+                    </button>
+                  </div>
+
+                  {/* Pré-visualização da Mensagem Organizada */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                        Mensagem Organizada que será enviada no WhatsApp:
+                      </span>
                       <button
                         type="button"
-                        onClick={handleGenerateGatewayPix}
-                        disabled={isGeneratingPix}
-                        className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-3 cursor-pointer shadow-xl shadow-emerald-600/30 disabled:opacity-60 transition-all active:scale-98 ring-2 ring-emerald-300"
+                        onClick={handleCopyRenewalMessage}
+                        className="text-[11px] font-black text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
                       >
-                        {isGeneratingPix ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <QrCode className="w-6 h-6 stroke-[2.5]" />
-                        )}
-                        <span>
-                          {isGeneratingPix ? 'Gerando QR Code...' : 'Realizar Pagamento • R$ 29,99/Mês'}
-                        </span>
+                        {copiedRenewalMessage ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedRenewalMessage ? 'Mensagem copiada!' : 'Copiar mensagem'}</span>
                       </button>
                     </div>
-                  )}
+                    <pre className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-[11px] sm:text-xs font-sans text-slate-800 whitespace-pre-wrap leading-relaxed select-text">
+                      {renewalWhatsAppMessage}
+                    </pre>
+                  </div>
 
-                  {/* EXIBIÇÃO DA GATEWAY PIX GERADA (BR.GOV.BCB.PIX) COM DESTAQUE MÁXIMO */}
-                  {gatewayPixPayment && (
-                    <div className={`p-5 sm:p-6 rounded-3xl border-2 space-y-5 text-center animate-in fade-in shadow-inner ${
-                      remainingSeconds <= 0 || gatewayPixPayment.status === 'expired'
-                        ? 'bg-red-50/80 border-red-400'
-                        : 'bg-gradient-to-b from-emerald-50/90 to-white border-emerald-500'
-                    }`}>
-                      {/* Barra de Status e Cronômetro de 5 Minutos */}
-                      <div className="space-y-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-black text-emerald-950 uppercase tracking-wide flex items-center gap-1.5">
-                            <QrCode className="w-4 h-4 text-emerald-600" />
-                            <span>Gateway br.gov.bcb.pix</span>
-                          </span>
-                          <span className={`px-3.5 py-1.5 rounded-full font-mono font-black text-xs flex items-center gap-1.5 shadow-xs ${
-                            remainingSeconds <= 0 || gatewayPixPayment.status === 'expired'
-                              ? 'bg-red-600 text-white'
-                              : remainingSeconds <= 60
-                              ? 'bg-red-600 text-white animate-pulse'
-                              : 'bg-slate-950 text-emerald-300'
-                          }`}>
-                            <Timer className="w-3.5 h-3.5" />
-                            <span>
-                              {remainingSeconds <= 0 || gatewayPixPayment.status === 'expired'
-                                ? 'Prazo expirado (00:00)'
-                                : `Expira em ${formattedCountdown}`}
-                            </span>
-                          </span>
-                        </div>
-
-                        {/* Barra de Progresso do Prazo de 5 Minutos */}
-                        <div className="w-full h-2.5 rounded-full bg-slate-200 overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-1000 ${
-                              remainingSeconds <= 60 ? 'bg-red-500' : 'bg-emerald-500'
-                            }`}
-                            style={{
-                              width: `${Math.max(0, Math.min(100, (remainingSeconds / GATEWAY_PIX_TIMEOUT_SECONDS) * 100))}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {remainingSeconds <= 0 || gatewayPixPayment.status === 'expired' ? (
-                        <div className="p-6 rounded-2xl bg-white border border-red-200 space-y-3">
-                          <AlertTriangle className="w-10 h-10 text-red-500 mx-auto" />
-                          <h4 className="font-black text-sm text-red-950">
-                            O prazo de 5 minutos para pagamento expirou
-                          </h4>
-                          <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                            Por segurança, o código Gateway Pix anterior foi encerrado. Clique abaixo para gerar um novo código com mais 5 minutos de prazo.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleGenerateGatewayPix}
-                            disabled={isGeneratingPix}
-                            className="w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                          >
-                            {isGeneratingPix ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-4 h-4" />
-                            )}
-                            <span>Gerar Novo Gateway Pix (05:00)</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          {/* QR Code Spotlight */}
-                          <div className="bg-white p-5 rounded-3xl border-2 border-emerald-500 inline-flex flex-col items-center shadow-lg">
-                            {gatewayPixPayment.qrCodeBase64 ? (
-                              <img
-                                src={`data:image/png;base64,${gatewayPixPayment.qrCodeBase64}`}
-                                alt="QR Code Gateway Pix R$ 29,99"
-                                className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
-                              />
-                            ) : gatewayPixPayment.qrDataUrl ? (
-                              <img
-                                src={gatewayPixPayment.qrDataUrl}
-                                alt="QR Code Gateway Pix R$ 29,99"
-                                className="w-52 h-52 sm:w-56 sm:h-56 object-contain"
-                              />
-                            ) : (
-                              <div className="w-52 h-52 flex items-center justify-center text-slate-400">
-                                <QrCode className="w-16 h-16" />
-                              </div>
-                            )}
-                            <div className="mt-3 px-4 py-1.5 rounded-full bg-emerald-50 border border-emerald-200">
-                              <span className="text-xl font-black text-emerald-800 font-mono">
-                                R$ 29,99
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-slate-600 font-bold mt-1.5">
-                              Aponte a câmera do app do seu banco para pagar via Pix
-                            </span>
-                          </div>
-
-                          {/* Código Gateway (bcb.pix Copia e Cola) sem expor chave Pix avulsa */}
-                          <div className="space-y-1.5 text-left">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 block">
-                              Código Pix Copia e Cola (Gateway br.gov.bcb.pix):
-                            </span>
-                            <div className="p-3.5 rounded-2xl bg-white border-2 border-emerald-200 flex items-center justify-between gap-2">
-                              <code className="text-[11px] font-mono font-bold text-slate-800 truncate select-all">
-                                {gatewayPixPayment.gatewayCode}
-                              </code>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={handleCopyGatewayCode}
-                            className={`w-full py-4 px-5 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg ${
-                              copiedPixPayload
-                                ? 'bg-slate-950 text-emerald-300 border-2 border-emerald-400'
-                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25'
-                            }`}
-                          >
-                            {copiedPixPayload ? (
-                              <>
-                                <Check className="w-5 h-5 stroke-[3]" />
-                                <span>Código Pix Copiado! Abra o app do banco</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-5 h-5" />
-                                <span>Copiar Código Pix (Copia e Cola)</span>
-                              </>
-                            )}
-                          </button>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <button
-                              type="button"
-                              onClick={() => handleCheckGatewayPaymentStatus(gatewayPixPayment.paymentId, false)}
-                              disabled={isVerifyingPayment}
-                              className="w-full py-3.5 px-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
-                            >
-                              {isVerifyingPayment ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4" />
-                              )}
-                              <span>{isVerifyingPayment ? 'Analisando...' : 'Analisar status'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={handleOpenManualRenewalWhatsApp}
-                              className={`w-full py-3.5 px-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase flex items-center justify-center gap-2 cursor-pointer shadow-md ${
-                                gatewayPixPayment.mode !== 'api' ? 'sm:col-span-2' : ''
-                              }`}
-                            >
-                              <MessageCircle className="w-4 h-4" />
-                              <span>Enviar Comprovante (WhatsApp)</span>
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between pt-1 text-[11px] text-slate-600 font-semibold">
-                            <span>
-                              {gatewayPixPayment.mode === 'api'
-                                ? 'Verificação automática ativa a cada 5 segundos.'
-                                : 'Pague no app do banco e envie o comprovante para liberação.'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={handleGenerateGatewayPix}
-                              disabled={isGeneratingPix}
-                              className="font-black text-emerald-800 hover:text-emerald-950 underline cursor-pointer shrink-0 ml-2"
-                            >
-                              Gerar novo código
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  {/* Botão Principal: Solicitar Renovação no WhatsApp */}
+                  <a
+                    href={renewalWhatsAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-3 cursor-pointer shadow-xl shadow-emerald-600/30 transition-all active:scale-98 ring-2 ring-emerald-300 no-underline"
+                  >
+                    <MessageCircle className="w-6 h-6 stroke-[2.5]" />
+                    <span>Solicitar Renovação no WhatsApp</span>
+                    <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+                  </a>
                 </div>
               </div>
 
-              {/* SEÇÃO DE HISTÓRICO DE FATURAS E COMPROVANTES (REGISTRO AUTOMÁTICO DE CADA PAGAMENTO) */}
+              {/* SEÇÃO DE HISTÓRICO DE FATURAS E COMPROVANTES */}
               <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -4062,7 +3695,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         Histórico de Faturas & Comprovantes
                       </h4>
                       <p className="text-[10px] text-slate-500">
-                        Faturas geradas automaticamente para cada pagamento realizado
+                        Registros de renovações aplicadas à sua loja
                       </p>
                     </div>
                   </div>
@@ -4121,7 +3754,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       Nenhuma fatura registrada anteriormente
                     </p>
                     <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
-                      Assim que você confirmar seu pagamento via Pix, a fatura oficial será emitida automaticamente e ficará gravada aqui.
+                      Assim que sua renovação for confirmada junto ao administrador, o comprovante ficará registrado aqui.
                     </p>
                   </div>
                 )}

@@ -95,7 +95,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     },
     {
       q: 'Como funciona a renovação mensal e o aviso de vencimento?',
-      a: 'Para sua total comodidade, o sistema avisa automaticamente quando faltarem 5 dias para o vencimento, liberando o QR Code Pix de renovação no seu painel para pagamento manual e emissão imediata de fatura com comprovante.',
+      a: 'Para sua total comodidade, o sistema avisa automaticamente quando faltarem 5 dias para o vencimento, liberando o botão para solicitar a renovação diretamente pelo WhatsApp com o seu ID exclusivo.',
     },
   ];
 
@@ -906,7 +906,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>Controle de Renovação Inteligente (Manual):</span>
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              O aviso e QR Code Pix para renovação da assinatura aparecem automaticamente quando faltarem <strong>5 dias</strong> para o vencimento, garantindo total controle manual sem cobranças automáticas indesejadas.
+              O aviso e o botão de renovação via WhatsApp (já com seu ID e dados da loja organizados) aparecem automaticamente no painel, garantindo atendimento rápido e sem cobranças automáticas indesejadas.
             </p>
           </div>
 

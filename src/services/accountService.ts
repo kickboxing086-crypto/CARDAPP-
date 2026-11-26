@@ -18,7 +18,6 @@ import {
   PaymentInvoice,
 } from '../types';
 import { storageService } from './storageService';
-import { extractCleanPixKey } from '../utils/pixPayload';
 import {
   hasAccentsOrDiacritics,
   validateUsernameSecurity,
@@ -45,8 +44,39 @@ const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
 const SUPER_ADMIN_BACKUP_KEY = 'cardapp_super_admin_backup_v1';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
 const PLANS_STORAGE_KEY = 'cardapp_subscription_plans_v1';
-const PIX_KEY_STORAGE_KEY = 'cardapp_gateway_pix_key_v1';
-const DEFAULT_PIX_KEY = 'a8d6dde8-33ae-45c8-b88a-5023cc204a55';
+
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const USER_CODE_REGEX = /^[A-Z]{3}\d{3}$/;
+
+function computeDeterministicUserCode(seed: string): string {
+  let h1 = 2166136261;
+  let h2 = 374761393;
+  for (let i = 0; i < seed.length; i++) {
+    const ch = seed.charCodeAt(i);
+    h1 ^= ch;
+    h1 = Math.imul(h1, 16777619);
+    h2 = Math.imul(h2 ^ ch, 668265263);
+  }
+  const u1 = h1 >>> 0;
+  const u2 = h2 >>> 0;
+  const l1 = LETTERS[u1 % 26];
+  const l2 = LETTERS[Math.floor(u1 / 26) % 26];
+  const l3 = LETTERS[Math.floor(u1 / (26 * 26)) % 26];
+  const num = String(u2 % 1000).padStart(3, '0');
+  return `${l1}${l2}${l3}${num}`;
+}
+
+function generateRandomUserCode(): string {
+  const l1 = LETTERS[Math.floor(Math.random() * 26)];
+  const l2 = LETTERS[Math.floor(Math.random() * 26)];
+  const l3 = LETTERS[Math.floor(Math.random() * 26)];
+  const num = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+  return `${l1}${l2}${l3}${num}`;
+}
+
+function normalizeUserCodeInput(code: string): string {
+  return (code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
 
 export const PLAN_PERIOD_DAYS: Record<PlanPeriod, number> = {
   mensal: 30,
@@ -128,6 +158,7 @@ const MASTER_ADMIN_HASH = 'cdp$sha256$01372b69ce4f125cd5c20f7a1aba364f';
 
 const MASTER_ADMIN: UserAccount = {
   id: 'admin_samuel_master',
+  userCode: 'ADM001',
   username: 'Samuel_adm1',
   passwordHash: MASTER_ADMIN_HASH,
   plainPassword: '072131Sa@',
@@ -158,7 +189,6 @@ class AccountService {
   private plansUnsub: (() => void) | null = null;
   private authSyncPromise: Promise<FirebaseUser | null> | null = null;
   private authSyncAccountId: string | null = null;
-  public pixKey: string = DEFAULT_PIX_KEY;
 
   constructor() {
     this.loadFromStorage();
@@ -169,16 +199,66 @@ class AccountService {
     }
   }
 
+  private ensureUniqueUserCode(account: UserAccount, allAccounts: UserAccount[]): UserAccount {
+    if (account.role === 'super_admin' || account.username === MASTER_ADMIN.username) {
+      return account.userCode === 'ADM001' ? account : { ...account, userCode: 'ADM001' };
+    }
+
+    const usedCodes = new Set(
+      allAccounts
+        .filter((a) => a.id !== account.id && a.userCode)
+        .map((a) => normalizeUserCodeInput(a.userCode!))
+    );
+
+    const existingCode = account.userCode ? normalizeUserCodeInput(account.userCode) : '';
+    if (existingCode && USER_CODE_REGEX.test(existingCode) && !usedCodes.has(existingCode)) {
+      return existingCode === account.userCode ? account : { ...account, userCode: existingCode };
+    }
+
+    const seed = account.id || account.username || account.storeId || `${Date.now()}`;
+    let candidate = computeDeterministicUserCode(seed);
+    let guard = 0;
+    while (usedCodes.has(candidate) && guard < 1000) {
+      candidate = `${candidate.slice(0, 3)}${String((parseInt(candidate.slice(3), 10) + 1) % 1000).padStart(3, '0')}`;
+      guard++;
+    }
+    if (usedCodes.has(candidate)) {
+      do {
+        candidate = generateRandomUserCode();
+      } while (usedCodes.has(candidate));
+    }
+    return { ...account, userCode: candidate };
+  }
+
+  private backfillUserCodes(list: UserAccount[]): UserAccount[] {
+    const updated: UserAccount[] = [];
+    for (const acc of list) {
+      updated.push(this.ensureUniqueUserCode(acc, updated));
+    }
+    return updated;
+  }
+
+  public getAccountUserCode(account?: UserAccount | null): string {
+    if (!account) return 'USR000';
+    if (account.userCode) {
+      const normalized = normalizeUserCodeInput(account.userCode);
+      if (USER_CODE_REGEX.test(normalized)) {
+        return normalized;
+      }
+    }
+    const found = this.accounts.find((a) => a.id === account.id);
+    if (found?.userCode) {
+      const normalized = normalizeUserCodeInput(found.userCode);
+      if (USER_CODE_REGEX.test(normalized)) {
+        return normalized;
+      }
+    }
+    return this.ensureUniqueUserCode(account, this.accounts).userCode || 'USR000';
+  }
+
   private loadFromStorage() {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const storedPix = localStorage.getItem(PIX_KEY_STORAGE_KEY);
-        if (storedPix && storedPix.trim()) {
-          this.pixKey = extractCleanPixKey(storedPix.trim()) || DEFAULT_PIX_KEY;
-        } else {
-          this.pixKey = DEFAULT_PIX_KEY;
-        }
-
         const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
@@ -207,6 +287,7 @@ class AccountService {
           if (!hasMaster) {
             this.accounts.unshift(MASTER_ADMIN);
           }
+          this.accounts = this.backfillUserCodes(this.accounts);
           this.saveToStorage();
         } else {
           this.accounts = [MASTER_ADMIN];
@@ -215,7 +296,11 @@ class AccountService {
 
         const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
         if (storedSession) {
-          this.currentSession = sanitizeAccountForStorage(JSON.parse(storedSession));
+          const parsedSession = sanitizeAccountForStorage(JSON.parse(storedSession) as UserAccount);
+          const matchedAcc = this.accounts.find((a) => a.id === parsedSession?.id);
+          this.currentSession = matchedAcc
+            ? { ...parsedSession, userCode: matchedAcc.userCode }
+            : this.ensureUniqueUserCode(parsedSession, this.accounts);
           localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession));
         }
 
@@ -372,25 +457,6 @@ class AccountService {
       ).catch(() => {});
     }
 
-    // Sincronizar chave Pix oficial apenas para usuários autenticados no Firebase
-    try {
-      const configDoc = doc(db, 'systemConfig', 'pixGateway');
-      this.configUnsub = onSnapshot(
-        configDoc,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (data?.pixKey && typeof data.pixKey === 'string' && data.pixKey.trim()) {
-              this.pixKey = extractCleanPixKey(data.pixKey.trim()) || DEFAULT_PIX_KEY;
-              try { localStorage.setItem(PIX_KEY_STORAGE_KEY, this.pixKey); } catch {}
-              this.notify();
-            }
-          }
-        },
-        () => {}
-      );
-    } catch {}
-
     if (isAdminSession) {
       try {
         const masterWithUid: UserAccount = { ...MASTER_ADMIN, authUid: firebaseUser.uid };
@@ -404,7 +470,7 @@ class AccountService {
             if (list.length > 0) {
               if (!list.some((a) => a.username === MASTER_ADMIN.username)) list.unshift(MASTER_ADMIN);
               const now = new Date();
-              this.accounts = list.map((acc) => {
+              const checkedList = list.map((acc) => {
                 if (
                   acc.role !== 'super_admin' &&
                   acc.planTier !== 'vitalicio' &&
@@ -414,12 +480,19 @@ class AccountService {
                 ) {
                   return {
                     ...acc,
-                    planStatus: 'bloqueado',
+                    planStatus: 'bloqueado' as const,
                     blockedReason: acc.blockedReason || 'Período de teste ou assinatura expirada',
                   };
                 }
                 return acc;
               });
+              const backfilled = this.backfillUserCodes(checkedList);
+              backfilled.forEach((acc, idx) => {
+                if (!checkedList[idx]?.userCode && acc.userCode) {
+                  setDoc(doc(db, 'accounts', acc.id), encryptAccountForFirestore(acc), { merge: true }).catch(() => {});
+                }
+              });
+              this.accounts = backfilled;
               this.saveToStorage();
             }
           },
@@ -438,8 +511,10 @@ class AccountService {
         );
       } catch {}
     } else if (this.currentSession && this.currentSession.role === 'store_admin') {
-      const sess = this.currentSession;
-      if (sess.authUid !== firebaseUser.uid) {
+      let sess = this.ensureUniqueUserCode(this.currentSession, this.accounts);
+      const needsUid = sess.authUid !== firebaseUser.uid;
+      const needsCode = !this.currentSession.userCode;
+      if (needsUid || needsCode) {
         const updatedSession: UserAccount = { ...sess, authUid: firebaseUser.uid };
         this.currentSession = updatedSession;
         this.accounts = this.accounts.map((a) => (a.id === sess.id ? updatedSession : a));
@@ -457,9 +532,13 @@ class AccountService {
             if (!snap.exists()) return;
             const decrypted = decryptAccountFromFirestore(snap.data()) as UserAccount;
             if (decrypted && decrypted.id === sess.id) {
-              this.accounts = this.accounts.map((a) => (a.id === decrypted.id ? decrypted : a));
-              this.currentSession = decrypted;
-              try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(decrypted)); } catch {}
+              const ensured = this.ensureUniqueUserCode(decrypted, this.accounts);
+              if (!decrypted.userCode && ensured.userCode) {
+                setDoc(doc(db, 'accounts', ensured.id), encryptAccountForFirestore(ensured), { merge: true }).catch(() => {});
+              }
+              this.accounts = this.accounts.map((a) => (a.id === ensured.id ? ensured : a));
+              this.currentSession = ensured;
+              try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(ensured)); } catch {}
               this.saveToStorage();
             }
           },
@@ -966,8 +1045,18 @@ class AccountService {
       ? new Date('2099-12-31T23:59:59.000Z')
       : new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
+    const newAccountId = `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const usedCodes = new Set(
+      this.accounts.filter((a) => a.userCode).map((a) => normalizeUserCodeInput(a.userCode!))
+    );
+    let uniqueCode = generateRandomUserCode();
+    while (usedCodes.has(uniqueCode)) {
+      uniqueCode = generateRandomUserCode();
+    }
+
     const newAccount: UserAccount = {
-      id: `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: newAccountId,
+      userCode: uniqueCode,
       username: data.username.trim(),
       passwordHash: hashPassword(data.password),
       plainPassword: data.password,
@@ -1433,6 +1522,7 @@ class AccountService {
       if (Array.isArray(parsed.accounts)) {
         this.accounts = parsed.accounts;
         if (!this.accounts.some((a) => a.username === MASTER_ADMIN.username)) this.accounts.unshift(MASTER_ADMIN);
+        this.accounts = this.backfillUserCodes(this.accounts);
         this.saveToStorage();
         return true;
       }
@@ -1440,44 +1530,20 @@ class AccountService {
     return false;
   }
 
-  public getPixKey(): string {
-    return this.pixKey || DEFAULT_PIX_KEY;
-  }
-
-  public getCleanPixKey(): string {
-    return extractCleanPixKey(this.getPixKey());
-  }
-
-  public setPixKey(newKey: string): void {
-    let clean = extractCleanPixKey(newKey.trim());
-    if (!clean) clean = DEFAULT_PIX_KEY;
-    this.pixKey = clean;
-    try {
-      localStorage.setItem(PIX_KEY_STORAGE_KEY, this.pixKey);
-    } catch {}
-    try {
-      const configDoc = doc(db, 'systemConfig', 'pixGateway');
-      setDoc(configDoc, { pixKey: this.pixKey, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-    } catch {}
-    this.notify();
-  }
-
-  public resetDefaultPixKey(): void {
-    this.setPixKey(DEFAULT_PIX_KEY);
-  }
-
   /**
-   * Localiza uma conta cadastrada pelo nome de usuário ou pelo endereço de e-mail (síncrono)
+   * Localiza uma conta cadastrada pelo nome de usuário, e-mail ou ID próprio do usuário (síncrono)
    */
   public findAccountByUsernameOrEmail(identifier: string): UserAccount | undefined {
     const clean = (identifier || '').trim().toLowerCase();
+    const cleanUpper = normalizeUserCodeInput(identifier || '');
     if (!clean) return undefined;
 
     // Busca na memória
     let account = this.accounts.find(
       (a) =>
         (a.username && a.username.toLowerCase().trim() === clean) ||
-        (a.email && a.email.toLowerCase().trim() === clean)
+        (a.email && a.email.toLowerCase().trim() === clean) ||
+        (a.userCode && normalizeUserCodeInput(a.userCode) === cleanUpper)
     );
 
     if (account) return account;
@@ -1490,10 +1556,11 @@ class AccountService {
         account = allAccounts.find(
           (a: UserAccount) =>
             (a.username && a.username.toLowerCase().trim() === clean) ||
-            (a.email && a.email.toLowerCase().trim() === clean)
+            (a.email && a.email.toLowerCase().trim() === clean) ||
+            (a.userCode && normalizeUserCodeInput(a.userCode) === cleanUpper)
         );
         if (account && !this.accounts.find((a) => a.id === account!.id)) {
-          this.accounts.push(account);
+          this.accounts.push(this.ensureUniqueUserCode(account, this.accounts));
         }
       }
     } catch {}
