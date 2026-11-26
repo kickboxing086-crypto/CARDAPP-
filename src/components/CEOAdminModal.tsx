@@ -74,6 +74,9 @@ import {
   getEstimatedTimeWindow,
   getDeliveryTypeLabel,
   getOrderWhatsAppUrl,
+  formatOrderDisplayId,
+  getPaymentMethodLabel,
+  normalizeWhatsAppPhone,
 } from '../utils/comandaFormatter';
 import { ELEGANT_FONTS, getFontClass } from '../utils/typography';
 import {
@@ -689,7 +692,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Format Date Header for Display (e.g. 08/10/2026)
   const formatDateHeader = (dateKey: string) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const pad2 = (n: number) => String(n).padStart(2, '0');
+      const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
       const d = new Date(dateKey + 'T00:00:00');
       const formatted = d.toLocaleDateString('pt-BR', {
         day: '2-digit',
@@ -1105,18 +1110,22 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // WhatsApp Customer
   const openWhatsAppCustomer = (order: Order) => {
-    const cleanPhone = order.customer.phone.replace(/\D/g, '');
+    const cleanPhone = normalizeWhatsAppPhone(order.customer.phone);
+    const orderNum = formatOrderDisplayId(order.displayId);
     let msg = `Olá ${order.customer.name}! Aqui é da ${settings.storeName}.\n`;
     if (order.status === 'recebido') {
-      msg += `Recebemos seu pedido ${order.displayId} com sucesso e já está sendo preparado!`;
+      msg += `Recebemos seu pedido ${orderNum} com sucesso e já está sendo preparado!`;
     } else if (order.status === 'em_producao') {
-      msg += `Seu pedido ${order.displayId} está em produção na nossa cozinha!`;
+      msg += `Seu pedido ${orderNum} está em produção na nossa cozinha!`;
     } else if (order.status === 'em_rota') {
-      msg += `Seu pedido ${order.displayId} acabou de sair em rota de entrega!`;
+      msg += `Seu pedido ${orderNum} acabou de sair em rota de entrega!`;
     } else {
-      msg += `Seu pedido ${order.displayId} foi finalizado. Agradecemos a preferência!`;
+      msg += `Seu pedido ${orderNum} foi finalizado. Agradecemos a preferência!`;
     }
-    window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    const url = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   // Salvar taxa de entrega de bairro (mantendo estado e cidade, limpando apenas o bairro)
@@ -1969,7 +1978,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
                                 <div className="flex items-center gap-3">
                                   <span className="font-mono text-base font-black text-slate-950">
-                                    {order.displayId}
+                                    {formatOrderDisplayId(order.displayId)}
                                   </span>
                                   <span className="text-xs text-slate-400">
                                     {formatDateTime(order.createdAt)}
@@ -2175,7 +2184,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                       onUpdateOrderStatus(order.id, 'finalizado');
                                       if (orderFilter !== 'finalizado') {
                                         setOrderActionFeedback(
-                                          `Pedido #${order.displayId} finalizado e movido para a categoria Finalizados.`
+                                          `Pedido ${formatOrderDisplayId(order.displayId)} finalizado e movido para a categoria Finalizados.`
                                         );
                                         setTimeout(() => setOrderActionFeedback(null), 3500);
                                       }
@@ -4347,70 +4356,36 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               </button>
             </div>
 
-            {/* PAPER THERMAL RECEIPT AREA (PRINTED) */}
-            <div className="print-area bg-white text-black p-4 rounded-xl border border-dashed border-slate-400 font-mono text-[11px] space-y-2 select-text shadow-xs">
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                ================================
-              </div>
-
-              {/* TIPO DE PEDIDO */}
-              <div className="text-center py-0.5">
-                <span className="font-black text-sm uppercase tracking-wider block">
-                  {getDeliveryTypeLabel(printOrder)}
-                </span>
-              </div>
-
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                ================================
-              </div>
-
-              {/* DATA / PREVISÃO / NOME DA LOJA */}
-              <div className="text-center space-y-0.5">
-                <p className="font-bold">{formatDateTime(printOrder.createdAt)}</p>
-                <p className="font-bold">
-                  Entrega prevista: {getEstimatedTimeWindow(printOrder.createdAt, settings.estimatedDeliveryTime)}
+            {/* PAPER THERMAL RECEIPT AREA (PRINTED) - ASPECTO DA FOTO + FORNECIDO POR CARDAPP */}
+            <div className="print-area bg-[#fafafa] text-black p-4 rounded-xl border border-dashed border-slate-400 font-mono text-[12px] leading-snug space-y-2 select-text shadow-xs">
+              {/* CABEÇALHO DA COMANDA COM NÚMERO DO PEDIDO DO DIA */}
+              <div className="text-center space-y-0.5 pb-1">
+                <p className="font-black text-xs uppercase tracking-wider">
+                  {settings.storeName}
                 </p>
-                {settings.phoneWhatsapp && (
-                  <p className="text-[10px] text-slate-700">WhatsApp: {settings.phoneWhatsapp}</p>
-                )}
-                {settings.address && (
-                  <p className="text-[10px] text-slate-600">{settings.address}</p>
-                )}
+                <p className="font-black text-[11px] uppercase tracking-wider">
+                  {getDeliveryTypeLabel(printOrder)}
+                </p>
+                <p className="text-xl font-black tracking-wider pt-0.5">
+                  Pedido {formatOrderDisplayId(printOrder.displayId)}
+                </p>
+                <p className="text-[10px] font-semibold">
+                  {formatDateTime(printOrder.createdAt)} • Previsão: {getEstimatedTimeWindow(printOrder.createdAt, settings.estimatedDeliveryTime)}
+                </p>
               </div>
 
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                ================================
-              </div>
-
-              {/* NÚMERO DO PEDIDO COM 5 DÍGITOS BEM GRANDE */}
-              <div className="text-center py-1">
-                <span className="text-2xl font-black tracking-wider block">
-                  Pedido {printOrder.displayId}
-                </span>
-              </div>
-
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                --------------------------------
-              </div>
-
-              {/* DADOS DO CLIENTE */}
-              <div className="space-y-0.5 text-[11px]">
-                <p><strong className="font-bold">CLIENTE:</strong> {printOrder.customer.name}</p>
-                <p><strong className="font-bold">TEL:</strong> {printOrder.customer.phone}</p>
+              {/* DADOS DO CLIENTE COMPACTOS */}
+              <div className="border-t border-dashed border-black pt-1.5 space-y-0.5 text-[11px]">
+                <p><strong className="font-bold">CLIENTE:</strong> {printOrder.customer.name} ({printOrder.customer.phone})</p>
                 {printOrder.customer.deliveryType === 'delivery' && printOrder.customer.address && (
                   <p>
                     <strong className="font-bold">END:</strong> {printOrder.customer.address.street}, {printOrder.customer.address.number} - {printOrder.customer.address.neighborhood}
-                    {printOrder.customer.address.complement ? ` (${printOrder.customer.address.complement})` : ''} - {printOrder.customer.address.city}{printOrder.customer.address.state ? `/${printOrder.customer.address.state}` : ''}
-                    {printOrder.customer.address.cep ? ` [CEP: ${printOrder.customer.address.cep}]` : ''}
+                    {printOrder.customer.address.complement ? ` (${printOrder.customer.address.complement})` : ''}
                   </p>
                 )}
                 {printOrder.customer.deliveryType === 'mesa' && (
                   <p>
-                    <strong className="font-bold">LOCAL:</strong> Consumo no Restaurante (Mesa {printOrder.customer.tableNumber || 'Salão'})
+                    <strong className="font-bold">LOCAL:</strong> Mesa {printOrder.customer.tableNumber || 'Salão'}
                   </p>
                 )}
                 {printOrder.customer.deliveryType === 'retirada' && (
@@ -4420,86 +4395,116 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 )}
               </div>
 
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                --------------------------------
+              {/* TÍTULO CENTRALIZADO + LINHA TRACEJADA (CONFORME A FOTO) */}
+              <div className="pt-1">
+                <p className="text-center font-bold tracking-wider uppercase text-[13px]">
+                  ITENS DO PEDIDO
+                </p>
+                <div className="border-t-2 border-dashed border-black my-1" />
               </div>
 
-              {/* ITENS DO PEDIDO */}
-              <div>
-                <span className="font-black text-xs uppercase block mb-1">Itens</span>
-                <div className="space-y-1.5">
-                  {printOrder.items.map((it, i) => (
-                    <div key={i} className="pb-1">
-                      <div className="flex justify-between items-baseline font-bold">
-                        <span>({it.quantity}) {it.product.name}</span>
-                        <span className="tabular-nums font-mono">{formatCurrency(it.totalPrice)}</span>
+              {/* LISTA DE ITENS COM BARRA PRETA INVERTIDA ALTERNADA COMO NA FOTO */}
+              <div className="space-y-1.5">
+                {printOrder.items.map((it, i) => {
+                  const isHighlightedRow = i % 2 === 1;
+                  return (
+                    <div key={i} className="space-y-0.5">
+                      <div
+                        className={`flex items-baseline justify-between gap-2 px-1 py-0.5 ${
+                          isHighlightedRow ? 'bg-black text-white font-bold' : 'text-black font-semibold'
+                        }`}
+                      >
+                        <div className="flex items-baseline gap-2.5 min-w-0">
+                          <span className="tabular-nums shrink-0">{it.quantity}</span>
+                          <span className="truncate">{it.product.name}</span>
+                        </div>
+                        <span className="tabular-nums font-mono shrink-0">
+                          {formatCurrency(it.totalPrice)}
+                        </span>
                       </div>
+
                       {it.selectedComplements && it.selectedComplements.length > 0 && (
-                        <div className="text-[10px] text-slate-700 pl-3">
+                        <div className="text-[11px] text-black pl-7 space-y-0.5">
                           {it.selectedComplements.map((c) => (
-                            <p key={c.id}>- {c.name}{c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}</p>
+                            <p key={c.id}>
+                              - {c.name}{c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}
+                            </p>
                           ))}
                         </div>
                       )}
                       {it.appliedPromotion && (
-                        <p className="text-[10px] text-amber-900 font-bold pl-3">
-                          * Promoção aplicada ({it.appliedPromotion.promoQuantity} un)
+                        <p className="text-[10px] font-bold pl-7 text-black">
+                          - Promoção ({it.appliedPromotion.promoQuantity} un)
                         </p>
                       )}
                       {it.notes && (
-                        <p className="text-[10px] text-slate-600 italic pl-3">
-                          Obs: {it.notes}
+                        <p className="text-[11px] pl-7 text-black">
+                          - Obs: {it.notes}
                         </p>
                       )}
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
 
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                --------------------------------
-              </div>
-
-              {/* SUBTOTAL / TAXA / TOTAL / FORMA DE PAGAMENTO */}
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span>SUBTOTAL:</span>
-                  <span className="font-mono tabular-nums">{formatCurrency(printOrder.subtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>TAXA:</span>
-                  <span className="font-mono tabular-nums">
-                    {printOrder.deliveryFee > 0 ? formatCurrency(printOrder.deliveryFee) : 'Grátis'}
+              {/* QUANTIDADE DE ITENS */}
+              <div className="border-t-2 border-dashed border-black pt-1.5 pb-0.5">
+                <div className="flex justify-between items-baseline text-[12px] font-semibold">
+                  <span>Quantidade de itens</span>
+                  <span className="tabular-nums font-bold">
+                    {printOrder.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm font-black pt-1 border-t border-dashed border-slate-400">
-                  <span>TOTAL:</span>
-                  <span className="font-mono tabular-nums text-base">{formatCurrency(printOrder.total)}</span>
+              </div>
+
+              {/* SUBTOTAL, TAXA E TOTAL GRANDE */}
+              <div className="border-t-2 border-dashed border-black pt-1.5 space-y-1">
+                <div className="flex justify-between items-baseline text-[12px]">
+                  <span>Subtotal</span>
+                  <span className="tabular-nums">{formatCurrency(printOrder.subtotal)}</span>
                 </div>
-                <div className="flex justify-between text-[11px] pt-0.5">
-                  <span>PAGTO:</span>
-                  <span className="font-bold">{printOrder.customer.paymentMethod.replace('_', ' ').toUpperCase()}</span>
+                {printOrder.deliveryFee > 0 && (
+                  <div className="flex justify-between items-baseline text-[12px]">
+                    <span>Taxa de entrega</span>
+                    <span className="tabular-nums">{formatCurrency(printOrder.deliveryFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline pt-1">
+                  <span className="text-2xl font-black tracking-tight">Total</span>
+                  <span className="text-2xl font-black tabular-nums tracking-tight">
+                    {formatCurrency(printOrder.total)}
+                  </span>
+                </div>
+              </div>
+
+              {/* SEPARADOR DUPLO ================================= */}
+              <div className="border-t-2 border-b-2 border-dashed border-black h-1.5 my-1" />
+
+              {/* FORMAS DE PAGAMENTO */}
+              <div className="space-y-0.5 pt-0.5 text-[12px]">
+                <p className="uppercase font-bold tracking-wide">FORMAS DE PAGAMENTO</p>
+                <div className="flex justify-between items-baseline">
+                  <span>{getPaymentMethodLabel(printOrder.customer.paymentMethod)}</span>
+                  <span className="tabular-nums font-semibold">{formatCurrency(printOrder.total)}</span>
                 </div>
                 {printOrder.customer.paymentMethod === 'dinheiro' && printOrder.customer.cashGiven && (
-                  <div className="text-[10px] bg-slate-100 p-1.5 rounded font-bold mt-1 space-y-0.5 border border-slate-300">
-                    <p>VALOR ENTREGUE: {formatCurrency(printOrder.customer.cashGiven)}</p>
-                    <p>TROCO A LEVAR: {formatCurrency(printOrder.customer.changeToReturn || 0)}</p>
+                  <div className="text-[10px] pt-1 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Valor entregue</span>
+                      <span className="tabular-nums">{formatCurrency(printOrder.customer.cashGiven)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold">
+                      <span>Troco</span>
+                      <span className="tabular-nums">{formatCurrency(printOrder.customer.changeToReturn || 0)}</span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Linha Tracejada */}
-              <div className="text-center font-bold tracking-widest text-slate-600 select-none">
-                ================================
-              </div>
-
-              {/* RODAPÉ EXATO CONFORME A FOTO */}
-              <div className="text-center space-y-0.5 pt-1 text-[10px]">
-                <p className="font-black tracking-widest text-xs">RAPIDO</p>
-                <p className="font-bold">Powered By: SF TECNOLOGIA</p>
-                <p className="text-slate-600 font-semibold">Acesse: https://cardapp-us.vercel.app</p>
+              {/* RODAPÉ OFICIAL: Fornecido por CARDAPP */}
+              <div className="text-center space-y-0.5 pt-3 text-[11px] leading-tight">
+                <p className="font-bold">Fornecido por CARDAPP</p>
+                <p className="uppercase tracking-wider font-semibold">NÃO É DOCUMENTO FISCAL</p>
               </div>
             </div>
 

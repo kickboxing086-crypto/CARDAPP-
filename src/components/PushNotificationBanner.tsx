@@ -68,7 +68,7 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
         <div className="flex-1 min-w-0 pr-4">
           <div className="flex items-center gap-1.5 mb-0.5">
             <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded border border-amber-400/30">
-              Notificação de Pedido #{displayId}
+              Notificação de Pedido {displayId.startsWith('#') ? displayId : `#${displayId}`}
             </span>
           </div>
           <h4 className="text-xs sm:text-sm font-black text-amber-300 leading-tight">

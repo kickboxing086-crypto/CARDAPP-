@@ -76,7 +76,7 @@ export function getStatusNotificationMessage(
   const isTable = order.customer.deliveryType === 'mesa';
   const isPickup = order.customer.deliveryType === 'retirada';
   const tableNumber = order.customer.tableNumber || 'sua mesa';
-  const idStr = `#${order.displayId}`;
+  const idStr = order.displayId?.startsWith('#') ? order.displayId : `#${order.displayId}`;
 
   if (isTable) {
     switch (newStatus) {

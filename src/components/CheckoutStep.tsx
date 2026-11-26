@@ -406,6 +406,19 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
     onSubmitOrder(customerData);
   };
 
+  const hasName = Boolean(name.trim());
+  const hasPhone = Boolean(phone.replace(/\D/g, '').length >= 8);
+  const hasDeliveryLocation =
+    deliveryType === 'retirada'
+      ? true
+      : deliveryType === 'mesa'
+      ? Boolean(tableNumber.trim())
+      : Boolean(street.trim() && number.trim() && neighborhood.trim());
+  const hasPayment = Boolean(paymentMethod);
+
+  const completedCount = [hasName, hasPhone, hasDeliveryLocation, hasPayment].filter(Boolean).length;
+  const progressPercent = Math.round((completedCount / 4) * 100);
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 animate-in fade-in duration-200">
       {/* Header */}
@@ -419,6 +432,43 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
         <p className="text-xs sm:text-sm text-slate-500">
           Informe seus dados para a entrega e selecione a forma de pagamento autorizada pela loja.
         </p>
+      </div>
+
+      {/* BARRA DE PROGRESSO DE PREENCHIMENTO DO CHECKOUT */}
+      <div className="mb-6 p-4 rounded-3xl bg-white border border-amber-300 shadow-xs space-y-2">
+        <div className="flex items-center justify-between text-xs font-black">
+          <span className="text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+            <CheckCircle2 className={`w-4 h-4 ${progressPercent === 100 ? 'text-emerald-600' : 'text-amber-600'}`} />
+            <span>Progresso do Preenchimento</span>
+          </span>
+          <span className="font-mono text-slate-950 bg-amber-100 px-2 py-0.5 rounded-full">
+            {progressPercent}% Completo ({completedCount}/4)
+          </span>
+        </div>
+
+        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+          <div
+            className={`h-full transition-all duration-500 rounded-full ${
+              progressPercent === 100 ? 'bg-emerald-500' : 'bg-amber-400'
+            }`}
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+          <span className={`px-2 py-0.5 rounded-lg flex items-center gap-1 ${hasName ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-600'}`}>
+            {hasName ? '✓' : '•'} Nome
+          </span>
+          <span className={`px-2 py-0.5 rounded-lg flex items-center gap-1 ${hasPhone ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-600'}`}>
+            {hasPhone ? '✓' : '•'} WhatsApp
+          </span>
+          <span className={`px-2 py-0.5 rounded-lg flex items-center gap-1 ${hasDeliveryLocation ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-600'}`}>
+            {hasDeliveryLocation ? '✓' : '•'} {deliveryType === 'delivery' ? 'Endereço/Entrega' : deliveryType === 'mesa' ? 'Mesa' : 'Retirada'}
+          </span>
+          <span className={`px-2 py-0.5 rounded-lg flex items-center gap-1 ${hasPayment ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-600'}`}>
+            {hasPayment ? '✓' : '•'} Pagamento
+          </span>
+        </div>
       </div>
 
       {error && (

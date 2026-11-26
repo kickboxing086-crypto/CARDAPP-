@@ -1355,21 +1355,28 @@ export const storageService = {
   ): Order {
     const storeId = this.currentStoreId;
     const orders = this.getOrders();
-    const nowIso = new Date().toISOString();
-    const dateKey = nowIso.split('T')[0];
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const dateKey = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
 
-    // Gera número do pedido sempre com 5 dígitos (iniciando em 63126 como na comanda)
-    let fiveDigitNumber = 63126;
-    if (orders.length > 0) {
-      const highestNum = orders.reduce((max, o) => {
-        const clean = o.displayId.replace(/\D/g, '');
-        const val = parseInt(clean, 10);
-        return !isNaN(val) && val >= 10000 && val <= 99999 ? Math.max(max, val) : max;
-      }, 63125);
-      fiveDigitNumber = highestNum + 1;
-      if (fiveDigitNumber > 99999) fiveDigitNumber = 10001;
-    }
-    const displayId = String(fiveDigitNumber);
+    // Número da comanda sequencial do dia com 5 dígitos (#00001, #00002, ..., #00010)
+    const ordersToday = orders.filter((o) => {
+      if (o.dateKey === dateKey) return true;
+      if (!o.dateKey && o.createdAt) {
+        const d = new Date(o.createdAt);
+        const dk = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        return dk === dateKey;
+      }
+      return false;
+    });
+    const highestToday = ordersToday.reduce((max, o) => {
+      const clean = (o.displayId || '').replace(/\D/g, '');
+      const val = parseInt(clean, 10);
+      return !isNaN(val) && val >= 1 && val <= 99999 ? Math.max(max, val) : max;
+    }, 0);
+    const dailySequence = Math.max(highestToday, ordersToday.length) + 1;
+    const displayId = `#${String(dailySequence).padStart(5, '0')}`;
 
     let randomHex = Math.random().toString(36).substring(2, 10);
     try {
