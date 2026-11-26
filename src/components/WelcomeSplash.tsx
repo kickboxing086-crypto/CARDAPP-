@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 
 interface WelcomeSplashProps {
@@ -13,18 +13,35 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
   onFinish,
 }) => {
   const [fading, setFading] = useState(false);
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
 
   useEffect(() => {
+    let finished = false;
+    const finishSafely = () => {
+      if (finished) return;
+      finished = true;
+      onFinishRef.current();
+    };
+
     const timer = setTimeout(() => {
       setFading(true);
       const finishTimer = setTimeout(() => {
-        onFinish();
-      }, 500);
+        finishSafely();
+      }, 400);
       return () => clearTimeout(finishTimer);
-    }, 1800);
+    }, 1400);
 
-    return () => clearTimeout(timer);
-  }, [onFinish]);
+    // Failsafe timer: unconditionally finish after 2.5s
+    const failsafe = setTimeout(() => {
+      finishSafely();
+    }, 2500);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(failsafe);
+    };
+  }, []);
 
   return (
     <div

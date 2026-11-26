@@ -604,8 +604,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Financial Stats Calculation
   const financialStats = useMemo(() => {
-    const totalRevenue = orders.reduce((acc, o) => acc + o.total, 0);
-    const totalOrdersCount = orders.length;
+    const validOrders = (orders || []).filter((o): o is Order => Boolean(o && typeof o === 'object'));
+    const totalRevenue = validOrders.reduce((acc, o) => acc + (o.total || 0), 0);
+    const totalOrdersCount = validOrders.length;
     const avgTicket = totalOrdersCount > 0 ? totalRevenue / totalOrdersCount : 0;
 
     // By payment method
@@ -616,23 +617,25 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       dinheiro: 0,
     };
 
-    orders.forEach((o) => {
-      if (paymentBreakdown[o.customer.paymentMethod] !== undefined) {
-        paymentBreakdown[o.customer.paymentMethod] += o.total;
+    validOrders.forEach((o) => {
+      const pm = o.customer?.paymentMethod;
+      if (pm && paymentBreakdown[pm] !== undefined) {
+        paymentBreakdown[pm] += o.total || 0;
       }
     });
 
     // Entries by Date
     const entriesByDate = groupedOrdersByDate.map(([dateKey, dateOrders]) => {
-      const dayTotal = dateOrders.reduce((acc, o) => acc + o.total, 0);
-      const dayCount = dateOrders.length;
+      const safeDayOrders = (dateOrders || []).filter((o): o is Order => Boolean(o && typeof o === 'object'));
+      const dayTotal = safeDayOrders.reduce((acc, o) => acc + (o.total || 0), 0);
+      const dayCount = safeDayOrders.length;
       const dayAvg = dayCount > 0 ? dayTotal / dayCount : 0;
       return {
         dateKey,
         dayTotal,
         dayCount,
         dayAvg,
-        orders: dateOrders,
+        orders: safeDayOrders,
       };
     });
 
@@ -671,7 +674,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     let em_producao = 0;
     let em_rota = 0;
     let finalizado = 0;
-    orders.forEach((o) => {
+    (orders || []).forEach((o) => {
+      if (!o || typeof o !== 'object') return;
       if (o.status === 'finalizado') {
         finalizado++;
       } else {
@@ -686,28 +690,34 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Total matching orders for search & status filter
   const totalMatchingOrders = useMemo(() => {
-    return orders.filter((o) => {
-      const matchesStatus = orderFilter === 'all' ? o.status !== 'finalizado' : o.status === orderFilter;
-      if (!matchesStatus) return false;
-      if (!orderSearchQuery.trim()) return true;
-      const query = orderSearchQuery.toLowerCase().trim();
-      const cleanDigits = query.replace(/\D/g, '');
-      const matchesId =
-        o.displayId.toLowerCase().includes(query) ||
-        (cleanDigits.length > 0 && o.displayId.replace(/\D/g, '').includes(cleanDigits));
-      const matchesCustomer =
-        o.customer.name.toLowerCase().includes(query) ||
-        o.customer.phone.replace(/\D/g, '').includes(cleanDigits || query);
-      const matchesTable = o.customer.tableNumber?.toLowerCase().includes(query) || false;
-      const matchesAddress =
-        o.customer.address
-          ? o.customer.address.street.toLowerCase().includes(query) ||
-            o.customer.address.neighborhood.toLowerCase().includes(query) ||
-            o.customer.address.city.toLowerCase().includes(query)
+    return (orders || [])
+      .filter((o): o is Order => Boolean(o && typeof o === 'object'))
+      .filter((o) => {
+        const matchesStatus = orderFilter === 'all' ? o.status !== 'finalizado' : o.status === orderFilter;
+        if (!matchesStatus) return false;
+        if (!orderSearchQuery.trim()) return true;
+        const query = orderSearchQuery.toLowerCase().trim();
+        const cleanDigits = query.replace(/\D/g, '');
+        const displayId = (o.displayId || '').toLowerCase();
+        const matchesId =
+          displayId.includes(query) ||
+          (cleanDigits.length > 0 && displayId.replace(/\D/g, '').includes(cleanDigits));
+        const custName = (o.customer?.name || '').toLowerCase();
+        const custPhone = (o.customer?.phone || '').replace(/\D/g, '');
+        const matchesCustomer =
+          custName.includes(query) || (cleanDigits.length > 0 && custPhone.includes(cleanDigits));
+        const matchesTable = (o.customer?.tableNumber || '').toLowerCase().includes(query);
+        const addr = o.customer?.address;
+        const matchesAddress = addr
+          ? (addr.street || '').toLowerCase().includes(query) ||
+            (addr.neighborhood || '').toLowerCase().includes(query) ||
+            (addr.city || '').toLowerCase().includes(query)
           : false;
-      const matchesItems = o.items.some((it) => it.product.name.toLowerCase().includes(query));
-      return matchesId || matchesCustomer || matchesTable || matchesAddress || matchesItems;
-    }).length;
+        const matchesItems = (o.items || []).some((it) =>
+          (it?.product?.name || '').toLowerCase().includes(query)
+        );
+        return matchesId || matchesCustomer || matchesTable || matchesAddress || matchesItems;
+      }).length;
   }, [orders, orderFilter, orderSearchQuery]);
 
   const compressImageDataUrl = (
@@ -1480,7 +1490,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
         </aside>
 
         {/* LADO DIREITO: CONTEÚDO PRINCIPAL ORGANIZADO */}
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50/50">
+        <div className="w-full flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50/50">
           {/* Barra Superior de Acesso Direto do Administrador Geral */}
           {isSuperAdminViewing && onReturnToSuperAdmin && (
             <div className="bg-slate-950 text-white px-4 py-2.5 border-b border-amber-400/50 flex items-center justify-between gap-3 shrink-0">

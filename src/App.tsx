@@ -1176,7 +1176,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFDF7] text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
+    <div className="cardapp-rendered-app min-h-screen bg-[#FFFDF7] text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
       {/* Real-time Push Notification Banner (Triggered when CEO updates status) */}
       {pushBanner && (
         <PushNotificationBanner
@@ -1574,7 +1574,7 @@ export default function App() {
       )}
 
       {/* SUPER ADMIN MODAL (SAMUEL_ADM1 - GERADOR DE CONTAS E BANCO DE DADOS) */}
-      {currentUser && (
+      {currentUser && currentUser.role === 'super_admin' && (
         <SuperAdminModal
           isOpen={isSuperAdminModalOpen}
           onClose={() => {

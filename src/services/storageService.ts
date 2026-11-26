@@ -150,15 +150,15 @@ export const storageService = {
     if (cleanId !== 'default_store' && cleanId !== 'master_admin') {
       const prodKey = this.getProductsKey();
       if (localStorage.getItem(prodKey) === null) {
-        localStorage.setItem(prodKey, JSON.stringify([]));
+        safeSetLocalStorage(prodKey, JSON.stringify([]));
       }
       const ordKey = this.getOrdersKey();
       if (localStorage.getItem(ordKey) === null) {
-        localStorage.setItem(ordKey, JSON.stringify([]));
+        safeSetLocalStorage(ordKey, JSON.stringify([]));
       }
       const catKey = this.getCategoriesKey();
       if (localStorage.getItem(catKey) === null) {
-        localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
+        safeSetLocalStorage(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
       }
       const setKey = this.getSettingsKey();
       if (localStorage.getItem(setKey) === null) {
@@ -174,7 +174,7 @@ export const storageService = {
           deliveryNeighborhoods: [],
           isOpen: true,
         };
-        localStorage.setItem(setKey, JSON.stringify(freshSettings));
+        safeSetLocalStorage(setKey, JSON.stringify(freshSettings));
       }
     }
 
@@ -1608,14 +1608,20 @@ export const storageService = {
   getSettings(): StoreSettings {
     try {
       const stored = localStorage.getItem(this.getSettingsKey());
-      if (stored) {
+      if (stored && stored !== 'null' && stored !== 'undefined') {
         const parsed = JSON.parse(stored);
-        // Garante que o cardápio de demonstração NUNCA contenha WhatsApp pessoal
-        if (this.currentStoreId === 'default_store' && parsed.phoneWhatsapp) {
-          parsed.phoneWhatsapp = '';
-          localStorage.setItem(this.getSettingsKey(), JSON.stringify(parsed));
+        if (parsed && typeof parsed === 'object') {
+          // Garante que o cardápio de demonstração NUNCA contenha WhatsApp pessoal
+          if (this.currentStoreId === 'default_store' && parsed.phoneWhatsapp) {
+            parsed.phoneWhatsapp = '';
+            safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(parsed));
+          }
+          return {
+            ...INITIAL_SETTINGS,
+            ...parsed,
+            storeName: parsed.storeName || (this.currentStoreId === 'default_store' ? INITIAL_SETTINGS.storeName : 'Minha Loja'),
+          };
         }
-        return parsed;
       }
     } catch {
       // fallback
@@ -1633,10 +1639,10 @@ export const storageService = {
         deliveryNeighborhoods: [],
         isOpen: true,
       };
-      localStorage.setItem(this.getSettingsKey(), JSON.stringify(freshSettings));
+      safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(freshSettings));
       return freshSettings;
     }
-    localStorage.setItem(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
+    safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
     return INITIAL_SETTINGS;
   },
 

@@ -120,7 +120,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   onLogout,
   onEnterUserAccount,
 }) => {
-  const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
 
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
@@ -434,11 +434,29 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     setTimeout(() => setCopiedStoreId(null), 2500);
   };
 
-  const getDaysRemaining = (acc: UserAccount): number => {
+  const getDaysRemaining = (acc?: UserAccount | null): number => {
+    if (!acc || typeof acc !== 'object') return 0;
     if (acc.role === 'super_admin' || acc.planTier === 'vitalicio') return 99999;
     if (!acc.expiresAt) return 0;
-    const diff = new Date(acc.expiresAt).getTime() - Date.now();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+    try {
+      const exp = new Date(acc.expiresAt).getTime();
+      if (isNaN(exp)) return 0;
+      const diff = exp - Date.now();
+      return Math.ceil(diff / (1000 * 60 * 60 * 24));
+    } catch {
+      return 0;
+    }
+  };
+
+  const formatAccountExpiry = (iso?: string | null): string => {
+    if (!iso) return 'Sem validade definida';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return 'Sem validade definida';
+      return d.toLocaleDateString('pt-BR');
+    } catch {
+      return 'Sem validade definida';
+    }
   };
 
   const getPlanBadgeLabel = (acc: UserAccount): string => {
@@ -788,35 +806,42 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   const storeAccounts = useMemo(
-    () => accounts.filter((a) => a.role !== 'super_admin'),
+    () => (accounts || []).filter((a) => a && typeof a === 'object' && a.role !== 'super_admin'),
     [accounts]
   );
 
   const filteredAccounts = useMemo(() => {
-    return accounts.filter((acc) => {
-      const q = userSearchQuery.trim().toLowerCase();
-      const userCode = accountService.getAccountUserCode(acc).toLowerCase();
-      const matchesSearch =
-        !q ||
-        userCode.includes(q) ||
-        acc.id.toLowerCase().includes(q) ||
-        acc.name.toLowerCase().includes(q) ||
-        acc.storeName.toLowerCase().includes(q) ||
-        (acc.email || '').toLowerCase().includes(q) ||
-        acc.username.toLowerCase().includes(q);
+    return (accounts || [])
+      .filter((acc): acc is UserAccount => Boolean(acc && typeof acc === 'object'))
+      .filter((acc) => {
+        const q = userSearchQuery.trim().toLowerCase();
+        const userCode = (accountService.getAccountUserCode(acc) || '').toLowerCase();
+        const accId = (acc.id || '').toLowerCase();
+        const accName = (acc.name || '').toLowerCase();
+        const accStoreName = (acc.storeName || '').toLowerCase();
+        const accEmail = (acc.email || '').toLowerCase();
+        const accUsername = (acc.username || '').toLowerCase();
+        const matchesSearch =
+          !q ||
+          userCode.includes(q) ||
+          accId.includes(q) ||
+          accName.includes(q) ||
+          accStoreName.includes(q) ||
+          accEmail.includes(q) ||
+          accUsername.includes(q);
 
-      const days = getDaysRemaining(acc);
-      const matchesStatus =
-        userStatusFilter === 'all'
-          ? true
-          : userStatusFilter === 'ativo'
-          ? acc.planStatus === 'ativo'
-          : userStatusFilter === 'expiring'
-          ? acc.role !== 'super_admin' && acc.planTier !== 'vitalicio' && days <= 5
-          : acc.planStatus !== 'ativo';
+        const days = getDaysRemaining(acc);
+        const matchesStatus =
+          userStatusFilter === 'all'
+            ? true
+            : userStatusFilter === 'ativo'
+            ? acc.planStatus === 'ativo'
+            : userStatusFilter === 'expiring'
+            ? acc.role !== 'super_admin' && acc.planTier !== 'vitalicio' && days <= 5
+            : acc.planStatus !== 'ativo';
 
-      return matchesSearch && matchesStatus;
-    });
+        return matchesSearch && matchesStatus;
+      });
   }, [accounts, userSearchQuery, userStatusFilter]);
 
   const activeStoresCount = storeAccounts.filter((a) => a.planStatus === 'ativo').length;
@@ -824,18 +849,18 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const expiringSoonCount = storeAccounts.filter(
     (a) => a.planTier !== 'vitalicio' && getDaysRemaining(a) <= 5
   ).length;
-  const pendingRequestsCount = accessRequests.filter((r) => r.status === 'pendente').length;
+  const pendingRequestsCount = (accessRequests || []).filter((r) => r && r.status === 'pendente').length;
 
   const totalEstimatedRevenue = storeAccounts
     .filter((a) => a.planStatus === 'ativo')
     .reduce((sum, a) => sum + (a.monthlyFee || 29.99), 0);
 
   const alertActionAccount = useMemo(
-    () => accounts.find((a) => a.id === alertActionAccountId) || null,
+    () => (accounts || []).find((a) => a && a.id === alertActionAccountId) || null,
     [accounts, alertActionAccountId]
   );
 
-  if (!isOpen) return null;
+  if (!isOpen || !isSuperAdmin) return null;
 
   const renderStatusPill = (acc: UserAccount) => {
     const isActive = acc.planStatus === 'ativo';
@@ -1231,7 +1256,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
         </aside>
 
         {/* RIGHT MAIN CONTENT AREA */}
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-50/60 overflow-hidden">
+        <div className="w-full flex-1 flex flex-col min-w-0 bg-slate-50/60 overflow-hidden">
           {/* Top Executive Header */}
           <header className="bg-white px-4 sm:px-6 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">

@@ -199,13 +199,30 @@ class AccountService {
     }
   }
 
-  private ensureUniqueUserCode(account: UserAccount, allAccounts: UserAccount[]): UserAccount {
+  private ensureUniqueUserCode(account: UserAccount | null | undefined, allAccounts: UserAccount[]): UserAccount {
+    if (!account || typeof account !== 'object') {
+      return {
+        id: `acc_${Date.now()}`,
+        userCode: generateRandomUserCode(),
+        username: 'usuario',
+        name: 'Usuário',
+        storeName: 'Minha Loja',
+        role: 'store_admin',
+        storeId: `store_${Date.now()}`,
+        planStatus: 'ativo',
+        planTier: 'teste_gratis',
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 5 * 86400000).toISOString(),
+      } as UserAccount;
+    }
+
     if (account.role === 'super_admin' || account.username === MASTER_ADMIN.username) {
       return account.userCode === 'ADM001' ? account : { ...account, userCode: 'ADM001' };
     }
 
+    const safeAll = (allAccounts || []).filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
     const usedCodes = new Set(
-      allAccounts
+      safeAll
         .filter((a) => a.id !== account.id && a.userCode)
         .map((a) => normalizeUserCodeInput(a.userCode!))
     );
@@ -232,21 +249,22 @@ class AccountService {
 
   private backfillUserCodes(list: UserAccount[]): UserAccount[] {
     const updated: UserAccount[] = [];
-    for (const acc of list) {
+    const safeList = (list || []).filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
+    for (const acc of safeList) {
       updated.push(this.ensureUniqueUserCode(acc, updated));
     }
     return updated;
   }
 
   public getAccountUserCode(account?: UserAccount | null): string {
-    if (!account) return 'USR000';
+    if (!account || typeof account !== 'object') return 'USR000';
     if (account.userCode) {
       const normalized = normalizeUserCodeInput(account.userCode);
       if (USER_CODE_REGEX.test(normalized)) {
         return normalized;
       }
     }
-    const found = this.accounts.find((a) => a.id === account.id);
+    const found = (this.accounts || []).find((a) => a && a.id === account.id);
     if (found?.userCode) {
       const normalized = normalizeUserCodeInput(found.userCode);
       if (USER_CODE_REGEX.test(normalized)) {
@@ -261,29 +279,38 @@ class AccountService {
       if (typeof window !== 'undefined' && window.localStorage) {
         const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
         if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            this.accounts = parsed.map((a: UserAccount) => {
-              const account = sanitizeAccountForStorage(a);
-              if (!account.plainPassword) {
-                if (account.password) {
-                  account.plainPassword = account.password;
-                } else if (account.plainPasswordEncrypted) {
-                  const dec = decryptString(account.plainPasswordEncrypted);
-                  if (dec && !dec.startsWith('enc$')) {
-                    account.plainPassword = dec;
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              this.accounts = parsed
+                .filter((a): a is UserAccount => Boolean(a && typeof a === 'object'))
+                .map((a: UserAccount) => {
+                  const account = sanitizeAccountForStorage(a);
+                  if (!account || typeof account !== 'object') return null;
+                  if (!account.plainPassword) {
+                    if (account.password) {
+                      account.plainPassword = account.password;
+                    } else if (account.plainPasswordEncrypted) {
+                      const dec = decryptString(account.plainPasswordEncrypted);
+                      if (dec && !dec.startsWith('enc$')) {
+                        account.plainPassword = dec;
+                      }
+                    } else if (account.username === 'Samuel_adm1') {
+                      account.plainPassword = '072131Sa@';
+                    }
                   }
-                } else if (account.username === 'Samuel_adm1') {
-                  account.plainPassword = '072131Sa@';
-                }
-              }
-              if (!account.password && account.plainPassword) {
-                account.password = account.plainPassword;
-              }
-              return account;
-            });
+                  if (!account.password && account.plainPassword) {
+                    account.password = account.plainPassword;
+                  }
+                  return account;
+                })
+                .filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
+            }
+          } catch (parseErr) {
+            console.warn('Error parsing accounts from storage:', parseErr);
           }
-          const hasMaster = this.accounts.some((a) => a.username === MASTER_ADMIN.username);
+
+          const hasMaster = (this.accounts || []).some((a) => a && a.username === MASTER_ADMIN.username);
           if (!hasMaster) {
             this.accounts.unshift(MASTER_ADMIN);
           }
@@ -295,18 +322,36 @@ class AccountService {
         }
 
         const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-        if (storedSession) {
-          const parsedSession = sanitizeAccountForStorage(JSON.parse(storedSession) as UserAccount);
-          const matchedAcc = this.accounts.find((a) => a.id === parsedSession?.id);
-          this.currentSession = matchedAcc
-            ? { ...parsedSession, userCode: matchedAcc.userCode }
-            : this.ensureUniqueUserCode(parsedSession, this.accounts);
-          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession));
+        if (storedSession && storedSession !== 'null' && storedSession !== 'undefined') {
+          try {
+            const rawSession = JSON.parse(storedSession);
+            if (rawSession && typeof rawSession === 'object') {
+              const parsedSession = sanitizeAccountForStorage(rawSession as UserAccount);
+              if (parsedSession && parsedSession.id) {
+                const matchedAcc = (this.accounts || []).find((a) => a && a.id === parsedSession.id);
+                this.currentSession = matchedAcc
+                  ? { ...parsedSession, userCode: matchedAcc.userCode || this.getAccountUserCode(matchedAcc) }
+                  : this.ensureUniqueUserCode(parsedSession, this.accounts);
+                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession));
+              } else {
+                this.currentSession = null;
+                localStorage.removeItem(SESSION_STORAGE_KEY);
+              }
+            } else {
+              this.currentSession = null;
+              localStorage.removeItem(SESSION_STORAGE_KEY);
+            }
+          } catch {
+            this.currentSession = null;
+            localStorage.removeItem(SESSION_STORAGE_KEY);
+          }
+        } else {
+          this.currentSession = null;
         }
 
         try {
           const backupAdmin = sessionStorage.getItem(SUPER_ADMIN_BACKUP_KEY);
-          if (backupAdmin) {
+          if (backupAdmin && backupAdmin !== 'null' && backupAdmin !== 'undefined') {
             const parsedBackup = sanitizeAccountForStorage(JSON.parse(backupAdmin) as UserAccount);
             if (parsedBackup && parsedBackup.role === 'super_admin') {
               this.originalAdminSession = parsedBackup;
@@ -321,19 +366,30 @@ class AccountService {
 
         const storedRequests = localStorage.getItem(REQUESTS_STORAGE_KEY);
         if (storedRequests) {
-          this.accessRequests = JSON.parse(storedRequests);
+          try {
+            const parsedReq = JSON.parse(storedRequests);
+            if (Array.isArray(parsedReq)) {
+              this.accessRequests = parsedReq.filter((r) => r && typeof r === 'object');
+            }
+          } catch {}
         }
 
         const storedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
         if (storedPlans) {
-          const parsedPlans = JSON.parse(storedPlans);
-          if (Array.isArray(parsedPlans) && parsedPlans.length > 0) {
-            this.subscriptionPlans = parsedPlans.map((p: SubscriptionPlan) =>
-              p.id === 'plan_mensal_padrao' && p.price === 24.99 ? { ...p, price: 29.99 } : p
-            );
-          }
+          try {
+            const parsedPlans = JSON.parse(storedPlans);
+            if (Array.isArray(parsedPlans) && parsedPlans.length > 0) {
+              this.subscriptionPlans = parsedPlans
+                .filter((p) => p && typeof p === 'object')
+                .map((p: SubscriptionPlan) =>
+                  p.id === 'plan_mensal_padrao' && p.price === 24.99 ? { ...p, price: 29.99 } : p
+                );
+            }
+          } catch {}
         } else {
-          localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(DEFAULT_PLANS));
+          try {
+            localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(DEFAULT_PLANS));
+          } catch {}
         }
 
         // Setup cross-tab / cross-window storage event listener
@@ -342,10 +398,11 @@ class AccountService {
             try {
               const newParsed = JSON.parse(e.newValue);
               if (Array.isArray(newParsed)) {
-                if (!newParsed.some((a: UserAccount) => a.username === MASTER_ADMIN.username)) {
-                  newParsed.unshift(MASTER_ADMIN);
+                const validList = newParsed.filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
+                if (!validList.some((a) => a.username === MASTER_ADMIN.username)) {
+                  validList.unshift(MASTER_ADMIN);
                 }
-                this.accounts = newParsed;
+                this.accounts = validList;
                 this.notify();
               }
             } catch {}
@@ -354,10 +411,11 @@ class AccountService {
 
         window.addEventListener('cardapp_accounts_updated', ((e: CustomEvent) => {
           if (e.detail && Array.isArray(e.detail)) {
-            this.accounts = e.detail;
-            if (!this.accounts.some((a: UserAccount) => a.username === MASTER_ADMIN.username)) {
-              this.accounts.unshift(MASTER_ADMIN);
+            const valid = e.detail.filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
+            if (!valid.some((a) => a.username === MASTER_ADMIN.username)) {
+              valid.unshift(MASTER_ADMIN);
             }
+            this.accounts = valid;
             this.notify();
           }
         }) as EventListener);
@@ -370,7 +428,10 @@ class AccountService {
 
   private saveToStorage() {
     try {
-      const sanitizedList = this.accounts.map((a) => sanitizeAccountForStorage(a));
+      const sanitizedList = (this.accounts || [])
+        .filter((a): a is UserAccount => Boolean(a && typeof a === 'object'))
+        .map((a) => sanitizeAccountForStorage(a))
+        .filter((a): a is UserAccount => Boolean(a && typeof a === 'object'));
       this.accounts = sanitizedList;
       localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(sanitizedList));
       if (typeof window !== 'undefined') {
@@ -796,16 +857,36 @@ class AccountService {
   }
 
   private checkExpirations() {
-    const now = new Date();
-    let updated = false;
-    this.accounts = this.accounts.map(acc => {
-        if (acc.role !== 'super_admin' && acc.planTier !== 'vitalicio' && acc.planStatus === 'ativo' && new Date(acc.expiresAt) < now) {
-            updated = true;
-            return { ...acc, planStatus: 'bloqueado', blockedReason: acc.blockedReason || 'Plano expirado automaticamente' };
-        }
-        return acc;
-    });
-    if (updated) this.saveToStorage();
+    try {
+      const now = new Date();
+      let updated = false;
+      this.accounts = (this.accounts || [])
+        .filter((acc): acc is UserAccount => Boolean(acc && typeof acc === 'object'))
+        .map((acc) => {
+          try {
+            if (
+              acc.role !== 'super_admin' &&
+              acc.planTier !== 'vitalicio' &&
+              acc.planStatus === 'ativo' &&
+              acc.expiresAt
+            ) {
+              const expDate = new Date(acc.expiresAt);
+              if (!isNaN(expDate.getTime()) && expDate < now) {
+                updated = true;
+                return {
+                  ...acc,
+                  planStatus: 'bloqueado',
+                  blockedReason: acc.blockedReason || 'Plano expirado automaticamente',
+                };
+              }
+            }
+          } catch {}
+          return acc;
+        });
+      if (updated) this.saveToStorage();
+    } catch (e) {
+      console.warn('checkExpirations notice:', e);
+    }
   }
 
   public getAccounts(): UserAccount[] { return [...this.accounts]; }
