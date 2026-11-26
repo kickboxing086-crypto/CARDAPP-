@@ -26,10 +26,17 @@ import {
   fetchAddressByCoordinates,
   formatCep,
 } from '../utils/addressService';
+import { storageService } from '../services/storageService';
+import {
+  loadCheckoutDraft,
+  saveCheckoutDraft,
+  clearCheckoutCashDraft,
+} from '../utils/viewStatePersistence';
 
 interface CheckoutStepProps {
   items: CartItem[];
   settings: StoreSettings;
+  storeId?: string;
   onBackToCart: () => void;
   onSubmitOrder: (customerData: OrderCustomer) => void;
 }
@@ -37,26 +44,36 @@ interface CheckoutStepProps {
 export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   items,
   settings,
+  storeId,
   onBackToCart,
   onSubmitOrder,
 }) => {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const effectiveStoreId = storeId || storageService.currentStoreId || 'default_store';
+  const initialDraft = useMemo(() => loadCheckoutDraft(effectiveStoreId), [effectiveStoreId]);
+
+  const [name, setName] = useState(() => initialDraft?.name || '');
+  const [phone, setPhone] = useState(() => initialDraft?.phone || '');
 
   // Service modes available from settings
   const { allowDelivery, allowRetirada, allowMesa } = settings.serviceModes;
   const initialMode = allowDelivery ? 'delivery' : allowRetirada ? 'retirada' : 'mesa';
-  const [deliveryType, setDeliveryType] = useState<'delivery' | 'retirada' | 'mesa'>(initialMode);
-  const [tableNumber, setTableNumber] = useState('');
+  const [deliveryType, setDeliveryType] = useState<'delivery' | 'retirada' | 'mesa'>(() => {
+    const d = initialDraft?.deliveryType;
+    if (d === 'delivery' && allowDelivery) return 'delivery';
+    if (d === 'retirada' && allowRetirada) return 'retirada';
+    if (d === 'mesa' && allowMesa) return 'mesa';
+    return initialMode;
+  });
+  const [tableNumber, setTableNumber] = useState(() => initialDraft?.tableNumber || '');
 
   // Address
-  const [cep, setCep] = useState('');
-  const [street, setStreet] = useState('');
-  const [number, setNumber] = useState('');
-  const [neighborhood, setNeighborhood] = useState('');
-  const [complement, setComplement] = useState('');
-  const [city, setCity] = useState('São Paulo');
-  const [stateUf, setStateUf] = useState('');
+  const [cep, setCep] = useState(() => initialDraft?.cep || '');
+  const [street, setStreet] = useState(() => initialDraft?.street || '');
+  const [number, setNumber] = useState(() => initialDraft?.number || '');
+  const [neighborhood, setNeighborhood] = useState(() => initialDraft?.neighborhood || '');
+  const [complement, setComplement] = useState(() => initialDraft?.complement || '');
+  const [city, setCity] = useState(() => initialDraft?.city || 'São Paulo');
+  const [stateUf, setStateUf] = useState(() => initialDraft?.stateUf || '');
 
   // Real-time location and CEP states
   const [isLoadingCep, setIsLoadingCep] = useState(false);
@@ -71,11 +88,52 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   // Payment methods available from settings
   const { allowPix, allowCreditCard, allowDebitCard, allowCash } = settings.paymentMethods;
   const initialPayment = allowPix ? 'pix' : allowCreditCard ? 'cartao_credito' : allowDebitCard ? 'cartao_debito' : 'dinheiro';
-  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'>(initialPayment);
+  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'>(() => {
+    const p = initialDraft?.paymentMethod;
+    if (p === 'pix' && allowPix) return 'pix';
+    if (p === 'cartao_credito' && allowCreditCard) return 'cartao_credito';
+    if (p === 'cartao_debito' && allowDebitCard) return 'cartao_debito';
+    if (p === 'dinheiro' && allowCash) return 'dinheiro';
+    return initialPayment;
+  });
   
   // Cash & Change calculation
-  const [cashGivenInput, setCashGivenInput] = useState('');
+  const [cashGivenInput, setCashGivenInput] = useState(() => initialDraft?.cashGivenInput || '');
   const [error, setError] = useState<string | null>(null);
+
+  // Persistir rascunho de checkout em tempo real para não perder nada se atualizar a página
+  useEffect(() => {
+    saveCheckoutDraft(effectiveStoreId, {
+      name,
+      phone,
+      deliveryType,
+      tableNumber,
+      cep,
+      street,
+      number,
+      neighborhood,
+      complement,
+      city,
+      stateUf,
+      paymentMethod,
+      cashGivenInput,
+    });
+  }, [
+    effectiveStoreId,
+    name,
+    phone,
+    deliveryType,
+    tableNumber,
+    cep,
+    street,
+    number,
+    neighborhood,
+    complement,
+    city,
+    stateUf,
+    paymentMethod,
+    cashGivenInput,
+  ]);
 
   const subtotal = items.reduce((acc, item) => acc + item.totalPrice, 0);
 
@@ -344,6 +402,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
       changeToReturn: paymentMethod === 'dinheiro' && changeAmount > 0 ? changeAmount : 0,
     };
 
+    clearCheckoutCashDraft(effectiveStoreId);
     onSubmitOrder(customerData);
   };
 

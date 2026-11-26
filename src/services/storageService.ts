@@ -1506,6 +1506,8 @@ export const storageService = {
 
   getActiveOrderId(): string | null {
     try {
+      const perStore = localStorage.getItem(`cardapp_active_order_id_${this.currentStoreId}`);
+      if (perStore) return perStore;
       return localStorage.getItem(ACTIVE_ORDER_ID_KEY);
     } catch {
       return null;
@@ -1514,6 +1516,7 @@ export const storageService = {
 
   setActiveOrderId(id: string) {
     try {
+      localStorage.setItem(`cardapp_active_order_id_${this.currentStoreId}`, id);
       localStorage.setItem(ACTIVE_ORDER_ID_KEY, id);
       this.notifyChange();
     } catch {
@@ -1523,6 +1526,7 @@ export const storageService = {
 
   clearActiveOrderId() {
     try {
+      localStorage.removeItem(`cardapp_active_order_id_${this.currentStoreId}`);
       localStorage.removeItem(ACTIVE_ORDER_ID_KEY);
       this.notifyChange();
     } catch {

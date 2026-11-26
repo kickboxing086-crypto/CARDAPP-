@@ -40,6 +40,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Award,
+  Bell,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -64,6 +65,17 @@ import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 import { auth } from '../firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { googleSignIn, googleLogout } from '../services/googleAuthService';
+import {
+  SuperAdminTabMode,
+  loadSuperAdminTab,
+  saveSuperAdminTab,
+  loadSuperAdminFilters,
+  saveSuperAdminFilters,
+  loadSuperAdminDrawerState,
+  saveSuperAdminDrawerState,
+  loadSuperAdminGeneratorDraft,
+  saveSuperAdminGeneratorDraft,
+} from '../utils/viewStatePersistence';
 
 interface SuperAdminModalProps {
   isOpen: boolean;
@@ -113,12 +125,15 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [accessRequests, setAccessRequests] = useState<UserAccessRequest[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [activeTabState, setActiveTabState] = useState<AdminTab>('users');
+  const [activeTabState, setActiveTabState] = useState<AdminTab>(
+    () => (loadSuperAdminTab() as AdminTab) || 'users'
+  );
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const activeTab = activeTabState;
   const setActiveTab = (tab: AdminTab) => {
     setActiveTabState(tab);
+    saveSuperAdminTab(tab as SuperAdminTabMode);
     setIsMobileSidebarOpen(false);
   };
 
@@ -136,13 +151,16 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   };
 
   // Generator Form State
-  const [newStoreName, setNewStoreName] = useState('');
-  const [newOwnerName, setNewOwnerName] = useState('');
-  const [newUsername, setNewUsername] = useState('');
+  const initialGenDraft = useMemo(() => loadSuperAdminGeneratorDraft(), []);
+  const [newStoreName, setNewStoreName] = useState(() => initialGenDraft?.newStoreName || '');
+  const [newOwnerName, setNewOwnerName] = useState(() => initialGenDraft?.newOwnerName || '');
+  const [newUsername, setNewUsername] = useState(() => initialGenDraft?.newUsername || '');
   const [newPassword, setNewPassword] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [newAccountPlanTier, setNewAccountPlanTier] = useState<PlanTier>('teste_gratis');
+  const [newPhone, setNewPhone] = useState(() => initialGenDraft?.newPhone || '');
+  const [newEmail, setNewEmail] = useState(() => initialGenDraft?.newEmail || '');
+  const [newAccountPlanTier, setNewAccountPlanTier] = useState<PlanTier>(
+    () => initialGenDraft?.newAccountPlanTier || 'teste_gratis'
+  );
   const [formFeedback, setFormFeedback] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -157,16 +175,64 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [planTargetAccountId, setPlanTargetAccountId] = useState('');
 
   // Users Filter & Search State
-  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const initialFilters = useMemo(() => loadSuperAdminFilters(), []);
+  const [userSearchQuery, setUserSearchQuery] = useState(() => initialFilters?.search || '');
   const [userStatusFilter, setUserStatusFilter] = useState<
     'all' | 'ativo' | 'inativo' | 'expiring'
-  >('all');
+  >(() => {
+    const st = initialFilters?.status;
+    if (st === 'ativo' || st === 'inativo' || st === 'expiring') return st;
+    return 'all';
+  });
 
   // Lateral Slide-Over Drawer for Single Account Management (Renovação, Bloqueio, Credenciais)
-  const [drawerAccountId, setDrawerAccountId] = useState<string | null>(null);
-  const [drawerTab, setDrawerTab] = useState<'actions' | 'edit'>('actions');
+  const initialDrawer = useMemo(() => loadSuperAdminDrawerState(), []);
+  const [drawerAccountId, setDrawerAccountId] = useState<string | null>(
+    () => initialDrawer?.accountId || null
+  );
+  const [drawerTab, setDrawerTab] = useState<'actions' | 'edit'>(
+    () => initialDrawer?.tab || 'actions'
+  );
   const [drawerBlockReason, setDrawerBlockReason] = useState('Falta de pagamento / Renovação pendente');
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [alertActionAccountId, setAlertActionAccountId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: 'account' | 'plan' | 'request';
+    id: string;
+    title: string;
+    subtitle: string;
+    step: 1 | 2;
+    confirmedCheck: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    saveSuperAdminFilters(userSearchQuery, userStatusFilter);
+  }, [userSearchQuery, userStatusFilter]);
+
+  useEffect(() => {
+    saveSuperAdminDrawerState(drawerAccountId, drawerTab);
+  }, [drawerAccountId, drawerTab]);
+
+  useEffect(() => {
+    if (
+      !newStoreName &&
+      !newOwnerName &&
+      !newUsername &&
+      !newPhone &&
+      !newEmail &&
+      newAccountPlanTier === 'teste_gratis'
+    ) {
+      saveSuperAdminGeneratorDraft(null);
+      return;
+    }
+    saveSuperAdminGeneratorDraft({
+      newStoreName,
+      newOwnerName,
+      newUsername,
+      newPhone,
+      newEmail,
+      newAccountPlanTier,
+    });
+  }, [newStoreName, newOwnerName, newUsername, newPhone, newEmail, newAccountPlanTier]);
 
   // Edit Form inside Drawer
   const [editUsername, setEditUsername] = useState('');
@@ -301,8 +367,61 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     setEditPhone(acc.phoneWhatsapp || '');
     setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
     setEditFeedback(null);
-    setConfirmDeleteId(null);
     setShowEditPassword(true);
+  };
+
+  const openTwoStepDeleteAccount = (acc: UserAccount) => {
+    setDeleteTarget({
+      type: 'account',
+      id: acc.id,
+      title: acc.storeName,
+      subtitle: `ID: ${accountService.getAccountUserCode(acc)} • CEO: ${acc.name} (@${acc.username})`,
+      step: 1,
+      confirmedCheck: false,
+    });
+  };
+
+  const openTwoStepDeletePlan = (plan: SubscriptionPlan) => {
+    setDeleteTarget({
+      type: 'plan',
+      id: plan.id,
+      title: plan.name,
+      subtitle: `${PERIOD_LABELS[plan.period]} • ${formatCurrency(plan.price)}`,
+      step: 1,
+      confirmedCheck: false,
+    });
+  };
+
+  const openTwoStepRejectRequest = (req: UserAccessRequest) => {
+    setDeleteTarget({
+      type: 'request',
+      id: req.id,
+      title: req.storeName,
+      subtitle: `Solicitação de ${req.name} • ${req.phoneWhatsapp}`,
+      step: 1,
+      confirmedCheck: false,
+    });
+  };
+
+  const handleExecuteTwoStepDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === 'account') {
+      accountService.deleteAccount(deleteTarget.id);
+      if (drawerAccountId === deleteTarget.id) {
+        setDrawerAccountId(null);
+      }
+      if (alertActionAccountId === deleteTarget.id) {
+        setAlertActionAccountId(null);
+      }
+      showToast('success', `Conta ${deleteTarget.title} removida permanentemente.`);
+    } else if (deleteTarget.type === 'plan') {
+      const res = accountService.deleteSubscriptionPlan(deleteTarget.id);
+      showToast(res.success ? 'success' : 'error', res.message);
+    } else if (deleteTarget.type === 'request') {
+      accountService.updateAccessRequestStatus(deleteTarget.id, 'rejeitado');
+      showToast('success', `Solicitação de ${deleteTarget.title} removida.`);
+    }
+    setDeleteTarget(null);
   };
 
   const getStoreSlug = (acc: UserAccount) =>
@@ -711,39 +830,172 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     .filter((a) => a.planStatus === 'ativo')
     .reduce((sum, a) => sum + (a.monthlyFee || 29.99), 0);
 
+  const alertActionAccount = useMemo(
+    () => accounts.find((a) => a.id === alertActionAccountId) || null,
+    [accounts, alertActionAccountId]
+  );
+
   if (!isOpen) return null;
 
+  const renderStatusPill = (acc: UserAccount) => {
+    const isActive = acc.planStatus === 'ativo';
+    const isMaster = acc.role === 'super_admin';
+    const days = getDaysRemaining(acc);
+    if (!isActive) {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+          Bloqueada
+        </span>
+      );
+    }
+    if (!isMaster && acc.planTier !== 'vitalicio' && days <= 0) {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">
+          Vencida
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+        Ativa
+      </span>
+    );
+  };
+
+  const renderAccountActionStrip = (acc: UserAccount) => {
+    const isMaster = acc.role === 'super_admin';
+    const isCopied = copiedPasswordId === acc.id;
+    return (
+      <div className="inline-flex items-center gap-1.5 flex-wrap">
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => openAccountDrawer(acc, 'actions')}
+            className="h-8 px-2.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Renovar plano ou gerenciar assinatura"
+            aria-label={`Renovar ${acc.storeName}`}
+          >
+            <RefreshCw className="w-3.5 h-3.5 stroke-[2.2]" />
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => handleCopyWhatsAppCredentials(acc)}
+          className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+          title="Copiar credenciais de acesso"
+          aria-label={`Copiar dados de ${acc.storeName}`}
+        >
+          {isCopied ? (
+            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+          ) : (
+            <Copy className="w-3.5 h-3.5 stroke-[2.1]" />
+          )}
+        </button>
+
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => handleOpenWhatsAppRenewal(acc)}
+            className="w-8 h-8 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Enviar mensagem no WhatsApp do lojista"
+            aria-label={`WhatsApp de ${acc.storeName}`}
+          >
+            <MessageCircle className="w-3.5 h-3.5 stroke-[2.1]" />
+          </button>
+        )}
+
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => {
+              setDrawerBlockReason(acc.blockedReason || 'Falta de pagamento / Renovação pendente');
+              setAlertActionAccountId(acc.id);
+            }}
+            className="w-8 h-8 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300/80 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Avisos, vencimento e bloqueio da conta"
+            aria-label={`Alertas e bloqueio de ${acc.storeName}`}
+          >
+            <Bell className="w-3.5 h-3.5 stroke-[2.1]" />
+          </button>
+        )}
+
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => {
+              if (isSuperAdmin && onEnterUserAccount) {
+                onEnterUserAccount(acc);
+              } else {
+                window.open(getClientAppUrl(acc.storeId, acc.storeName), '_blank', 'noopener,noreferrer');
+              }
+            }}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title={isSuperAdmin && onEnterUserAccount ? `Entrar na conta de ${acc.storeName}` : `Abrir loja ${acc.storeName}`}
+            aria-label={`Abrir conta de ${acc.storeName}`}
+          >
+            <ExternalLink className="w-3.5 h-3.5 stroke-[2.1]" />
+          </button>
+        )}
+
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => openAccountDrawer(acc, 'edit')}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Editar usuário, senha e vencimento"
+            aria-label={`Editar ${acc.storeName}`}
+          >
+            <Edit2 className="w-3.5 h-3.5 stroke-[2.1]" />
+          </button>
+        )}
+
+        {!isMaster && (
+          <button
+            type="button"
+            onClick={() => openTwoStepDeleteAccount(acc)}
+            className="w-8 h-8 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Excluir conta (confirmação em 2 etapas)"
+            aria-label={`Excluir ${acc.storeName}`}
+          >
+            <Trash2 className="w-3.5 h-3.5 stroke-[2.1]" />
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-0 sm:p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-50 sm:rounded-3xl max-w-7xl w-full h-full sm:h-[94vh] flex flex-col sm:flex-row shadow-2xl border-0 sm:border border-amber-400/60 overflow-hidden relative">
+    <div className="fixed inset-0 z-60 flex items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white sm:rounded-3xl max-w-7xl w-full h-full sm:h-[94vh] flex flex-col sm:flex-row shadow-2xl border-0 sm:border border-slate-200 overflow-hidden relative">
         {/* Mobile Sidebar Backdrop */}
         {isMobileSidebarOpen && (
           <div
-            className="fixed inset-0 bg-slate-950/70 z-40 sm:hidden animate-in fade-in"
+            className="fixed inset-0 bg-slate-950/50 z-40 sm:hidden animate-in fade-in"
             onClick={() => setIsMobileSidebarOpen(false)}
           />
         )}
 
-        {/* LEFT LATERAL SIDEBAR (Obsidian & Champagne Gold Executive Navigation) */}
+        {/* LEFT LATERAL SIDEBAR (Clean Light Minimalist SaaS Navigation) */}
         <aside
-          className={`fixed sm:static inset-y-0 left-0 z-50 sm:z-auto w-72 sm:w-64 bg-slate-950 text-slate-100 flex flex-col shrink-0 border-r border-amber-500/25 transition-transform duration-200 shadow-2xl sm:shadow-none ${
+          className={`fixed sm:static inset-y-0 left-0 z-50 sm:z-auto w-72 sm:w-64 bg-white text-slate-700 flex flex-col shrink-0 border-r border-slate-200 transition-transform duration-200 shadow-2xl sm:shadow-none ${
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
           }`}
         >
           {/* Brand Header */}
-          <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between shrink-0">
+          <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/20">
-                <ChefHat className="w-5 h-5 stroke-[2.4]" />
+              <div className="w-10 h-10 rounded-2xl bg-slate-900 text-amber-400 flex items-center justify-center font-black shadow-xs">
+                <ChefHat className="w-5 h-5 stroke-[2.3]" />
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h1 className="text-base font-black tracking-wider text-white font-display">
+                  <h1 className="text-base font-black tracking-tight text-slate-950 font-display">
                     CARDAPP
                   </h1>
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <Crown className="w-3.5 h-3.5 text-amber-500" />
                 </div>
-                <span className="text-[10px] font-bold text-amber-400/90 uppercase block tracking-widest">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
                   Administração Geral
                 </span>
               </div>
@@ -752,7 +1004,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              className="sm:hidden w-8 h-8 rounded-xl bg-white/10 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+              className="sm:hidden w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:text-slate-900 flex items-center justify-center cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -762,7 +1014,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           <nav className="flex-1 overflow-y-auto p-3.5 space-y-5 text-xs font-bold">
             {/* Grupo 1: Operação */}
             <div className="space-y-1">
-              <span className="px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1.5">
+              <span className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
                 Visão & Lojas
               </span>
 
@@ -771,8 +1023,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('dashboard')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'dashboard'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <LayoutDashboard className="w-4 h-4 shrink-0" />
@@ -784,8 +1036,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('users')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'users'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -793,10 +1045,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   <span>Usuários (Logins)</span>
                 </div>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold ${
                     activeTab === 'users'
-                      ? 'bg-slate-950 text-amber-400'
-                      : 'bg-white/10 text-slate-300'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 text-slate-600'
                   }`}
                 >
                   {storeAccounts.length}
@@ -808,8 +1060,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('stores')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'stores'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <Store className="w-4 h-4 shrink-0" />
@@ -821,8 +1073,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('generator')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'generator'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <UserPlus className="w-4 h-4 shrink-0" />
@@ -830,9 +1082,9 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
               </button>
             </div>
 
-            {/* Grupo 2: Controle Administrativo Exclusivo (Renovação, Bloqueio, Planos) */}
+            {/* Grupo 2: Controle Administrativo */}
             <div className="space-y-1">
-              <span className="px-3 text-[10px] font-black uppercase tracking-widest text-amber-400/80 block mb-1.5">
+              <span className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
                 Controle Exclusivo
               </span>
 
@@ -841,8 +1093,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('renewals')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'renewals'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -850,7 +1102,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   <span>Renovação de Contas</span>
                 </div>
                 {expiringSoonCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-mono tabular-nums font-bold">
                     {expiringSoonCount}
                   </span>
                 )}
@@ -861,8 +1113,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('blocking')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'blocking'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -870,7 +1122,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   <span>Bloqueio de Contas</span>
                 </div>
                 {blockedStoresCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-black">
+                  <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-mono tabular-nums font-bold">
                     {blockedStoresCount}
                   </span>
                 )}
@@ -882,15 +1134,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   onClick={() => setActiveTab('plans')}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                     activeTab === 'plans'
-                      ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                      : 'text-amber-200 hover:bg-amber-500/15 hover:text-amber-300'
+                      ? 'bg-slate-900 text-white shadow-xs font-bold'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Crown className="w-4 h-4 shrink-0" />
+                    <Crown className="w-4 h-4 shrink-0 text-amber-500" />
                     <span>Criar Planos</span>
                   </div>
-                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-black uppercase">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                    activeTab === 'plans' ? 'bg-amber-400 text-slate-950' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                  }`}>
                     VIP
                   </span>
                 </button>
@@ -899,7 +1153,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
             {/* Grupo 3: Sistema */}
             <div className="space-y-1">
-              <span className="px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1.5">
+              <span className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
                 Sistema & Suporte
               </span>
 
@@ -908,8 +1162,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('requests')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'requests'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -917,7 +1171,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   <span>Solicitações</span>
                 </div>
                 {pendingRequestsCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
+                  <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold">
                     {pendingRequestsCount}
                   </span>
                 )}
@@ -928,8 +1182,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('reports')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'reports'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <TrendingUp className="w-4 h-4 shrink-0" />
@@ -941,8 +1195,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 onClick={() => setActiveTab('database')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === 'database'
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    ? 'bg-slate-900 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
                 }`}
               >
                 <Settings className="w-4 h-4 shrink-0" />
@@ -952,14 +1206,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
           </nav>
 
           {/* Footer Admin Session Info */}
-          <div className="p-4 border-t border-white/10 bg-slate-900/70 space-y-2.5 shrink-0">
+          <div className="p-4 border-t border-slate-200 bg-slate-50/70 space-y-2.5 shrink-0">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-black text-white truncate">{currentUser.name}</p>
-                <p className="text-[10px] font-mono text-amber-400/80 truncate">
+                <p className="text-xs font-bold text-slate-950 truncate">{currentUser.name}</p>
+                <p className="text-[10px] font-mono text-slate-500 truncate">
                   @{currentUser.username}
                 </p>
               </div>
@@ -968,7 +1222,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <button
               type="button"
               onClick={onLogout}
-              className="w-full py-2 px-3 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              className="w-full py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Encerrar Sessão</span>
@@ -977,14 +1231,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
         </aside>
 
         {/* RIGHT MAIN CONTENT AREA */}
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50/60 overflow-hidden">
           {/* Top Executive Header */}
           <header className="bg-white px-4 sm:px-6 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               <button
                 type="button"
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="sm:hidden p-2 rounded-xl bg-slate-950 text-amber-400 font-black cursor-pointer shadow-xs shrink-0 flex items-center gap-1.5"
+                className="sm:hidden p-2 rounded-xl bg-slate-900 text-white font-bold cursor-pointer shadow-xs shrink-0 flex items-center gap-1.5"
                 title="Abrir Menu Lateral"
               >
                 <Menu className="w-4 h-4" />
@@ -993,7 +1247,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-black text-slate-950 tracking-tight text-sm sm:text-base truncate">
+                  <span className="font-bold text-slate-950 tracking-tight text-sm sm:text-base truncate">
                     {activeTab === 'dashboard' && 'Dashboard Administrativo Geral'}
                     {activeTab === 'users' && 'Usuários & Credenciais'}
                     {activeTab === 'stores' && 'Lojas Parceiras'}
@@ -1005,8 +1259,8 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     {activeTab === 'reports' && 'Relatórios Executivos'}
                     {activeTab === 'database' && 'Ajustes & Backup'}
                   </span>
-                  <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase">
-                    <Crown className="w-3 h-3 text-amber-700" />
+                  <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                    <Crown className="w-3 h-3" />
                     <span>Admin Geral</span>
                   </span>
                 </div>
@@ -1016,17 +1270,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setActiveTab('plans')}
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-900 text-amber-400 text-xs font-black cursor-pointer transition-colors"
+                onClick={() => setActiveTab('generator')}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition-colors whitespace-nowrap"
               >
-                <Crown className="w-3.5 h-3.5" />
-                <span>Planos</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nova Loja</span>
               </button>
 
               <button
                 type="button"
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
                 title="Fechar Painel"
               >
                 <X className="w-4 h-4" />
@@ -1306,29 +1560,29 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             {/* TAB: USERS & LOGINS                                          */}
             {/* ============================================================ */}
             {activeTab === 'users' && (
-              <div className="space-y-5 animate-in fade-in">
+              <div className="space-y-4 animate-in fade-in">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg sm:text-xl font-black text-slate-950 font-display">
-                      Gestão de Usuários e Logins
+                    <h2 className="text-lg sm:text-xl font-bold text-slate-950 font-display tracking-tight">
+                      Gestão de Usuários e Lojas
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Clique em <strong>Ações Laterais</strong> em qualquer loja para renovar plano, bloquear ou editar.
+                      Gerencie renovações, credenciais, avisos, acesso direto e exclusões seguras em um só lugar.
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => setActiveTab('generator')}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
                   >
-                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
                     <span>Novo Usuário</span>
                   </button>
                 </div>
 
-                {/* Search & Luxury Pill Filters */}
-                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+                {/* Search & Clean Status Filters */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
                   <div className="relative flex-1">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                       <Search className="w-4 h-4" />
@@ -1338,27 +1592,27 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       value={userSearchQuery}
                       onChange={(e) => setUserSearchQuery(e.target.value)}
                       placeholder="Pesquisar por ID (ex: ABC123), loja, nome, usuário ou e-mail..."
-                      className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
+                      className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-slate-400 focus:bg-white text-slate-900"
                     />
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     {(
                       [
-                        { id: 'all', label: 'Todos', activeCls: 'bg-slate-950 text-amber-400' },
-                        { id: 'ativo', label: 'Ativos', activeCls: 'bg-emerald-600 text-white' },
+                        { id: 'all', label: 'Todos', activeCls: 'bg-slate-900 text-white' },
+                        { id: 'ativo', label: 'Ativas', activeCls: 'bg-emerald-600 text-white' },
                         { id: 'expiring', label: 'Vencendo (≤5d)', activeCls: 'bg-amber-500 text-slate-950' },
-                        { id: 'inativo', label: 'Bloqueados', activeCls: 'bg-red-600 text-white' },
+                        { id: 'inativo', label: 'Bloqueadas', activeCls: 'bg-rose-600 text-white' },
                       ] as const
                     ).map((pill) => (
                       <button
                         key={pill.id}
                         type="button"
                         onClick={() => setUserStatusFilter(pill.id)}
-                        className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                           userStatusFilter === pill.id
-                            ? `${pill.activeCls} shadow-sm`
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            ? `${pill.activeCls} shadow-xs`
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
                         {pill.label}
@@ -1367,106 +1621,92 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   </div>
                 </div>
 
-                {/* Desktop Table + Mobile Luxury Cards */}
-                <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                {/* Desktop Table (Clean Minimalist Style Matching Reference) */}
+                <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="bg-slate-950 text-amber-300 text-[11px] font-black uppercase tracking-wider">
-                          <th className="py-3.5 px-4">Lojista & Contato</th>
-                          <th className="py-3.5 px-4">Restaurante (Loja)</th>
-                          <th className="py-3.5 px-4 min-w-[220px]">
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                          <th className="py-3 px-4">ID & Loja</th>
+                          <th className="py-3 px-4">Responsável</th>
+                          <th className="py-3 px-4 min-w-[200px]">
                             <div className="flex items-center justify-between gap-2">
-                              <span>Credenciais (Login & Senha)</span>
+                              <span>Login & Senha</span>
                               <button
                                 type="button"
                                 onClick={() => setShowAllPasswords(!showAllPasswords)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black tracking-normal transition-colors cursor-pointer"
-                                title={showAllPasswords ? 'Ocultar senhas na tabela' : 'Exibir senhas abertas'}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold normal-case tracking-normal transition-colors cursor-pointer"
+                                title={showAllPasswords ? 'Ocultar senhas na tabela' : 'Exibir senhas'}
                               >
                                 {showAllPasswords ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                 <span>{showAllPasswords ? 'Ocultar' : 'Exibir'}</span>
                               </button>
                             </div>
                           </th>
-                          <th className="py-3.5 px-4">Plano & Validade</th>
-                          <th className="py-3.5 px-4">Status</th>
-                          <th className="py-3.5 px-4 text-right">Painel Lateral</th>
+                          <th className="py-3 px-4">Plano & Validade</th>
+                          <th className="py-3 px-4">Status & Ações</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-800">
+                      <tbody className="divide-y divide-slate-200/80 text-xs text-slate-700">
                         {filteredAccounts.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-10 text-center text-slate-400">
+                            <td colSpan={5} className="py-12 text-center text-slate-400">
                               Nenhum usuário encontrado para o filtro atual.
                             </td>
                           </tr>
                         ) : (
                           filteredAccounts.map((acc) => {
-                            const isActive = acc.planStatus === 'ativo';
                             const isMaster = acc.role === 'super_admin';
                             const days = getDaysRemaining(acc);
+                            const userCode = accountService.getAccountUserCode(acc);
                             return (
-                              <tr key={acc.id} className="hover:bg-amber-50/35 transition-colors">
+                              <tr key={acc.id} className="hover:bg-slate-50/70 transition-colors">
                                 <td className="py-3.5 px-4">
-                                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                    <span className="px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 font-mono font-black text-[10px] tracking-wide select-all">
-                                      {accountService.getAccountUserCode(acc)}
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800 font-mono tabular-nums font-bold text-[10px] tracking-wide select-all">
+                                      {userCode}
                                     </span>
                                     <button
                                       type="button"
                                       onClick={() => handleCopyUserCode(acc)}
-                                      className="p-0.5 rounded bg-slate-100 hover:bg-amber-200 text-slate-700 cursor-pointer border border-slate-200"
+                                      className="p-0.5 rounded text-slate-400 hover:text-slate-700 cursor-pointer"
                                       title="Copiar ID do usuário"
                                     >
                                       {copiedUserCodeId === acc.id ? (
-                                        <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                        <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
                                       ) : (
                                         <Copy className="w-3 h-3" />
                                       )}
                                     </button>
                                   </div>
-                                  <div className="font-black text-slate-950">{acc.name}</div>
-                                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                  <div className="font-bold text-slate-950 text-[13px]">{acc.storeName}</div>
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  <div className="font-semibold text-slate-900">{acc.name}</div>
+                                  <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                                     {acc.phoneWhatsapp || acc.email || 'Sem contato'}
                                   </div>
                                 </td>
-                                <td className="py-3.5 px-4">
-                                  <div className="font-bold text-slate-900">{acc.storeName}</div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyStoreLink(acc)}
-                                    className="text-[10px] text-amber-700 hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                    <span>
-                                      {copiedStoreId === acc.id ? 'Link Copiado!' : 'Copiar Link'}
-                                    </span>
-                                  </button>
-                                </td>
+
                                 <td className="py-3.5 px-4 font-mono text-[11px]">
                                   {isMaster ? (
                                     <div className="space-y-0.5">
-                                      <div className="inline-flex items-center gap-1 text-amber-700 font-black">
+                                      <div className="inline-flex items-center gap-1 text-amber-700 font-bold">
                                         <Crown className="w-3.5 h-3.5" />
                                         <span>Samuel_adm1</span>
                                       </div>
-                                      <div className="text-[10px] text-slate-600 font-bold flex items-center gap-1">
-                                        <span>Senha:</span>
-                                        <span className="bg-amber-50 px-1.5 py-0.5 rounded border border-amber-300 text-slate-950 font-black select-all">
-                                          072131Sa@
-                                        </span>
+                                      <div className="text-[10px] text-slate-500 font-bold">
+                                        Admin Geral
                                       </div>
                                     </div>
                                   ) : (
                                     <div className="space-y-1">
                                       <div className="flex items-center gap-1.5">
-                                        <span className="text-slate-400 font-bold">User:</span>
-                                        <span className="text-slate-950 font-black">{acc.username}</span>
+                                        <span className="text-slate-400">@{acc.username}</span>
                                       </div>
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-slate-400 font-bold">Senha:</span>
-                                        <span className="text-slate-950 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300 font-black font-mono select-all text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-bold font-mono select-all text-[11px]">
                                           {showAllPasswords
                                             ? (accountService.getAccountPassword(acc) || '(Sem senha)')
                                             : '••••••••'}
@@ -1474,84 +1714,36 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleCopySinglePassword(acc)}
-                                          className="p-1 rounded-md bg-slate-100 hover:bg-amber-200 text-slate-700 hover:text-slate-950 cursor-pointer border border-slate-200 transition-colors"
-                                          title="Copiar senha deste cliente"
+                                          className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-900 cursor-pointer"
+                                          title="Copiar apenas senha"
                                         >
                                           {copiedPasswordId === acc.id ? (
-                                            <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                            <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
                                           ) : (
                                             <Copy className="w-3 h-3" />
                                           )}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyWhatsAppCredentials(acc)}
-                                          className="p-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 cursor-pointer border border-emerald-200 transition-colors"
-                                          title="Copiar dados formatados para enviar ao WhatsApp do cliente"
-                                        >
-                                          <MessageCircle className="w-3 h-3" />
                                         </button>
                                       </div>
                                     </div>
                                   )}
                                 </td>
+
                                 <td className="py-3.5 px-4 text-[11px]">
-                                  <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-900 font-black mb-1">
+                                  <span className="font-bold text-slate-900 block">
                                     {getPlanBadgeLabel(acc)}
                                   </span>
-                                  <div className="font-mono text-slate-500">
+                                  <div className="font-mono tabular-nums text-slate-500 mt-0.5">
                                     {isMaster || acc.planTier === 'vitalicio'
-                                      ? 'Sem expiração'
+                                      ? 'Vitalício'
                                       : `${new Date(acc.expiresAt).toLocaleDateString('pt-BR')} (${days > 0 ? `${days}d` : 'Vencido'})`}
                                   </div>
                                 </td>
+
                                 <td className="py-3.5 px-4">
-                                  <span
-                                    className={`px-2.5 py-1 rounded-full text-[11px] font-black inline-flex items-center gap-1 ${
-                                      isActive
-                                        ? 'bg-emerald-100 text-emerald-800'
-                                        : 'bg-red-100 text-red-800'
-                                    }`}
-                                  >
-                                    {isActive ? 'Ativo' : 'Bloqueado'}
-                                  </span>
-                                </td>
-                                <td className="py-3.5 px-4 text-right">
-                                  {!isMaster && (
-                                    <div className="inline-flex items-center gap-1.5">
-                                      {isSuperAdmin && onEnterUserAccount && (
-                                        <button
-                                          type="button"
-                                          onClick={() => onEnterUserAccount(acc)}
-                                          className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs"
-                                          title={`Entrar diretamente no painel de ${acc.storeName}`}
-                                        >
-                                          <LogIn className="w-3.5 h-3.5" />
-                                          <span>Entrar na Conta</span>
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => openAccountDrawer(acc, 'actions')}
-                                        className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 font-black text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs"
-                                      >
-                                        <SlidersHorizontal className="w-3.5 h-3.5" />
-                                        <span>Ações Laterais</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleBlockAccount(acc)}
-                                        className={`p-1.5 rounded-xl cursor-pointer transition-colors ${
-                                          isActive
-                                            ? 'bg-red-50 hover:bg-red-100 text-red-700'
-                                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
-                                        }`}
-                                        title={isActive ? 'Bloquear Conta' : 'Desbloquear Conta'}
-                                      >
-                                        {isActive ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                                      </button>
-                                    </div>
-                                  )}
+                                  <div className="flex items-center justify-between gap-3">
+                                    {renderStatusPill(acc)}
+                                    {renderAccountActionStrip(acc)}
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1562,145 +1754,61 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                   </div>
                 </div>
 
-                {/* Mobile Cards View (clean, never clipped!) */}
-                <div className="md:hidden space-y-3">
+                {/* Mobile Cards View (Clean Minimalist Style Matching Reference) */}
+                <div className="md:hidden bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200/80 overflow-hidden">
                   {filteredAccounts.length === 0 ? (
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 text-center text-xs text-slate-400">
+                    <div className="p-8 text-center text-xs text-slate-400">
                       Nenhum usuário encontrado.
                     </div>
                   ) : (
                     filteredAccounts.map((acc) => {
-                      const isActive = acc.planStatus === 'ativo';
                       const isMaster = acc.role === 'super_admin';
                       const days = getDaysRemaining(acc);
                       return (
-                        <div
-                          key={acc.id}
-                          className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3"
-                        >
+                        <div key={acc.id} className="p-4 space-y-3">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0">
                               <div className="flex items-center gap-1.5 mb-1">
-                                <span className="px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 font-mono font-black text-[10px] select-all">
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800 font-mono tabular-nums font-bold text-[10px] select-all">
                                   {accountService.getAccountUserCode(acc)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCopyUserCode(acc)}
-                                  className="p-0.5 rounded bg-slate-100 hover:bg-amber-200 text-slate-700 border border-slate-200 cursor-pointer"
+                                  className="p-0.5 text-slate-400 hover:text-slate-700 cursor-pointer"
                                   title="Copiar ID"
                                 >
                                   {copiedUserCodeId === acc.id ? (
-                                    <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                                    <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
                                   ) : (
                                     <Copy className="w-3 h-3" />
                                   )}
                                 </button>
                               </div>
-                              <h4 className="font-black text-sm text-slate-950">{acc.storeName}</h4>
-                              <p className="text-xs text-slate-600">
-                                {acc.name} • {acc.phoneWhatsapp || acc.email || 'Sem contato'}
+                              <h4 className="font-bold text-sm text-slate-950 truncate">{acc.storeName}</h4>
+                              <p className="text-xs text-slate-500 truncate">
+                                {acc.name} • @{acc.username}
                               </p>
                             </div>
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
-                                isActive
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}
-                            >
-                              {isActive ? 'Ativo' : 'Bloqueado'}
-                            </span>
+                            {renderStatusPill(acc)}
                           </div>
 
                           {!isMaster && (
-                            <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px]">
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <span className="text-slate-400 block font-bold">Login / Usuário:</span>
-                                  <strong className="font-mono text-slate-900 text-xs">@{acc.username}</strong>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block font-bold">Plano:</span>
-                                  <strong className="text-amber-800">{getPlanBadgeLabel(acc)}</strong>
-                                </div>
-                              </div>
-                              <div className="pt-2 border-t border-slate-200">
-                                <span className="text-slate-500 block font-bold text-[10px] uppercase mb-1">
-                                  Senha do Cliente:
-                                </span>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-slate-950 bg-amber-100 px-2.5 py-1 rounded-md border border-amber-300 font-black font-mono select-all text-xs">
-                                    {accountService.getAccountPassword(acc) || '(Sem senha)'}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopySinglePassword(acc)}
-                                    className="px-2 py-1 rounded-md bg-white hover:bg-amber-200 text-slate-800 text-[10px] font-bold border border-slate-200 flex items-center gap-1 cursor-pointer"
-                                    title="Copiar senha"
-                                  >
-                                    {copiedPasswordId === acc.id ? (
-                                      <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
-                                    ) : (
-                                      <Copy className="w-3 h-3" />
-                                    )}
-                                    <span>{copiedPasswordId === acc.id ? 'Copiada!' : 'Copiar'}</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyWhatsAppCredentials(acc)}
-                                    className="px-2 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200 flex items-center gap-1 cursor-pointer"
-                                    title="Copiar para WhatsApp"
-                                  >
-                                    <MessageCircle className="w-3 h-3" />
-                                    <span>WhatsApp</span>
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="flex items-center justify-between pt-1 text-[10px] text-slate-500 font-mono">
-                                <span>Validade:</span>
-                                <strong className="text-slate-800">
-                                  {acc.planTier === 'vitalicio'
-                                    ? 'Vitalício'
-                                    : `${new Date(acc.expiresAt).toLocaleDateString('pt-BR')} (${days}d)`}
-                                </strong>
-                              </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80">
+                              <span>
+                                Plano: <strong className="text-slate-900">{getPlanBadgeLabel(acc)}</strong>
+                              </span>
+                              <span className="font-mono tabular-nums font-bold text-slate-800">
+                                {acc.planTier === 'vitalicio'
+                                  ? 'Vitalício'
+                                  : `${new Date(acc.expiresAt).toLocaleDateString('pt-BR')} (${days > 0 ? `${days}d` : 'Vencido'})`}
+                              </span>
                             </div>
                           )}
 
                           {!isMaster && (
-                            <div className="space-y-2">
-                              {isSuperAdmin && onEnterUserAccount && (
-                                <button
-                                  type="button"
-                                  onClick={() => onEnterUserAccount(acc)}
-                                  className="w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                                >
-                                  <LogIn className="w-3.5 h-3.5" />
-                                  <span>Entrar na Conta do Usuário</span>
-                                </button>
-                              )}
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => openAccountDrawer(acc, 'actions')}
-                                  className="flex-1 py-2.5 px-3 rounded-xl bg-slate-950 text-amber-400 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                                >
-                                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                                  <span>Renovar / Gerenciar</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleBlockAccount(acc)}
-                                  className={`py-2.5 px-3 rounded-xl font-black text-xs cursor-pointer ${
-                                    isActive
-                                      ? 'bg-red-100 text-red-800'
-                                      : 'bg-emerald-600 text-white'
-                                  }`}
-                                >
-                                  {isActive ? 'Bloquear' : 'Liberar'}
-                                </button>
-                              </div>
+                            <div className="pt-1 flex items-center justify-between gap-2">
+                              {renderAccountActionStrip(acc)}
                             </div>
                           )}
                         </div>
@@ -1717,15 +1825,15 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             {activeTab === 'stores' && (
               <div className="space-y-4 animate-in fade-in">
                 <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-950 font-display">
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-950 font-display tracking-tight">
                     Lojas (Restaurantes) Cadastradas
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Acesse o link de cada cardápio, visualize credenciais e abra o painel lateral de controle.
+                    Acesse links públicos, credenciais e ações rápidas de cada estabelecimento.
                   </p>
                 </div>
 
-                <div className="space-y-3">
+                <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200/80 overflow-hidden">
                   {accounts.map((acc) => {
                     const isMaster = acc.role === 'super_admin';
                     const storeSlug = getStoreSlug(acc);
@@ -1734,111 +1842,39 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     return (
                       <div
                         key={acc.id}
-                        className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3"
+                        className="p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 font-mono font-black text-[10px] select-all">
-                                {accountService.getAccountUserCode(acc)}
-                              </span>
-                              <h4 className="font-black text-sm text-slate-950">{acc.storeName}</h4>
-                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black">
-                                {getPlanBadgeLabel(acc)}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-600 mt-0.5">
-                              Responsável: <strong>{acc.name}</strong> • WhatsApp:{' '}
-                              <strong>{acc.phoneWhatsapp || 'N/A'}</strong>
-                            </p>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800 font-mono tabular-nums font-bold text-[10px] select-all">
+                              {accountService.getAccountUserCode(acc)}
+                            </span>
+                            <h4 className="font-bold text-sm text-slate-950">{acc.storeName}</h4>
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                              {getPlanBadgeLabel(acc)}
+                            </span>
                           </div>
-
-                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                            <span>
+                              Responsável: <strong className="text-slate-800">{acc.name}</strong>
+                            </span>
+                            <span>
+                              Login: <code className="font-mono text-slate-800">@{acc.username}</code>
+                            </span>
                             <button
                               type="button"
                               onClick={() => handleCopyStoreLink(acc)}
-                              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors ${
-                                isCopied
-                                  ? 'bg-emerald-500 text-white'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-                              }`}
+                              className="inline-flex items-center gap-1 text-emerald-700 hover:underline font-mono text-[11px] cursor-pointer"
                             >
-                              {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                              <span>{isCopied ? 'Copiado!' : 'Copiar Link'}</span>
+                              {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              <span>{isCopied ? 'Link copiado!' : `cardapp-us/${storeSlug}`}</span>
                             </button>
-
-                            <a
-                              href={getClientAppUrl(acc.storeId, acc.storeName)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs flex items-center gap-1.5"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              <span>Ver Loja</span>
-                            </a>
-
-                            {!isMaster && (
-                              <>
-                                {isSuperAdmin && onEnterUserAccount && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onEnterUserAccount(acc)}
-                                    className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                                  >
-                                    <LogIn className="w-3.5 h-3.5" />
-                                    <span>Entrar na Conta</span>
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => openAccountDrawer(acc, 'actions')}
-                                  className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 font-black text-xs flex items-center gap-1.5 cursor-pointer"
-                                >
-                                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                                  <span>Gerenciar</span>
-                                </button>
-                              </>
-                            )}
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 truncate flex items-center gap-1.5 font-mono">
-                            <span className="text-amber-700 font-bold shrink-0">Link:</span>
-                            <span className="truncate text-slate-800">cardapp-us/{storeSlug}</span>
-                          </div>
-                          <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 flex items-center justify-between gap-1.5">
-                            <span className="text-slate-500 font-bold shrink-0">Login:</span>
-                            <strong className="font-mono text-slate-900 truncate">@{acc.username}</strong>
-                          </div>
-                          <div className="bg-amber-50/80 px-3 py-2 rounded-xl border border-amber-200 text-slate-900 flex items-center justify-between gap-2">
-                            <span className="text-amber-800 font-bold text-[10px] uppercase shrink-0">Senha:</span>
-                            <strong className="font-mono text-slate-950 font-black text-xs select-all truncate">
-                              {accountService.getAccountPassword(acc) || '072131Sa@'}
-                            </strong>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleCopySinglePassword(acc)}
-                                className="p-1 rounded bg-white hover:bg-amber-200 text-slate-700 border border-amber-200 cursor-pointer"
-                                title="Copiar senha deste parceiro"
-                              >
-                                {copiedPasswordId === acc.id ? (
-                                  <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
-                                ) : (
-                                  <Copy className="w-3 h-3" />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyWhatsAppCredentials(acc)}
-                                className="p-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 cursor-pointer"
-                                title="Copiar credenciais formatadas para WhatsApp"
-                              >
-                                <MessageCircle className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
+                        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                          {renderStatusPill(acc)}
+                          {renderAccountActionStrip(acc)}
                         </div>
                       </div>
                     );
@@ -2350,14 +2386,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => {
-                              const res = accountService.deleteSubscriptionPlan(plan.id);
-                              showToast(res.success ? 'success' : 'error', res.message);
-                            }}
-                            className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 cursor-pointer"
-                            title="Remover Plano"
+                            onClick={() => openTwoStepDeletePlan(plan)}
+                            className="w-8 h-8 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 inline-flex items-center justify-center cursor-pointer transition-colors"
+                            title="Excluir Plano (Confirmação em 2 Etapas)"
+                            aria-label={`Excluir plano ${plan.name}`}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
@@ -2616,13 +2650,12 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                             <button
                               type="button"
-                              onClick={() => {
-                                accountService.updateAccessRequestStatus(r.id, 'rejeitado');
-                                showToast('success', `Solicitação de ${r.storeName} rejeitada.`);
-                              }}
-                              className="px-3 py-2 rounded-xl bg-red-100 hover:bg-red-200 text-red-800 font-bold text-xs cursor-pointer"
+                              onClick={() => openTwoStepRejectRequest(r)}
+                              className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs cursor-pointer flex items-center gap-1.5"
+                              title="Rejeitar solicitação (2 etapas)"
                             >
-                              Rejeitar
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Rejeitar</span>
                             </button>
                           </div>
                         </div>
@@ -2987,53 +3020,25 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       </button>
                     </div>
 
-                    {/* Seção 3: Ações Rápidas & Excluir Conta */}
+                    {/* Seção 3: Ações Rápidas & Excluir Conta (2 Etapas) */}
                     <div className="space-y-2 pt-2 border-t border-slate-200">
                       <button
                         type="button"
                         onClick={() => handleOpenWhatsAppRenewal(drawerAccount)}
-                        className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-black text-xs flex items-center justify-center gap-2 cursor-pointer"
+                        className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <MessageCircle className="w-4 h-4 text-emerald-600" />
                         <span>Enviar Mensagem no WhatsApp</span>
                       </button>
 
-                      {confirmDeleteId === drawerAccount.id ? (
-                        <div className="p-3 rounded-xl bg-red-50 border border-red-300 space-y-2">
-                          <p className="text-xs font-bold text-red-900">
-                            Confirmar exclusão definitiva de {drawerAccount.storeName}?
-                          </p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="flex-1 py-2 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-700 cursor-pointer"
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                accountService.deleteAccount(drawerAccount.id);
-                                setDrawerAccountId(null);
-                                showToast('success', `Conta ${drawerAccount.storeName} removida.`);
-                              }}
-                              className="flex-1 py-2 rounded-lg bg-red-600 text-white text-xs font-black cursor-pointer"
-                            >
-                              Confirmar Exclusão
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(drawerAccount.id)}
-                          className="w-full py-2.5 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Excluir Conta Permanentemente</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => openTwoStepDeleteAccount(drawerAccount)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Excluir Conta (Confirmação em 2 Etapas)</span>
+                      </button>
                     </div>
                   </>
                 ) : (
@@ -3472,6 +3477,213 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                       className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs cursor-pointer transition-colors"
                     >
                       Ocultar e Fechar Agora
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE AVISOS & BLOQUEIO RÁPIDO (ACIONADO PELO BOTÃO SINO) */}
+        {alertActionAccount && (
+          <div className="fixed inset-0 z-75 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                    <Bell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Notificação & Controle de Acesso
+                    </span>
+                    <h3 className="text-base font-bold text-slate-950">
+                      {alertActionAccount.storeName}
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAlertActionAccountId(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">ID do Usuário:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {accountService.getAccountUserCode(alertActionAccount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Validade:</span>
+                  <span className="font-mono tabular-nums font-bold text-slate-900">
+                    {alertActionAccount.planTier === 'vitalicio'
+                      ? 'Vitalício'
+                      : `${new Date(alertActionAccount.expiresAt).toLocaleDateString('pt-BR')} (${getDaysRemaining(alertActionAccount)} dias)`}
+                  </span>
+                </div>
+              </div>
+
+              {alertActionAccount.planStatus === 'ativo' && (
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 block">
+                    Motivo (caso bloqueie a conta):
+                  </label>
+                  <input
+                    type="text"
+                    value={drawerBlockReason}
+                    onChange={(e) => setDrawerBlockReason(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-slate-400"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleOpenWhatsAppRenewal(alertActionAccount)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Enviar Aviso de Vencimento no WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleBlockAccount(alertActionAccount, drawerBlockReason);
+                    setAlertActionAccountId(null);
+                  }}
+                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer ${
+                    alertActionAccount.planStatus === 'ativo'
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  }`}
+                >
+                  {alertActionAccount.planStatus === 'ativo' ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Bloquear Conta Agora</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-4 h-4" />
+                      <span>Desbloquear e Reativar Conta</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL GLOBAL DE CONFIRMAÇÃO DE EXCLUSÃO EM DUAS ETAPAS (1/2 -> 2/2) */}
+        {deleteTarget && (
+          <div className="fixed inset-0 z-80 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border border-rose-200 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 block">
+                      {deleteTarget.step === 1 ? 'Confirmação de Exclusão (1/2)' : 'Confirmação Definitiva (2/2)'}
+                    </span>
+                    <h3 className="text-base font-bold text-slate-950">
+                      {deleteTarget.type === 'account'
+                        ? 'Excluir Conta Permanentemente'
+                        : deleteTarget.type === 'plan'
+                        ? 'Excluir Plano de Assinatura'
+                        : 'Rejeitar e Remover Solicitação'}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold text-slate-600">
+                  <span>{deleteTarget.step}/2</span>
+                </div>
+              </div>
+
+              {deleteTarget.step === 1 ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                    <p className="text-xs text-slate-600">Você selecionou para exclusão:</p>
+                    <p className="text-sm font-bold text-slate-950">{deleteTarget.title}</p>
+                    <p className="text-[11px] text-slate-500 font-mono">{deleteTarget.subtitle}</p>
+                  </div>
+
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Para evitar exclusões acidentais, confirme na próxima etapa antes de apagar este registro permanentemente.
+                  </p>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(null)}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteTarget((prev) => (prev ? { ...prev, step: 2 } : null))
+                      }
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <span>Avançar (Etapa 2/2)</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-900 leading-relaxed">
+                    <strong>Atenção:</strong> A exclusão de <strong>{deleteTarget.title}</strong> é definitiva e não pode ser desfeita.
+                  </div>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={deleteTarget.confirmedCheck}
+                      onChange={(e) =>
+                        setDeleteTarget((prev) =>
+                          prev ? { ...prev, confirmedCheck: e.target.checked } : null
+                        )
+                      }
+                      className="w-4 h-4 mt-0.5 accent-rose-600 shrink-0"
+                    />
+                    <span className="text-xs font-semibold text-slate-800">
+                      Confirmo que revisei e desejo excluir definitivamente este item.
+                    </span>
+                  </label>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteTarget((prev) =>
+                          prev ? { ...prev, step: 1, confirmedCheck: false } : null
+                        )
+                      }
+                      className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!deleteTarget.confirmedCheck}
+                      onClick={handleExecuteTwoStepDelete}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-rose-700 hover:bg-rose-800 disabled:opacity-45 text-white font-bold text-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Confirmar Exclusão Definitiva</span>
                     </button>
                   </div>
                 </div>

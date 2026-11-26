@@ -9,6 +9,12 @@ interface ProductCustomizerModalProps {
   initialQuantity?: number;
   initialNotes?: string;
   initialComplements?: SelectedComplement[];
+  onDraftChange?: (draft: {
+    productId: string;
+    quantity: number;
+    notes: string;
+    selectedComplements: SelectedComplement[];
+  }) => void;
   onClose: () => void;
   onConfirm: (
     product: Product,
@@ -25,6 +31,7 @@ export const ProductCustomizerModal: React.FC<ProductCustomizerModalProps> = ({
   initialQuantity = 1,
   initialNotes = '',
   initialComplements = [],
+  onDraftChange,
   onClose,
   onConfirm,
 }) => {
@@ -46,6 +53,17 @@ export const ProductCustomizerModal: React.FC<ProductCustomizerModalProps> = ({
       setIsSuccess(false);
     }
   }, [product?.id]);
+
+  useEffect(() => {
+    if (product && onDraftChange) {
+      onDraftChange({
+        productId: product.id,
+        quantity,
+        notes,
+        selectedComplements,
+      });
+    }
+  }, [product?.id, quantity, notes, selectedComplements]);
 
   if (!product) return null;
 

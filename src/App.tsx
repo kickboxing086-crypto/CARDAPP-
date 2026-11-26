@@ -49,6 +49,31 @@ import {
 import { testFirestoreConnection } from './firebase';
 import { getOrderWhatsAppUrl } from './utils/comandaFormatter';
 import { RESERVED_ROUTE_SLUGS, getClientAppUrl } from './utils/constants';
+import {
+  cacheStoreTargetResolution,
+  getCachedStoreTarget,
+  saveActiveStoreSession,
+  getSavedActiveStoreId,
+  saveAppView,
+  getSavedAppView,
+  saveCeoOpenState,
+  getSavedCeoOpenState,
+  saveSuperAdminOpenState,
+  getSavedSuperAdminOpenState,
+  clearAdminModalOpenStates,
+  saveClientStep,
+  loadClientStep,
+  saveClientCart,
+  loadClientCart,
+  clearClientCart,
+  saveClientMenuFilters,
+  loadClientMenuFilters,
+  saveCustomizerDraft,
+  loadCustomizerDraft,
+  setExplicitLoginModeOverride,
+  saveLoginModalDraft,
+  ProductCustomizerDraft,
+} from './utils/viewStatePersistence';
 
 function extractStoreTargetFromLocation(): string {
   if (typeof window === 'undefined') return '';
@@ -71,7 +96,32 @@ function extractStoreTargetFromLocation(): string {
   return '';
 }
 
+function resolveInitialStoreIdSync(): string {
+  const target = extractStoreTargetFromLocation();
+  if (target) {
+    const acc = accountService.findAccountByStoreParam(target);
+    if (acc?.storeId) return acc.storeId;
+    const cached = getCachedStoreTarget(target);
+    if (cached?.storeId) return cached.storeId;
+  }
+  const session = accountService.getCurrentSession();
+  const savedCeo = getSavedCeoOpenState();
+  const savedSuper = getSavedSuperAdminOpenState();
+  if (session?.storeId && (savedCeo === true || savedSuper === true || !target)) {
+    return session.storeId;
+  }
+  return getSavedActiveStoreId();
+}
+
 export default function App() {
+  const initialResolvedStoreId = useMemo(() => {
+    const id = resolveInitialStoreIdSync();
+    if (id && id !== 'default_store') {
+      storageService.setStoreId(id);
+    }
+    return id;
+  }, []);
+
   // Navigation view: 'landing' vs 'menu' (Customer shopping screen) vs 'login' (Dedicated login screen)
   const [currentView, setCurrentView] = useState<'landing' | 'menu' | 'login'>(() => {
     try {
@@ -79,8 +129,19 @@ export default function App() {
       const view = urlParams.get('view');
       const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
       const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
-      const savedNavView = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_current_view') : null;
+      const savedNavView = getSavedAppView();
+      const savedCeo = getSavedCeoOpenState();
+      const savedSuper = getSavedSuperAdminOpenState();
+      const session = accountService.getCurrentSession();
       const storeTarget = extractStoreTargetFromLocation();
+
+      // Se CEO ou SuperAdmin já estava com painel aberto nesta aba, mantém no painel ao atualizar
+      if (
+        (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) ||
+        (savedSuper === true && session?.role === 'super_admin')
+      ) {
+        return 'menu';
+      }
 
       // 1. Rota de login explícita
       if (
@@ -118,14 +179,8 @@ export default function App() {
       }
 
       // 3. Se o usuário já estava navegando nesta aba e atualizou com F5
-      if (savedNavView === 'menu') {
-        return 'menu';
-      }
-      if (savedNavView === 'login') {
-        return 'login';
-      }
-      if (savedNavView === 'landing') {
-        return 'landing';
+      if (savedNavView === 'menu' || savedNavView === 'login' || savedNavView === 'landing') {
+        return savedNavView;
       }
     } catch {
       // fallback
@@ -134,10 +189,14 @@ export default function App() {
     return 'landing';
   });
 
+  const [activeStoreId, setActiveStoreId] = useState<string>(initialResolvedStoreId);
+  const hydratedStoreRef = useRef<string>(initialResolvedStoreId);
+
   const [isResolvingStore, setIsResolvingStore] = useState<boolean>(() => {
     const target = extractStoreTargetFromLocation();
     if (!target) return false;
-    return !accountService.findAccountByStoreParam(target);
+    if (accountService.findAccountByStoreParam(target)) return false;
+    return !getCachedStoreTarget(target);
   });
   const [storeResolveError, setStoreResolveError] = useState<string | null>(null);
 
@@ -158,53 +217,91 @@ export default function App() {
   // Authentication & Users
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(accountService.getCurrentSession());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginModalMode, setLoginModalMode] = useState<'login' | 'register'>('login');
-  const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
+  const [loginModalMode, setLoginModalMode] = useState<'login' | 'register'>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const view = urlParams.get('view');
+      const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      if (
+        view === 'cadastro' ||
+        view === 'registrar' ||
+        view === 'register' ||
+        pathname === '/cadastro' ||
+        pathname === '/registrar'
+      ) {
+        return 'register';
+      }
+    } catch {}
+    return 'login';
+  });
+  const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState<boolean>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const view = urlParams.get('view');
+      const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      const session = accountService.getCurrentSession();
+      const savedSuper = getSavedSuperAdminOpenState();
+      if (
+        session?.role === 'super_admin' &&
+        (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || savedSuper === true)
+      ) {
+        return true;
+      }
+    } catch {}
+    return false;
+  });
 
   // Core Data State
-  const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => storageService.getProducts());
+  const [orders, setOrders] = useState<Order[]>(() => storageService.getOrders());
   const ordersRef = useRef<Order[]>(orders);
   useEffect(() => {
     ordersRef.current = orders;
   }, [orders]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [settings, setSettings] = useState<StoreSettings>(storageService.getSettings());
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(storageService.getActiveOrderId());
+  const [categories, setCategories] = useState<Category[]>(() => storageService.getCategories());
+  const [settings, setSettings] = useState<StoreSettings>(() => storageService.getSettings());
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(() => storageService.getActiveOrderId());
 
   // 4 Steps for Customer (1: Cardápio, 2: Sacola, 3: Identificação & Entrega, 4: Acompanhamento)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(() => {
-    try {
-      const saved = sessionStorage.getItem('cardapp_current_step');
-      if (saved && ['1', '2', '3', '4'].includes(saved)) {
-        return Number(saved) as 1 | 2 | 3 | 4;
-      }
-    } catch {}
-    return 1;
-  });
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(() =>
+    loadClientStep(initialResolvedStoreId)
+  );
 
-  // Cart State
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // Cart State (restaurado por loja ao atualizar a página)
+  const [cartItems, setCartItems] = useState<CartItem[]>(() =>
+    loadClientCart(initialResolvedStoreId, storageService.getProducts())
+  );
 
   // Filtering & Search in Menu (Step 1)
-  const [selectedCategory, setSelectedCategory] = useState<string>('todos');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const initialMenuFilters = useMemo(
+    () => loadClientMenuFilters(initialResolvedStoreId),
+    [initialResolvedStoreId]
+  );
+  const [selectedCategory, setSelectedCategory] = useState<string>(initialMenuFilters.selectedCategory);
+  const [searchQuery, setSearchQuery] = useState<string>(initialMenuFilters.searchQuery);
 
   // Modals & Panels
-  const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(null);
+  const [initialCustomizerDraft, setInitialCustomizerDraft] = useState<ProductCustomizerDraft | null>(() =>
+    loadCustomizerDraft(initialResolvedStoreId)
+  );
+  const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(() => {
+    const draft = loadCustomizerDraft(initialResolvedStoreId);
+    if (!draft) return null;
+    return storageService.getProducts().find((p) => p.id === draft.productId) || null;
+  });
   const [isCeoModalOpen, setIsCeoModalOpen] = useState<boolean>(() => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const view = urlParams.get('view');
       const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
       const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase().replace(/\/$/, '') : '';
-      const savedCeo = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_ceo_open') : null;
-      const savedNavView = typeof window !== 'undefined' ? sessionStorage.getItem('cardapp_current_view') : null;
+      const session = accountService.getCurrentSession();
+      const savedCeo = getSavedCeoOpenState();
 
       if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || hash.includes('admin')) {
-        return true;
+        return session?.role !== 'super_admin';
       }
-      if (savedCeo === 'true' && (savedNavView === 'menu' || view === 'cliente')) {
+      if (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) {
         return true;
       }
     } catch {
@@ -212,32 +309,59 @@ export default function App() {
     }
     return false;
   });
-  const [isStoreInfoOpen, setIsStoreInfoOpen] = useState(false);
+  const [isStoreInfoOpen, setIsStoreInfoOpen] = useState<boolean>(initialMenuFilters.isStoreInfoOpen);
 
-  // Sincronizar sessionStorage em tempo real para que ao atualizar (F5) não saia da aba onde está
+  // Sincronizar estado de navegação e UI do cliente em tempo real para sobreviver a refresh (F5)
   useEffect(() => {
-    try {
-      sessionStorage.setItem('cardapp_current_view', currentView);
-    } catch {}
+    saveAppView(currentView);
   }, [currentView]);
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem('cardapp_current_step', String(currentStep));
-    } catch {}
-  }, [currentStep]);
+    if (isResolvingStore || hydratedStoreRef.current !== activeStoreId) return;
+    saveClientStep(activeStoreId, currentStep);
+  }, [activeStoreId, currentStep, isResolvingStore]);
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem('cardapp_ceo_open', isCeoModalOpen ? 'true' : 'false');
-    } catch {}
+    if (isResolvingStore || hydratedStoreRef.current !== activeStoreId) return;
+    saveClientCart(activeStoreId, cartItems);
+  }, [activeStoreId, cartItems, isResolvingStore]);
+
+  useEffect(() => {
+    if (isResolvingStore || hydratedStoreRef.current !== activeStoreId) return;
+    saveClientMenuFilters(activeStoreId, {
+      selectedCategory,
+      searchQuery,
+      isStoreInfoOpen,
+    });
+  }, [activeStoreId, selectedCategory, searchQuery, isStoreInfoOpen, isResolvingStore]);
+
+  useEffect(() => {
+    saveCeoOpenState(isCeoModalOpen);
   }, [isCeoModalOpen]);
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem('cardapp_superadmin_open', isSuperAdminModalOpen ? 'true' : 'false');
-    } catch {}
+    saveSuperAdminOpenState(isSuperAdminModalOpen);
   }, [isSuperAdminModalOpen]);
+
+  const hydrateClientUiForStore = (storeId: string, loadedProducts: Product[]) => {
+    const cleanId = storeId || 'default_store';
+    hydratedStoreRef.current = cleanId;
+    setActiveStoreId(cleanId);
+    saveActiveStoreSession(cleanId);
+    setCartItems(loadClientCart(cleanId, loadedProducts));
+    setCurrentStep(loadClientStep(cleanId));
+    const filters = loadClientMenuFilters(cleanId);
+    setSelectedCategory(filters.selectedCategory);
+    setSearchQuery(filters.searchQuery);
+    setIsStoreInfoOpen(filters.isStoreInfoOpen);
+    const customDraft = loadCustomizerDraft(cleanId);
+    setInitialCustomizerDraft(customDraft);
+    if (customDraft) {
+      setSelectedProductForModal(loadedProducts.find((p) => p.id === customDraft.productId) || null);
+    } else {
+      setSelectedProductForModal(null);
+    }
+  };
 
   // Check URL query parameters or paths
   useEffect(() => {
@@ -281,11 +405,57 @@ export default function App() {
         const session = accountService.getCurrentSession();
         const lastStore = localStorage.getItem('cardapp_last_store_id');
 
-        const savedView = sessionStorage.getItem('cardapp_current_view');
-        const savedCeo = sessionStorage.getItem('cardapp_ceo_open');
-        const savedSuperAdmin = sessionStorage.getItem('cardapp_superadmin_open');
+        const savedView = getSavedAppView();
+        const savedCeo = getSavedCeoOpenState();
+        const savedSuperAdmin = getSavedSuperAdminOpenState();
 
-        // Rotas explícitas de login e cadastro têm prioridade
+        // Se o lojista estava com o painel CEO aberto nesta aba (mesmo se URL atual tiver slug/login)
+        if (
+          (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) ||
+          (isCeoRoute && session?.role !== 'super_admin')
+        ) {
+          setIsResolvingStore(false);
+          if (session) {
+            storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+            setActiveStoreId(session.storeId);
+            hydratedStoreRef.current = session.storeId;
+            saveActiveStoreSession(session.storeId);
+            setCurrentUser(session);
+            setProducts(storageService.getProducts());
+            setOrders(storageService.getOrders());
+            setCategories(storageService.getCategories());
+            setSettings(storageService.getSettings());
+            setActiveOrderId(storageService.getActiveOrderId());
+            storageService.loadStoreFromFirestoreOnce(session.storeId).then(() => {
+              if (!isMounted) return;
+              setProducts(storageService.getProducts());
+              setOrders(storageService.getOrders());
+              setCategories(storageService.getCategories());
+              setSettings(storageService.getSettings());
+              setActiveOrderId(storageService.getActiveOrderId());
+            });
+          }
+          setCurrentView('menu');
+          setIsSuperAdminModalOpen(false);
+          setIsCeoModalOpen(true);
+          return;
+        }
+
+        // Se o SuperAdmin estava com o painel aberto nesta aba
+        if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === true)) {
+          setIsResolvingStore(false);
+          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+          setActiveStoreId(session.storeId);
+          hydratedStoreRef.current = session.storeId;
+          saveActiveStoreSession(session.storeId);
+          setCurrentUser(session);
+          setCurrentView('menu');
+          setIsCeoModalOpen(false);
+          setIsSuperAdminModalOpen(true);
+          return;
+        }
+
+        // Rotas explícitas de login e cadastro têm prioridade quando nenhum painel está aberto
         if (isRegister) {
           setIsResolvingStore(false);
           setLoginModalMode('register');
@@ -301,57 +471,45 @@ export default function App() {
           return;
         }
 
-        // Se o lojista acessou rota admin/ceo ou estava com painel CEO aberto
-        if (isCeoRoute || (savedCeo === 'true' && session?.role === 'store_admin')) {
-          setIsResolvingStore(false);
-          if (session) {
-            storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
-            setCurrentUser(session);
-          }
-          setCurrentView('menu');
-          setIsCeoModalOpen(true);
-          return;
-        }
-
-        // Se o SuperAdmin estava com o painel aberto
-        if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === 'true')) {
-          setIsResolvingStore(false);
-          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
-          setCurrentUser(session);
-          setCurrentView('menu');
-          setIsSuperAdminModalOpen(true);
-          return;
-        }
-
         // Link compartilhado da loja (/nome-da-loja ou ?store=... / ?loja=...)
         if (storeTarget) {
           setCurrentView('menu');
           setIsCeoModalOpen(false);
           setIsSuperAdminModalOpen(false);
           setStoreResolveError(null);
-          sessionStorage.setItem('cardapp_current_view', 'menu');
+          saveAppView('menu');
 
           const localTarget = accountService.findAccountByStoreParam(storeTarget);
-          if (localTarget) {
+          const cachedTarget = !localTarget ? getCachedStoreTarget(storeTarget) : null;
+          const quickStoreId = localTarget?.storeId || cachedTarget?.storeId;
+          const quickStoreName = localTarget?.storeName || cachedTarget?.storeName;
+
+          if (quickStoreId) {
             storageService.setStoreId(
-              localTarget.storeId,
-              localTarget.storeName,
-              localTarget.phoneWhatsapp
+              quickStoreId,
+              quickStoreName,
+              localTarget?.phoneWhatsapp
             );
-            localStorage.setItem('cardapp_last_store_id', localTarget.storeId);
-            setProducts(storageService.getProducts());
+            cacheStoreTargetResolution(storeTarget, quickStoreId, quickStoreName);
+            const loadedProds = storageService.getProducts();
+            setProducts(loadedProds);
             setOrders(storageService.getOrders());
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());
             setActiveOrderId(storageService.getActiveOrderId());
+            hydrateClientUiForStore(quickStoreId, loadedProds);
             setIsResolvingStore(false);
-            storageService.loadStoreFromFirestoreOnce(localTarget.storeId).then(() => {
+            storageService.loadStoreFromFirestoreOnce(quickStoreId).then(() => {
               if (!isMounted) return;
-              setProducts(storageService.getProducts());
+              const syncedProds = storageService.getProducts();
+              setProducts(syncedProds);
               setOrders(storageService.getOrders());
               setCategories(storageService.getCategories());
               setSettings(storageService.getSettings());
               setActiveOrderId(storageService.getActiveOrderId());
+              setCartItems((prev) =>
+                prev.length > 0 ? prev : loadClientCart(quickStoreId, syncedProds)
+              );
             });
             return;
           }
@@ -382,12 +540,14 @@ export default function App() {
             }
 
             storageService.setStoreId(resolvedStoreId, resolved?.storeName);
-            localStorage.setItem('cardapp_last_store_id', resolvedStoreId);
-            setProducts(storageService.getProducts());
+            cacheStoreTargetResolution(storeTarget, resolvedStoreId, resolved?.storeName);
+            const syncedProds = storageService.getProducts();
+            setProducts(syncedProds);
             setOrders(storageService.getOrders());
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());
             setActiveOrderId(storageService.getActiveOrderId());
+            hydrateClientUiForStore(resolvedStoreId, syncedProds);
             setIsResolvingStore(false);
           })();
           return;
@@ -399,21 +559,26 @@ export default function App() {
           setCurrentView('landing');
           setIsCeoModalOpen(false);
           setIsSuperAdminModalOpen(false);
-          sessionStorage.setItem('cardapp_current_view', 'landing');
+          saveAppView('landing');
           return;
         }
 
         if (savedView === 'login') {
           setIsResolvingStore(false);
-          setLoginModalMode('login');
           setCurrentView('login');
           setIsLoginModalOpen(true);
           return;
         } else if (isClienteRoute || view === 'cardapio' || view === 'menu' || savedView === 'menu') {
           setIsResolvingStore(false);
-          if (lastStore) {
-            storageService.setStoreId(lastStore);
-          }
+          const targetId = lastStore || 'default_store';
+          storageService.setStoreId(targetId);
+          const prods = storageService.getProducts();
+          setProducts(prods);
+          setOrders(storageService.getOrders());
+          setCategories(storageService.getCategories());
+          setSettings(storageService.getSettings());
+          setActiveOrderId(storageService.getActiveOrderId());
+          hydrateClientUiForStore(targetId, prods);
           setCurrentView('menu');
           return;
         } else if (savedView === 'landing') {
@@ -423,7 +588,7 @@ export default function App() {
         } else {
           setIsResolvingStore(false);
           setCurrentView('landing');
-          sessionStorage.setItem('cardapp_current_view', 'landing');
+          saveAppView('landing');
         }
       } catch {
         setIsResolvingStore(false);
@@ -751,11 +916,8 @@ export default function App() {
     }
 
     lastActiveOrderStatusRef.current = 'recebido';
-    try {
-      sessionStorage.setItem('cardapp_current_step', '4');
-    } catch {
-      // ignore
-    }
+    clearClientCart(activeStoreId);
+    saveClientStep(activeStoreId, 4);
     setOrders(storageService.getOrders());
     setCartItems([]);
     setActiveOrderId(newOrder.id);
@@ -830,6 +992,7 @@ export default function App() {
 
   // Navigation handlers
   const handleOpenDemoMenu = () => {
+    clearAdminModalOpenStates();
     storageService.setAuthContext(null, 'default_store');
     storageService.setStoreId('default_store');
     const demoSettings: StoreSettings = {
@@ -843,6 +1006,12 @@ export default function App() {
     setCategories(INITIAL_CATEGORIES);
     setSettings(demoSettings);
     setCurrentUser(null);
+    hydratedStoreRef.current = 'default_store';
+    setActiveStoreId('default_store');
+    saveActiveStoreSession('default_store');
+    setCartItems(loadClientCart('default_store', INITIAL_PRODUCTS));
+    setCurrentStep(1);
+    saveClientStep('default_store', 1);
     setCurrentView('menu');
     setShowSplash(true);
     localStorage.setItem('cardapp_last_view', 'menu');
@@ -857,9 +1026,12 @@ export default function App() {
     accountService.switchSession(user);
     storageService.setAuthContext(user.role, user.storeId);
     storageService.setStoreId(user.storeId, user.storeName, user.phoneWhatsapp);
-    localStorage.setItem('cardapp_last_store_id', user.storeId);
+    saveActiveStoreSession(user.storeId);
+    hydratedStoreRef.current = user.storeId;
+    setActiveStoreId(user.storeId);
     setCurrentUser(user);
     setCartItems([]);
+    clearClientCart(user.storeId);
     setActiveOrderId(null);
     setProducts(storageService.getProducts());
     setOrders(storageService.getOrders());
@@ -868,15 +1040,20 @@ export default function App() {
     setIsLoginModalOpen(false);
 
     if (user.role === 'super_admin') {
+      saveSuperAdminOpenState(true);
       setIsSuperAdminModalOpen(true);
       setIsCeoModalOpen(false);
       setCurrentView('menu');
-      localStorage.setItem('cardapp_last_view', 'menu');
+      try {
+        window.history.replaceState({}, '', '/?view=admin');
+      } catch {
+        // ignore
+      }
     } else {
+      saveCeoOpenState(true);
       setIsCeoModalOpen(true);
       setIsSuperAdminModalOpen(false);
       setCurrentView('menu');
-      localStorage.setItem('cardapp_last_view', 'ceo');
       try {
         const cleanUrl = getClientAppUrl(user.storeId, user.storeName);
         const parsed = new URL(cleanUrl);
@@ -893,7 +1070,9 @@ export default function App() {
     const targetUser = res.user;
     storageService.setAuthContext('super_admin', targetUser.storeId);
     storageService.setStoreId(targetUser.storeId, targetUser.storeName, targetUser.phoneWhatsapp);
-    localStorage.setItem('cardapp_last_store_id', targetUser.storeId);
+    saveActiveStoreSession(targetUser.storeId);
+    hydratedStoreRef.current = targetUser.storeId;
+    setActiveStoreId(targetUser.storeId);
     setCurrentUser(targetUser);
     setCartItems([]);
     setActiveOrderId(null);
@@ -901,10 +1080,10 @@ export default function App() {
     setOrders(storageService.getOrders());
     setCategories(storageService.getCategories());
     setSettings(storageService.getSettings());
+    saveCeoOpenState(true);
     setIsSuperAdminModalOpen(false);
     setIsCeoModalOpen(true);
     setCurrentView('menu');
-    localStorage.setItem('cardapp_last_view', 'ceo');
   };
 
   const handleReturnToSuperAdmin = () => {
@@ -912,22 +1091,36 @@ export default function App() {
     if (!res.success || !res.user) return;
     const adminUser = res.user;
     storageService.setAuthContext('super_admin', adminUser.storeId);
+    storageService.setStoreId(adminUser.storeId, adminUser.storeName, adminUser.phoneWhatsapp);
+    saveActiveStoreSession(adminUser.storeId);
+    hydratedStoreRef.current = adminUser.storeId;
+    setActiveStoreId(adminUser.storeId);
     setCurrentUser(adminUser);
     setCartItems([]);
     setActiveOrderId(null);
+    saveSuperAdminOpenState(true);
     setIsCeoModalOpen(false);
     setIsSuperAdminModalOpen(true);
     setCurrentView('menu');
-    localStorage.setItem('cardapp_last_view', 'menu');
+    try {
+      window.history.replaceState({}, '', '/?view=admin');
+    } catch {
+      // ignore
+    }
   };
 
   const handleLogout = () => {
     accountService.logout();
+    clearAdminModalOpenStates();
+    saveLoginModalDraft(null);
+    setExplicitLoginModeOverride('login');
     storageService.setAuthContext(null, 'default_store');
     setCurrentUser(null);
     localStorage.removeItem('cardapp_last_view');
     localStorage.removeItem('cardapp_last_store_id');
     storageService.setStoreId('default_store');
+    hydratedStoreRef.current = 'default_store';
+    setActiveStoreId('default_store');
     setProducts(storageService.getProducts());
     setOrders(storageService.getOrders());
     setCategories(storageService.getCategories());
@@ -950,15 +1143,33 @@ export default function App() {
       storageService.clearActiveOrderId();
       setActiveOrderId(null);
     }
+    clearClientCart(activeStoreId);
     setCartItems([]);
+    saveClientStep(activeStoreId, 1);
     setCurrentStep(1);
   };
 
   const handleGoToLanding = () => {
+    clearAdminModalOpenStates();
+    setIsCeoModalOpen(false);
+    setIsSuperAdminModalOpen(false);
     setCurrentView('landing');
     localStorage.removeItem('cardapp_last_view');
     try {
       window.history.pushState({}, '', '/');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleNavigateToLogin = (mode: 'login' | 'register') => {
+    clearAdminModalOpenStates();
+    setExplicitLoginModeOverride(mode);
+    setLoginModalMode(mode);
+    setCurrentView('login');
+    setIsLoginModalOpen(true);
+    try {
+      window.history.pushState({}, '', mode === 'register' ? '/?view=cadastro' : '/?view=login');
     } catch {
       // ignore
     }
@@ -986,16 +1197,8 @@ export default function App() {
       {/* 1. SAAS LANDING PAGE (PLANO A PARTIR DE R$ 2,00/MÊS E ALTA CONVERSÃO) */}
       {currentView === 'landing' && (
         <LandingPage
-          onOpenLogin={() => {
-            setLoginModalMode('login');
-            setCurrentView('login');
-            setIsLoginModalOpen(true);
-          }}
-          onOpenRegister={() => {
-            setLoginModalMode('register');
-            setCurrentView('login');
-            setIsLoginModalOpen(true);
-          }}
+          onOpenLogin={() => handleNavigateToLogin('login')}
+          onOpenRegister={() => handleNavigateToLogin('register')}
           onOpenDemoMenu={handleOpenDemoMenu}
         />
       )}
@@ -1003,16 +1206,8 @@ export default function App() {
       {/* Fallback caso currentView esteja em algum valor não reconhecido */}
       {currentView !== 'landing' && currentView !== 'login' && currentView !== 'menu' && (
         <LandingPage
-          onOpenLogin={() => {
-            setLoginModalMode('login');
-            setCurrentView('login');
-            setIsLoginModalOpen(true);
-          }}
-          onOpenRegister={() => {
-            setLoginModalMode('register');
-            setCurrentView('login');
-            setIsLoginModalOpen(true);
-          }}
+          onOpenLogin={() => handleNavigateToLogin('login')}
+          onOpenRegister={() => handleNavigateToLogin('register')}
           onOpenDemoMenu={handleOpenDemoMenu}
         />
       )}
@@ -1025,6 +1220,7 @@ export default function App() {
           initialMode={loginModalMode}
           onLoginSuccess={handleLoginSuccess}
           onClose={() => {
+            saveLoginModalDraft(null);
             setCurrentView('landing');
             try {
               window.history.pushState({}, '', '/');
@@ -1235,6 +1431,7 @@ export default function App() {
               <CheckoutStep
                 items={cartItems}
                 settings={settings}
+                storeId={activeStoreId}
                 onBackToCart={() => setCurrentStep(2)}
                 onSubmitOrder={handleSubmitOrder}
               />
@@ -1283,16 +1480,7 @@ export default function App() {
                 <span className="text-slate-300">•</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setLoginModalMode('login');
-                    setCurrentView('login');
-                    setIsLoginModalOpen(false);
-                    try {
-                      window.history.pushState({}, '', '/?view=login');
-                    } catch {
-                      // ignore
-                    }
-                  }}
+                  onClick={() => handleNavigateToLogin('login')}
                   className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
                   title="Ir para a aba de Login"
                 >
@@ -1317,7 +1505,30 @@ export default function App() {
       {/* PRODUCT CUSTOMIZER MODAL */}
       <ProductCustomizerModal
         product={selectedProductForModal}
-        onClose={() => setSelectedProductForModal(null)}
+        initialQuantity={
+          selectedProductForModal && initialCustomizerDraft?.productId === selectedProductForModal.id
+            ? initialCustomizerDraft.quantity
+            : 1
+        }
+        initialNotes={
+          selectedProductForModal && initialCustomizerDraft?.productId === selectedProductForModal.id
+            ? initialCustomizerDraft.notes
+            : ''
+        }
+        initialComplements={
+          selectedProductForModal && initialCustomizerDraft?.productId === selectedProductForModal.id
+            ? initialCustomizerDraft.selectedComplements
+            : []
+        }
+        onDraftChange={(draft) => {
+          setInitialCustomizerDraft(draft);
+          saveCustomizerDraft(activeStoreId, draft);
+        }}
+        onClose={() => {
+          setSelectedProductForModal(null);
+          setInitialCustomizerDraft(null);
+          saveCustomizerDraft(activeStoreId, null);
+        }}
         onConfirm={handleAddToCart}
       />
 
@@ -1334,6 +1545,7 @@ export default function App() {
           key={`${currentUser?.storeId || 'default'}_${currentUser?.id || 'guest'}`}
           isOpen={true}
           onClose={() => {
+            saveCeoOpenState(false);
             setIsCeoModalOpen(false);
             localStorage.setItem('cardapp_last_view', 'menu');
           }}
@@ -1350,6 +1562,7 @@ export default function App() {
           onDeleteCategory={handleDeleteCategory}
           onSaveSettings={handleSaveSettings}
           onSwitchToClientView={() => {
+            saveCeoOpenState(false);
             setIsCeoModalOpen(false);
             setCurrentView('menu');
             localStorage.setItem('cardapp_last_view', 'menu');
@@ -1364,7 +1577,11 @@ export default function App() {
       {currentUser && (
         <SuperAdminModal
           isOpen={isSuperAdminModalOpen}
-          onClose={() => setIsSuperAdminModalOpen(false)}
+          onClose={() => {
+            saveSuperAdminOpenState(false);
+            setIsSuperAdminModalOpen(false);
+            localStorage.setItem('cardapp_last_view', 'menu');
+          }}
           currentUser={currentUser}
           onLogout={handleLogout}
           onEnterUserAccount={handleEnterUserAccount}

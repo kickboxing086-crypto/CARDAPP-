@@ -34,6 +34,12 @@ import {
 } from '../utils/security';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
+import {
+  loadLoginModalDraft,
+  saveLoginModalDraft,
+  peekExplicitLoginModeOverride,
+  consumeExplicitLoginModeOverride,
+} from '../utils/viewStatePersistence';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -50,44 +56,55 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   isStandalone = false,
   initialMode = 'login',
 }) => {
+  const initialDraft = useMemo(() => {
+    const explicitMode = peekExplicitLoginModeOverride();
+    if (explicitMode) return null;
+    return loadLoginModalDraft();
+  }, []);
+
   // Mode: 'login' | 'register' | 'recover'
-  const [activeMode, setActiveMode] = useState<'login' | 'register' | 'recover'>(initialMode);
+  const [activeMode, setActiveMode] = useState<'login' | 'register' | 'recover'>(() => {
+    const m = initialDraft?.activeMode;
+    if (m === 'login' || m === 'register' || m === 'recover') return m;
+    return initialMode;
+  });
 
   // Login Form State
-  const [loginUsername, setLoginUsername] = useState('');
+  const [loginUsername, setLoginUsername] = useState(() => initialDraft?.loginUsername || '');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoginLoading, setIsLoginLoading] = useState(false);
 
-  // Cadastro Passo a Passo (Obrigações da Loja ANTES da criação do acesso)
-  // Etapa 1: Nome Completo do Responsável (CEO)
-  // Etapa 2: Obrigações da Loja (Nome do Estabelecimento, Endereço, Slogan/Instagram)
-  // Etapa 3: Foto de Perfil da Loja (Obrigatória)
-  // Etapa 4: WhatsApp Comercial
-  // Etapa 5: E-mail Obrigatório (Chave oficial de recuperação)
-  // Etapa 6: Nome de Usuário de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
-  // Etapa 7: Senha de Acesso (máximo 8 caracteres + maiúscula, minúscula, número, especial)
-  // Etapa 8: Revisão Final & Ativação (5 Dias Grátis)
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
-  const [regName, setRegName] = useState('');
-  const [regStoreName, setRegStoreName] = useState('');
-  const [regAddress, setRegAddress] = useState('');
-  const [regTagline, setRegTagline] = useState('');
-  const [regInstagram, setRegInstagram] = useState('');
-  const [regLogoBase64, setRegLogoBase64] = useState('');
+  // Cadastro Passo a Passo
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(() => {
+    const s = initialDraft?.wizardStep;
+    if (s && s >= 1 && s <= 8) return s;
+    return 1;
+  });
+  const [regName, setRegName] = useState(() => initialDraft?.regName || '');
+  const [regStoreName, setRegStoreName] = useState(() => initialDraft?.regStoreName || '');
+  const [regAddress, setRegAddress] = useState(() => initialDraft?.regAddress || '');
+  const [regTagline, setRegTagline] = useState(() => initialDraft?.regTagline || '');
+  const [regInstagram, setRegInstagram] = useState(() => initialDraft?.regInstagram || '');
+  const [regLogoBase64, setRegLogoBase64] = useState(() => initialDraft?.regLogoBase64 || '');
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
-  const [regPhone, setRegPhone] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regUsername, setRegUsername] = useState('');
+  const [regPhone, setRegPhone] = useState(() => initialDraft?.regPhone || '');
+  const [regEmail, setRegEmail] = useState(() => initialDraft?.regEmail || '');
+  const [regUsername, setRegUsername] = useState(() => initialDraft?.regUsername || '');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regError, setRegError] = useState('');
 
-  // Recuperação de Conta CEO com Validação Completa de Dados da Loja e Usuário
-  // recoverStep: 1 = Informar Usuário ou E-mail; 2 = Confirmar Loja, Usuário, Nome, E-mail e WhatsApp; 3 = Nova Senha
-  const [recoverStep, setRecoverStep] = useState<1 | 2 | 3>(1);
-  const [recoverIdentifier, setRecoverIdentifier] = useState('');
+  // Recuperação de Conta CEO
+  const [recoverStep, setRecoverStep] = useState<1 | 2 | 3>(() => {
+    const rs = initialDraft?.recoverStep;
+    if (rs === 1 || rs === 2 || rs === 3) return rs;
+    return 1;
+  });
+  const [recoverIdentifier, setRecoverIdentifier] = useState(
+    () => initialDraft?.recoverIdentifier || ''
+  );
   const [identifiedAccount, setIdentifiedAccount] = useState<UserAccount | null>(null);
   const [recoverStoreNameInput, setRecoverStoreNameInput] = useState('');
   const [recoverUsernameInput, setRecoverUsernameInput] = useState('');
@@ -135,23 +152,63 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   );
 
   useEffect(() => {
-    setActiveMode(initialMode);
-    setWizardStep(1);
-    setRecoverStep(1);
-    setRecoverIdentifier('');
-    setIdentifiedAccount(null);
-    setRecoverStoreNameInput('');
-    setRecoverUsernameInput('');
-    setRecoverOwnerNameInput('');
-    setRecoverEmailInput('');
-    setRecoverPhoneLast4Input('');
-    setRecoverNewPassword('');
-    setRecoverRepeatPassword('');
-    setRegError('');
-    setLoginError('');
-    setRecoverError('');
-    setRecoverSuccess('');
+    const explicitMode = consumeExplicitLoginModeOverride();
+    if (explicitMode) {
+      setActiveMode(explicitMode);
+      setWizardStep(1);
+      setRecoverStep(1);
+      setRecoverIdentifier('');
+      setIdentifiedAccount(null);
+      setRecoverStoreNameInput('');
+      setRecoverUsernameInput('');
+      setRecoverOwnerNameInput('');
+      setRecoverEmailInput('');
+      setRecoverPhoneLast4Input('');
+      setRecoverNewPassword('');
+      setRecoverRepeatPassword('');
+      setRegError('');
+      setLoginError('');
+      setRecoverError('');
+      setRecoverSuccess('');
+    }
   }, [initialMode, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    saveLoginModalDraft({
+      activeMode,
+      loginUsername,
+      wizardStep,
+      regName,
+      regStoreName,
+      regAddress,
+      regTagline,
+      regInstagram,
+      regLogoBase64,
+      regPhone,
+      regEmail,
+      regUsername,
+      recoverStep: identifiedAccount ? recoverStep : 1,
+      recoverIdentifier,
+    });
+  }, [
+    isOpen,
+    activeMode,
+    loginUsername,
+    wizardStep,
+    regName,
+    regStoreName,
+    regAddress,
+    regTagline,
+    regInstagram,
+    regLogoBase64,
+    regPhone,
+    regEmail,
+    regUsername,
+    recoverStep,
+    recoverIdentifier,
+    identifiedAccount,
+  ]);
 
   const compressProfileImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -232,8 +289,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setIsLoginLoading(false);
 
       if (result.success && result.user) {
+        saveLoginModalDraft(null);
         onLoginSuccess(result.user);
-        if (onClose) onClose();
       } else {
         setLoginError(result.message);
       }
@@ -399,8 +456,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     // Faz o login automático na nova conta criada
     const loginRes = accountService.login(regUsername.trim(), regPassword);
     if (loginRes.success && loginRes.user) {
+      saveLoginModalDraft(null);
       onLoginSuccess(loginRes.user);
-      if (onClose) onClose();
     } else {
       setActiveMode('login');
       setLoginError('Conta criada com sucesso! Faça seu login abaixo.');
@@ -535,8 +592,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       );
 
       if (result.success && result.user) {
+        saveLoginModalDraft(null);
         onLoginSuccess(result.user);
-        if (onClose) onClose();
       } else {
         setRecoverError(result.message);
       }

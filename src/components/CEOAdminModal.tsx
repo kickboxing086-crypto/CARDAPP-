@@ -75,6 +75,25 @@ import {
   getOrderWhatsAppUrl,
 } from '../utils/comandaFormatter';
 import { ELEGANT_FONTS, getFontClass } from '../utils/typography';
+import {
+  CeoTabMode,
+  loadCeoActiveTab,
+  saveCeoActiveTab,
+  loadCeoOrderFilter,
+  saveCeoOrderFilter,
+  loadCeoOrderSearch,
+  saveCeoOrderSearch,
+  loadCeoNewCategoryInput,
+  saveCeoNewCategoryInput,
+  loadCeoProductFormDraft,
+  saveCeoProductFormDraft,
+  loadCeoDeliveryDraft,
+  saveCeoDeliveryDraft,
+  loadCeoSettingsDraft,
+  saveCeoSettingsDraft,
+  loadCeoPrintOrderId,
+  saveCeoPrintOrderId,
+} from '../utils/viewStatePersistence';
 
 interface CEOAdminModalProps {
   isOpen: boolean;
@@ -119,42 +138,32 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 }) => {
   const isSuperAdminViewing = Boolean(isAdminImpersonating || accountService.isImpersonating());
 
-  const [activeTab, setActiveTabState] = useState<'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status'>(() => {
+  const initialStoreIdForDrafts =
+    accountService.getCurrentSession()?.storeId || storageService.currentStoreId || 'default_store';
+
+  const [activeTab, setActiveTabState] = useState<CeoTabMode>(() => {
     const sess = accountService.getCurrentSession();
     if (sess?.planStatus === 'bloqueado' && sess?.role !== 'super_admin' && !accountService.isImpersonating()) {
       return 'status';
     }
-    try {
-      const saved = sessionStorage.getItem('cardapp_ceo_active_tab') || localStorage.getItem('cardapp_ceo_active_tab');
-      if (saved && ['orders', 'finance', 'products', 'delivery', 'settings', 'share', 'status'].includes(saved)) {
-        return saved as 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status';
-      }
-    } catch {}
-    return 'orders';
+    return loadCeoActiveTab(initialStoreIdForDrafts) || 'orders';
   });
 
-  const setActiveTab = (tab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
+  const setActiveTab = (tab: CeoTabMode) => {
     setActiveTabState(tab);
-    try {
-      sessionStorage.setItem('cardapp_ceo_active_tab', tab);
-      localStorage.setItem('cardapp_ceo_active_tab', tab);
-    } catch {}
+    saveCeoActiveTab(currentStoreId || initialStoreIdForDrafts, tab);
   };
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [orderFilter, setOrderFilterState] = useState<'all' | OrderStatus>(() => {
-    try {
-      const saved = sessionStorage.getItem('cardapp_ceo_order_filter');
-      if (saved && ['all', 'recebido', 'em_producao', 'em_rota', 'finalizado'].includes(saved)) {
-        return saved as 'all' | OrderStatus;
-      }
-    } catch {}
+    const saved = loadCeoOrderFilter(initialStoreIdForDrafts);
+    if (saved && ['all', 'recebido', 'em_producao', 'em_rota', 'finalizado'].includes(saved)) {
+      return saved as 'all' | OrderStatus;
+    }
     return 'all';
   });
   const setOrderFilter = (filter: 'all' | OrderStatus) => {
     setOrderFilterState(filter);
-    try {
-      sessionStorage.setItem('cardapp_ceo_order_filter', filter);
-    } catch {}
+    saveCeoOrderFilter(currentStoreId || initialStoreIdForDrafts, filter);
   };
 
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => {
@@ -172,10 +181,20 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     } catch {}
   };
   const [copiedClientLink, setCopiedClientLink] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState(() =>
+    loadCeoNewCategoryInput(initialStoreIdForDrafts)
+  );
+  const [orderSearchQuery, setOrderSearchQuery] = useState(() =>
+    loadCeoOrderSearch(initialStoreIdForDrafts)
+  );
   const [orderActionFeedback, setOrderActionFeedback] = useState<string | null>(null);
-  const [printOrder, setPrintOrder] = useState<Order | null>(null);
+  const [printOrder, setPrintOrder] = useState<Order | null>(() => {
+    const savedPrintId = loadCeoPrintOrderId(initialStoreIdForDrafts);
+    if (savedPrintId) {
+      return orders.find((o) => o.id === savedPrintId) || null;
+    }
+    return null;
+  });
 
   // Loja Oficial com ID real da loja do CEO
   const [accountSession, setAccountSession] = useState<UserAccount | null>(() => accountService.getCurrentSession());
@@ -323,7 +342,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const handleNavigateTab = (targetTab: 'orders' | 'finance' | 'products' | 'delivery' | 'settings' | 'share' | 'status') => {
     const isBloqueado = currentSession?.planStatus === 'bloqueado';
     if (isBloqueado && targetTab !== 'status' && currentSession?.role !== 'super_admin' && !isSuperAdminViewing) {
-      setBlockedAlertNotice('Acesso bloqueado. Solicite a renovação do plano pelo WhatsApp para reativar seu painel.');
+      setBlockedAlertNotice('Acesso bloqueado. Acesse "Status da Conta" para verificar sua assinatura e solicitar a reativação.');
       setActiveTab('status');
       setIsMobileSidebarOpen(false);
       return;
@@ -336,12 +355,24 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [logoutConfirmationStep, setLogoutConfirmationStep] = useState<1 | 2>(1);
 
   // Delivery Neighborhoods State (CEO manages state, city and neighborhoods)
-  const [deliveryState, setDeliveryState] = useState('RN');
-  const [deliveryCity, setDeliveryCity] = useState('Natal');
-  const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('');
-  const [deliveryFeeValue, setDeliveryFeeValue] = useState('');
-  const [deliveryEstimatedTime, setDeliveryEstimatedTime] = useState('30 - 45 min');
-  const [deliverySearchQuery, setDeliverySearchQuery] = useState('');
+  const initialDeliveryDraft = useMemo(
+    () => loadCeoDeliveryDraft(currentStoreId || initialStoreIdForDrafts),
+    [currentStoreId, initialStoreIdForDrafts]
+  );
+  const [deliveryState, setDeliveryState] = useState(() => initialDeliveryDraft?.deliveryState ?? 'RN');
+  const [deliveryCity, setDeliveryCity] = useState(() => initialDeliveryDraft?.deliveryCity ?? 'Natal');
+  const [deliveryNeighborhood, setDeliveryNeighborhood] = useState(
+    () => initialDeliveryDraft?.deliveryNeighborhood ?? ''
+  );
+  const [deliveryFeeValue, setDeliveryFeeValue] = useState(
+    () => initialDeliveryDraft?.deliveryFeeValue ?? ''
+  );
+  const [deliveryEstimatedTime, setDeliveryEstimatedTime] = useState(
+    () => initialDeliveryDraft?.deliveryEstimatedTime ?? '30 - 45 min'
+  );
+  const [deliverySearchQuery, setDeliverySearchQuery] = useState(
+    () => initialDeliveryDraft?.deliverySearchQuery ?? ''
+  );
   const [deliverySuccessMsg, setDeliverySuccessMsg] = useState('');
   const neighborhoodInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -355,38 +386,147 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const [tableToDelete, setTableToDelete] = useState<string | null>(null);
   const [tableDeleteStep, setTableDeleteStep] = useState<1 | 2>(1);
   const [deleteAllTablesStep, setDeleteAllTablesStep] = useState<0 | 1 | 2>(0);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+  const [categoryDeleteStep, setCategoryDeleteStep] = useState<1 | 2>(1);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [productDeleteStep, setProductDeleteStep] = useState<1 | 2>(1);
 
-  // Form State for Add / Edit Product
-  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [prodName, setProdName] = useState('');
-  const [prodCategory, setProdCategory] = useState('acai');
-  const [prodPrice, setProdPrice] = useState('');
-  const [prodDescription, setProdDescription] = useState('');
-  const [prodImageBase64, setProdImageBase64] = useState<string>('');
+  // Form State for Add / Edit Product (restaurado automaticamente após refresh)
+  const initialProductDraft = useMemo(
+    () => loadCeoProductFormDraft(currentStoreId || initialStoreIdForDrafts),
+    [currentStoreId, initialStoreIdForDrafts]
+  );
+  const [isProductFormOpen, setIsProductFormOpen] = useState(() => Boolean(initialProductDraft?.isOpen));
+  const [editingProductId, setEditingProductId] = useState<string | null>(
+    () => initialProductDraft?.editingProductId ?? null
+  );
+  const [prodName, setProdName] = useState(() => initialProductDraft?.prodName ?? '');
+  const [prodCategory, setProdCategory] = useState(() => initialProductDraft?.prodCategory ?? 'acai');
+  const [prodPrice, setProdPrice] = useState(() => initialProductDraft?.prodPrice ?? '');
+  const [prodDescription, setProdDescription] = useState(() => initialProductDraft?.prodDescription ?? '');
+  const [prodImageBase64, setProdImageBase64] = useState<string>(
+    () => initialProductDraft?.prodImageBase64 ?? ''
+  );
   const [isUploadingProdImage, setIsUploadingProdImage] = useState(false);
   const [prodImageError, setProdImageError] = useState<string | null>(null);
-  const [prodAvailable, setProdAvailable] = useState(true);
+  const [prodAvailable, setProdAvailable] = useState(() =>
+    initialProductDraft ? initialProductDraft.prodAvailable : true
+  );
 
   // Promotion Form State
-  const [hasPromo, setHasPromo] = useState(false);
-  const [promoQty, setPromoQty] = useState('2');
-  const [promoPrice, setPromoPrice] = useState('');
+  const [hasPromo, setHasPromo] = useState(() => Boolean(initialProductDraft?.hasPromo));
+  const [promoQty, setPromoQty] = useState(() => initialProductDraft?.promoQty ?? '2');
+  const [promoPrice, setPromoPrice] = useState(() => initialProductDraft?.promoPrice ?? '');
 
   // Complements Form State
-  const [complementsList, setComplementsList] = useState<ProductComplement[]>([]);
-  const [newCompName, setNewCompName] = useState('');
-  const [newCompPrice, setNewCompPrice] = useState('');
+  const [complementsList, setComplementsList] = useState<ProductComplement[]>(
+    () => initialProductDraft?.complementsList ?? []
+  );
+  const [newCompName, setNewCompName] = useState(() => initialProductDraft?.newCompName ?? '');
+  const [newCompPrice, setNewCompPrice] = useState(() => initialProductDraft?.newCompPrice ?? '');
 
-  // Form State for Store Settings
-  const [localSettings, setLocalSettings] = useState<StoreSettings>({ ...settings });
+  // Form State for Store Settings (preserva edições não salvas em caso de refresh)
+  const initialSettingsDraft = useMemo(
+    () => loadCeoSettingsDraft(currentStoreId || initialStoreIdForDrafts),
+    [currentStoreId, initialStoreIdForDrafts]
+  );
+  const [localSettings, setLocalSettings] = useState<StoreSettings>(
+    () => initialSettingsDraft || { ...settings }
+  );
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
   const localSettingsRef = React.useRef<StoreSettings>(localSettings);
   localSettingsRef.current = localSettings;
-  const isSettingsDirtyRef = React.useRef<boolean>(false);
+  const isSettingsDirtyRef = React.useRef<boolean>(Boolean(initialSettingsDraft));
   const lastSyncedStoreIdRef = React.useRef<string>(currentStoreId);
   const lastSettingsSnapshotRef = React.useRef<string>(JSON.stringify(settings));
   const settingsSavedTimeoutRef = React.useRef<number | null>(null);
+
+  // Sincronização em tempo real dos rascunhos do CEO para sobreviver a F5 / refresh acidental
+  useEffect(() => {
+    saveCeoOrderSearch(currentStoreId, orderSearchQuery);
+  }, [currentStoreId, orderSearchQuery]);
+
+  useEffect(() => {
+    saveCeoNewCategoryInput(currentStoreId, newCategoryName);
+  }, [currentStoreId, newCategoryName]);
+
+  useEffect(() => {
+    saveCeoDeliveryDraft(currentStoreId, {
+      deliveryState,
+      deliveryCity,
+      deliveryNeighborhood,
+      deliveryFeeValue,
+      deliveryEstimatedTime,
+      deliverySearchQuery,
+    });
+  }, [
+    currentStoreId,
+    deliveryState,
+    deliveryCity,
+    deliveryNeighborhood,
+    deliveryFeeValue,
+    deliveryEstimatedTime,
+    deliverySearchQuery,
+  ]);
+
+  useEffect(() => {
+    if (!isProductFormOpen) {
+      saveCeoProductFormDraft(currentStoreId, null);
+      return;
+    }
+    saveCeoProductFormDraft(currentStoreId, {
+      isOpen: true,
+      editingProductId,
+      prodName,
+      prodCategory,
+      prodPrice,
+      prodDescription,
+      prodImageBase64,
+      prodAvailable,
+      hasPromo,
+      promoQty,
+      promoPrice,
+      complementsList,
+      newCompName,
+      newCompPrice,
+    });
+  }, [
+    currentStoreId,
+    isProductFormOpen,
+    editingProductId,
+    prodName,
+    prodCategory,
+    prodPrice,
+    prodDescription,
+    prodImageBase64,
+    prodAvailable,
+    hasPromo,
+    promoQty,
+    promoPrice,
+    complementsList,
+    newCompName,
+    newCompPrice,
+  ]);
+
+  useEffect(() => {
+    saveCeoPrintOrderId(currentStoreId, printOrder?.id || null);
+  }, [currentStoreId, printOrder?.id]);
+
+  useEffect(() => {
+    if (!printOrder) {
+      const savedId = loadCeoPrintOrderId(currentStoreId);
+      if (savedId && orders.length > 0) {
+        const match = orders.find((o) => o.id === savedId);
+        if (match) setPrintOrder(match);
+      }
+    }
+  }, [currentStoreId, orders]);
+
+  useEffect(() => {
+    if (isSettingsDirtyRef.current) {
+      saveCeoSettingsDraft(currentStoreId, localSettings);
+    }
+  }, [currentStoreId, localSettings]);
 
   const showSettingsSavedToast = () => {
     setSettingsSavedMessage(true);
@@ -402,6 +542,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     const next = updater(localSettingsRef.current);
     localSettingsRef.current = next;
     isSettingsDirtyRef.current = false;
+    saveCeoSettingsDraft(currentStoreId, null);
     lastSettingsSnapshotRef.current = JSON.stringify(next);
     setLocalSettings(next);
     onSaveSettings(next);
@@ -430,9 +571,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     const storeChanged = lastSyncedStoreIdRef.current !== currentStoreId;
     if (storeChanged) {
       lastSyncedStoreIdRef.current = currentStoreId;
-      isSettingsDirtyRef.current = false;
+      const savedDraft = loadCeoSettingsDraft(currentStoreId);
+      isSettingsDirtyRef.current = Boolean(savedDraft);
       lastSettingsSnapshotRef.current = nextSnapshot;
-      setLocalSettings({ ...settings });
+      setLocalSettings(savedDraft || { ...settings });
       return;
     }
     if (!isSettingsDirtyRef.current && nextSnapshot !== lastSettingsSnapshotRef.current) {
@@ -811,6 +953,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     e.preventDefault();
     const toSave = { ...localSettingsRef.current };
     isSettingsDirtyRef.current = false;
+    saveCeoSettingsDraft(currentStoreId, null);
     lastSettingsSnapshotRef.current = JSON.stringify(toSave);
     onSaveSettings(toSave);
     accountService.updateStoreProfile(currentStoreId, {
@@ -878,7 +1021,31 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       ...prev,
       tables: [],
     }));
-    setDeleteAllTablesStep(1);
+    setDeleteAllTablesStep(0);
+  };
+
+  const handleStartDeleteCategory = (cat: Category) => {
+    setCategoryToDelete(cat);
+    setCategoryDeleteStep(1);
+  };
+
+  const handleConfirmDeleteCategory = () => {
+    if (!categoryToDelete) return;
+    onDeleteCategory(categoryToDelete.id);
+    setCategoryToDelete(null);
+    setCategoryDeleteStep(1);
+  };
+
+  const handleStartDeleteProduct = (prod: Product) => {
+    setProductToDelete(prod);
+    setProductDeleteStep(1);
+  };
+
+  const handleConfirmDeleteProduct = () => {
+    if (!productToDelete) return;
+    onDeleteProduct(productToDelete.id);
+    setProductToDelete(null);
+    setProductDeleteStep(1);
   };
 
   // Copy share link
@@ -1059,7 +1226,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <span>ACESSO BLOQUEADO</span>
                 </div>
                 <p className="text-[10px] leading-tight text-red-800 font-medium">
-                  Solicite a renovação pelo WhatsApp na aba "Renovar Plano" para liberar todas as funções.
+                  Acesse a aba "Status da Conta" para regularizar e liberar todas as funções.
                 </p>
               </div>
             )}
@@ -1195,30 +1362,52 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
               onClick={() => handleNavigateTab('status')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${
                 activeTab === 'status'
-                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-md ring-2 ring-emerald-300'
+                  ? 'bg-slate-950 text-white shadow-md ring-2 ring-amber-400/60'
                   : currentSession?.planStatus === 'bloqueado'
                   ? 'bg-red-100 text-red-950 shadow-sm border border-red-300 animate-pulse'
-                  : 'bg-emerald-50/90 text-emerald-950 border border-emerald-300 hover:bg-emerald-100'
+                  : daysUntilExpiry <= 5 && currentSession?.planTier !== 'vitalicio'
+                  ? 'bg-amber-50 text-amber-950 border border-amber-300 hover:bg-amber-100'
+                  : 'bg-emerald-50/90 text-emerald-950 border border-emerald-200 hover:bg-emerald-100'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <MessageCircle className={`w-4 h-4 stroke-[2.5] ${activeTab === 'status' ? 'text-white' : 'text-emerald-700'}`} />
-                <span>Renovar Plano</span>
+                <ShieldCheck
+                  className={`w-4 h-4 stroke-[2.5] ${
+                    activeTab === 'status'
+                      ? 'text-amber-400'
+                      : currentSession?.planStatus === 'bloqueado'
+                      ? 'text-red-700'
+                      : daysUntilExpiry <= 5 && currentSession?.planTier !== 'vitalicio'
+                      ? 'text-amber-700'
+                      : 'text-emerald-700'
+                  }`}
+                />
+                <span>Status da Conta</span>
               </div>
               {currentSession?.planStatus === 'bloqueado' ? (
-                <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-1.5 py-0.5 rounded flex items-center gap-1">
+                <span className="text-[10px] uppercase font-black text-red-800 bg-red-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" />
                   Bloqueado
                 </span>
+              ) : currentSession?.planTier === 'vitalicio' ? (
+                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-400 text-slate-950">
+                  Vitalício
+                </span>
+              ) : daysUntilExpiry <= 0 ? (
+                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-red-600 text-white">
+                  Vencido
+                </span>
               ) : (
                 <span
-                  className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                  className={`text-[10px] font-mono tabular-nums font-black px-2 py-0.5 rounded-full ${
                     activeTab === 'status'
-                      ? 'bg-slate-950 text-amber-300'
+                      ? 'bg-amber-400 text-slate-950'
+                      : daysUntilExpiry <= 5
+                      ? 'bg-amber-400 text-slate-950'
                       : 'bg-emerald-600 text-white'
                   }`}
                 >
-                  WhatsApp
+                  {daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}
                 </span>
               )}
             </button>
@@ -1319,51 +1508,76 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* Faixa Superior em Destaque para Renovação do Plano via WhatsApp */}
+          {/* Faixa Superior Organizada de Status da Conta e Dias Restantes */}
           {currentSession &&
-            currentSession.role !== 'super_admin' &&
-            currentSession.planTier !== 'vitalicio' && (
-              daysUntilExpiry <= 5 && daysUntilExpiry >= 0 ? (
-                <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-500 text-slate-950 px-4 py-3 font-bold text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md shrink-0 animate-in fade-in">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-slate-950 text-emerald-400 flex items-center justify-center shrink-0">
-                      <MessageCircle className="w-4 h-4 stroke-[2.5]" />
+            currentSession.role !== 'super_admin' && (
+              currentSession.planStatus === 'bloqueado' || (currentSession.planTier !== 'vitalicio' && daysUntilExpiry <= 5) ? (
+                <div className={`px-4 py-2.5 font-bold text-xs sm:text-sm flex flex-wrap items-center justify-between gap-3 shadow-xs shrink-0 animate-in fade-in ${
+                  currentSession.planStatus === 'bloqueado' || daysUntilExpiry <= 0
+                    ? 'bg-red-600 text-white'
+                    : 'bg-amber-400 text-slate-950'
+                }`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4 stroke-[2.4]" />
                     </div>
-                    <span>
-                      <strong>{currentSession.planName || 'Teste Grátis'}:</strong> Restam{' '}
-                      <strong>{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>! Solicite sua renovação pelo{' '}
-                      <strong>WhatsApp</strong> com seu ID <code className="font-mono font-black">{currentUserCode}</code>.
-                    </span>
+                    <div className="min-w-0">
+                      <span className="block truncate">
+                        {currentSession.planStatus === 'bloqueado' ? (
+                          <><strong>Conta Bloqueada</strong> • ID <code className="font-mono font-black">{currentUserCode}</code></>
+                        ) : daysUntilExpiry <= 0 ? (
+                          <><strong>{currentSession.planName || 'Assinatura'}:</strong> Período expirado! ID <code className="font-mono font-black">{currentUserCode}</code></>
+                        ) : (
+                          <>
+                            <strong>{currentSession.planName || 'Teste Grátis'}:</strong> Restam{' '}
+                            <strong className="font-mono tabular-nums underline">{daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong> para expirar
+                            {currentSession.expiresAt ? ` (vence em ${new Date(currentSession.expiresAt).toLocaleDateString('pt-BR')})` : ''}
+                          </>
+                        )}
+                      </span>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => setActiveTab('status')}
-                    className="px-4 py-2 bg-slate-950 text-emerald-300 font-black text-xs uppercase tracking-wide rounded-xl shrink-0 cursor-pointer shadow-sm hover:bg-slate-900 flex items-center gap-1.5"
+                    className="px-3.5 py-1.5 bg-slate-950 text-white font-black text-xs rounded-xl shrink-0 cursor-pointer shadow-xs hover:bg-slate-800 flex items-center gap-1.5"
                   >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>Solicitar Renovação</span>
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Status da Conta</span>
                   </button>
                 </div>
-              ) : activeTab !== 'status' ? (
-                <div className="bg-slate-950 text-white px-4 py-2 border-b border-emerald-500/30 flex items-center justify-between gap-3 shrink-0">
-                  <div className="flex items-center gap-2 text-xs min-w-0">
+              ) : (
+                <div className="bg-slate-950 text-white px-4 py-2 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2 text-xs min-w-0 flex-wrap">
                     <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-mono font-black text-[10px] shrink-0">
-                      {currentUserCode}
+                      ID: {currentUserCode}
                     </span>
-                    <span className="text-slate-200 font-semibold truncate">
-                      Precisa renovar sua assinatura? Solicite diretamente pelo <strong>WhatsApp</strong>
+                    <span className="text-slate-300 font-semibold truncate">
+                      {currentSession.planTier === 'vitalicio' ? (
+                        <>Plano <strong className="text-amber-300">Vitalício</strong> • Sem data de expiração</>
+                      ) : (
+                        <>
+                          Plano <strong className="text-white">{currentSession.planName || 'Ativo'}</strong> •{' '}
+                          <strong className="text-emerald-400 font-mono tabular-nums">
+                            Restam {daysUntilExpiry} {daysUntilExpiry === 1 ? 'dia' : 'dias'}
+                          </strong>
+                          {currentSession.expiresAt ? ` (Vence em ${new Date(currentSession.expiresAt).toLocaleDateString('pt-BR')})` : ''}
+                        </>
+                      )}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('status')}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wide flex items-center gap-1.5 cursor-pointer shrink-0"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>Renovar Plano</span>
-                  </button>
+                  {activeTab !== 'status' && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('status')}
+                      className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-amber-300 font-black text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Status da Conta</span>
+                    </button>
+                  )}
                 </div>
-              ) : null
+              )
             )}
           {/* Top Bar of Active Tab */}
           <div className="bg-white border-b border-amber-200 px-4 py-3 flex items-center justify-between shrink-0">
@@ -1420,8 +1634,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 )}
                 {activeTab === 'status' && (
                   <>
-                    <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="truncate">Renovação do Plano & Status da Conta</span>
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">Status da Conta</span>
                   </>
                 )}
               </h2>
@@ -2137,9 +2351,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       {cat.id !== 'todos' && (
                         <button
                           type="button"
-                          onClick={() => onDeleteCategory(cat.id)}
+                          onClick={() => handleStartDeleteCategory(cat)}
                           className="p-0.5 rounded text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                          title={`Excluir categoria ${cat.name}`}
+                          title={`Excluir categoria ${cat.name} (2 etapas)`}
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2527,9 +2741,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => onDeleteProduct(prod.id)}
-                        className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Excluir Produto"
+                        onClick={() => handleStartDeleteProduct(prod)}
+                        className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Excluir Produto (2 etapas)"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -3525,21 +3739,21 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
             </div>
           )}
 
-          {/* TAB 7: RENOVAÇÃO DO PLANO VIA WHATSAPP OFICIAL + ID ÚNICO DO USUÁRIO */}
+          {/* TAB 7: STATUS DA CONTA & DIAS RESTANTES */}
           {activeTab === 'status' && (
             <div className="space-y-6 max-w-2xl mx-auto py-2">
-              {/* Header do Status */}
+              {/* Header do Status da Conta */}
               <div className="text-center pb-1">
                 <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-2.5 shadow-xs ${
                   currentSession?.planStatus === 'bloqueado'
                     ? 'bg-red-100 text-red-700'
-                    : daysUntilExpiry <= 5
+                    : daysUntilExpiry <= 5 && currentSession?.planTier !== 'vitalicio'
                     ? 'bg-amber-100 text-amber-800'
                     : 'bg-emerald-100 text-emerald-700'
                 }`}>
                   {currentSession?.planStatus === 'bloqueado' ? (
                     <Lock className="w-6 h-6" />
-                  ) : daysUntilExpiry <= 5 ? (
+                  ) : daysUntilExpiry <= 5 && currentSession?.planTier !== 'vitalicio' ? (
                     <Clock className="w-6 h-6" />
                   ) : (
                     <ShieldCheck className="w-6 h-6" />
@@ -3547,42 +3761,109 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 </div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
                   {currentSession?.planStatus === 'bloqueado'
-                    ? 'Acesso Bloqueado • Solicite sua Renovação'
-                    : 'Renovação da Assinatura via WhatsApp'}
+                    ? 'Status da Conta • Acesso Bloqueado'
+                    : 'Status da Conta'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {currentSession?.planStatus === 'bloqueado'
-                    ? 'Clique no botão abaixo para falar diretamente com o administrador no WhatsApp e reativar sua conta.'
-                    : currentSession?.planTier === 'vitalicio'
-                    ? 'Sua loja possui licença Vitalícia ativa.'
-                    : `Plano atual: ${currentSession?.planName || 'Teste Grátis 5 Dias'} • Restam ${Math.max(0, daysUntilExpiry)} ${daysUntilExpiry === 1 ? 'dia' : 'dias'}.`}
+                  Acompanhe a validade do seu plano, os dias restantes até o vencimento e os detalhes da sua assinatura.
                 </p>
               </div>
 
-              {/* CARD PRINCIPAL: RENOVAÇÃO DIRETA NO WHATSAPP + ID ÚNICO DO USUÁRIO */}
-              <div className="bg-white rounded-3xl border-2 border-emerald-500 shadow-2xl shadow-emerald-900/10 overflow-hidden">
-                <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-400/30">
+              {/* RESUMO ORGANIZADO DE DIAS RESTANTES E VENCIMENTO */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className={`p-4 rounded-2xl border bg-white shadow-2xs ${
+                  currentSession?.planStatus === 'bloqueado' || (currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 0)
+                    ? 'border-red-300'
+                    : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 5
+                    ? 'border-amber-300'
+                    : 'border-emerald-200'
+                }`}>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                    Dias Restantes
+                  </span>
+                  <span className={`text-xl sm:text-2xl font-black font-mono tabular-nums mt-1 block ${
+                    currentSession?.planStatus === 'bloqueado' || (currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 0)
+                      ? 'text-red-700'
+                      : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 5
+                      ? 'text-amber-700'
+                      : 'text-emerald-700'
+                  }`}>
+                    {currentSession?.planTier === 'vitalicio'
+                      ? 'Vitalício'
+                      : `${Math.max(0, daysUntilExpiry)} ${Math.max(0, daysUntilExpiry) === 1 ? 'dia' : 'dias'}`}
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                    Vencimento
+                  </span>
+                  <span className="text-sm sm:text-base font-black font-mono tabular-nums text-slate-950 mt-1.5 block">
+                    {currentSession?.planTier === 'vitalicio'
+                      ? 'Sem expiração'
+                      : currentSession?.expiresAt
+                      ? new Date(currentSession.expiresAt).toLocaleDateString('pt-BR')
+                      : 'Não definido'}
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                    Plano Atual
+                  </span>
+                  <span className="text-sm font-black text-slate-950 mt-1.5 block truncate">
+                    {currentSession?.planName || 'Teste Grátis (5 dias)'}
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                    Situação
+                  </span>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black mt-1.5 ${
+                    currentSession?.planStatus === 'bloqueado'
+                      ? 'bg-red-100 text-red-700'
+                      : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 0
+                      ? 'bg-red-100 text-red-700'
+                      : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 5
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {currentSession?.planStatus === 'bloqueado'
+                      ? 'Bloqueada'
+                      : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 0
+                      ? 'Vencida'
+                      : currentSession?.planTier !== 'vitalicio' && daysUntilExpiry <= 5
+                      ? 'Vencendo'
+                      : 'Ativa'}
+                  </span>
+                </div>
+              </div>
+
+              {/* CARD PRINCIPAL: STATUS DA CONTA, ID EXCLUSIVO E ATENDIMENTO */}
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-950 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800">
                   <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/30">
-                      <MessageCircle className="w-6 h-6 stroke-[2.5]" />
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0 shadow-md">
+                      <ShieldCheck className="w-6 h-6 stroke-[2.5]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                          Atendimento Direto • WhatsApp Oficial
+                          Status da Conta • Atendimento Oficial
                         </span>
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950">
-                          R$ 29,99/mês
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-mono">
+                          {formatCurrency(currentSession?.monthlyFee ?? 29.99)}
                         </span>
                       </div>
                       <h4 className="text-base sm:text-lg font-black mt-1">
-                        Solicitar Renovação do Plano
+                        Detalhes da Assinatura & Renovação
                       </h4>
                     </div>
                   </div>
 
-                  <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-emerald-400/40 text-left sm:text-right shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 block">
+                  <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-white/15 text-left sm:text-right shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
                       Seu ID Exclusivo
                     </span>
                     <span className="text-sm font-black font-mono text-amber-300">
@@ -3597,7 +3878,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                     <div className="w-full p-3.5 rounded-2xl bg-red-50 border border-red-300 text-red-900 font-bold text-xs flex items-center gap-2 text-left">
                       <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
                       <span>
-                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Solicite a renovação no WhatsApp abaixo informando seu ID <strong>{currentUserCode}</strong>.
+                        <strong>Acesso Bloqueado:</strong> {currentSession.blockedReason || 'Seu período vigente expirou.'} Solicite a reativação no botão abaixo informando seu ID <strong>{currentUserCode}</strong>.
                       </span>
                     </div>
                   ) : currentSession?.planTier === 'vitalicio' ? (
@@ -3608,10 +3889,12 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       </span>
                     </div>
                   ) : (
-                    <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold text-xs flex items-center gap-2 text-left">
+                    <div className="w-full p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 font-bold text-xs flex items-center gap-2 text-left">
                       <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
                       <span>
-                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam <strong>{Math.max(0, daysUntilExpiry)} {daysUntilExpiry === 1 ? 'dia' : 'dias'}</strong>. Clique abaixo para solicitar sua renovação diretamente no WhatsApp.
+                        <strong>{currentSession?.planName || 'Período de Teste Grátis (5 dias)'}:</strong> Restam{' '}
+                        <strong className="font-mono tabular-nums">{Math.max(0, daysUntilExpiry)} {Math.max(0, daysUntilExpiry) === 1 ? 'dia' : 'dias'}</strong>{' '}
+                        {currentSession?.expiresAt ? `(expira em ${new Date(currentSession.expiresAt).toLocaleDateString('pt-BR')})` : ''}.
                       </span>
                     </div>
                   )}
@@ -4210,12 +4493,211 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA EXCLUIR MESA INDIVIDUAL */}
       {tableToDelete && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-sm w-full border-2 border-red-300 shadow-2xl p-6 space-y-4">
-            <h3 className="text-lg font-black text-slate-950 text-center">Confirmar exclusão de {tableToDelete}?</h3>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setTableToDelete(null)} className="flex-1 py-2 rounded-xl border border-slate-300 text-xs font-bold">Cancelar</button>
-              <button type="button" onClick={handleConfirmDeleteTable} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-black">Confirmar Exclusão</button>
+          <div className="bg-white rounded-3xl max-w-md w-full border border-red-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600 stroke-[2.4]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mb-0.5">
+                  {tableDeleteStep === 1 ? 'Confirmação de Exclusão (1/2)' : 'Confirmação Definitiva (2/2)'}
+                </span>
+                <h3 className="text-base font-black text-slate-950">
+                  {tableDeleteStep === 1 ? `Excluir ${tableToDelete}?` : 'Confirmar Remoção Permanente'}
+                </h3>
+              </div>
             </div>
+
+            {tableDeleteStep === 1 ? (
+              <>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Deseja remover <strong className="text-slate-950">{tableToDelete}</strong> da lista de mesas do salão?
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableToDelete(null);
+                      setTableDeleteStep(1);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableDeleteStep(2)}
+                    className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black cursor-pointer"
+                  >
+                    Avançar (Etapa 2/2) →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 bg-red-50 rounded-xl border border-red-200 text-xs text-red-800 font-medium">
+                  Esta ação removerá definitivamente <strong>{tableToDelete}</strong> das opções do cardápio.
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setTableDeleteStep(1)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteTable}
+                    className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-black cursor-pointer"
+                  >
+                    Sim, Excluir Mesa!
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA EXCLUIR CATEGORIA */}
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-red-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600 stroke-[2.4]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mb-0.5">
+                  {categoryDeleteStep === 1 ? 'Confirmação de Exclusão (1/2)' : 'Confirmação Definitiva (2/2)'}
+                </span>
+                <h3 className="text-base font-black text-slate-950">
+                  {categoryDeleteStep === 1 ? 'Excluir Categoria?' : 'Confirmar Exclusão Permanente'}
+                </h3>
+              </div>
+            </div>
+
+            {categoryDeleteStep === 1 ? (
+              <>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Você deseja excluir a categoria <strong className="text-slate-950">"{categoryToDelete.name}"</strong> do seu cardápio?
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryToDelete(null);
+                      setCategoryDeleteStep(1);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCategoryDeleteStep(2)}
+                    className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black cursor-pointer"
+                  >
+                    Avançar (Etapa 2/2) →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 bg-red-50 rounded-xl border border-red-200 text-xs text-red-800 font-medium">
+                  Atenção: A remoção da categoria <strong>"{categoryToDelete.name}"</strong> é permanente. Deseja realmente excluir?
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryDeleteStep(1)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteCategory}
+                    className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-black cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sim, Excluir Categoria!</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE DUAS ETAPAS PARA EXCLUIR PRODUTO */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-red-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600 stroke-[2.4]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mb-0.5">
+                  {productDeleteStep === 1 ? 'Confirmação de Exclusão (1/2)' : 'Confirmação Definitiva (2/2)'}
+                </span>
+                <h3 className="text-base font-black text-slate-950">
+                  {productDeleteStep === 1 ? 'Excluir Produto do Cardápio?' : 'Confirmar Exclusão Permanente'}
+                </h3>
+              </div>
+            </div>
+
+            {productDeleteStep === 1 ? (
+              <>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Você deseja remover o produto <strong className="text-slate-950">"{productToDelete.name}"</strong> ({formatCurrency(productToDelete.price)}) do cardápio?
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductToDelete(null);
+                      setProductDeleteStep(1);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductDeleteStep(2)}
+                    className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black cursor-pointer"
+                  >
+                    Avançar (Etapa 2/2) →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 bg-red-50 rounded-xl border border-red-200 text-xs text-red-800 font-medium">
+                  Esta ação é irreversível. O produto <strong>"{productToDelete.name}"</strong> será removido permanentemente do seu cardápio.
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setProductDeleteStep(1)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteProduct}
+                    className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-black cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sim, Excluir Produto!</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
