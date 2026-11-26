@@ -5,6 +5,7 @@ import {
   SelectedComplement,
   StoreSettings,
   PlanTier,
+  PlanPeriod,
 } from '../types';
 
 export type AppViewMode = 'landing' | 'menu' | 'login';
@@ -556,6 +557,22 @@ export function saveCeoPrintOrderId(storeId: string, orderId: string | null): vo
 export function loadCeoPrintOrderId(storeId: string): string | null {
   const scope = getStoreScope(storeId);
   return safeGetItem(getStorageSafe('session'), `cardapp_ceo_print_order_${scope}`);
+}
+
+export function saveCeoSelectedRenewalPlan(storeId: string, plan: PlanPeriod): void {
+  const scope = getStoreScope(storeId);
+  const key = `cardapp_ceo_renewal_plan_${scope}`;
+  safeSetItem(getStorageSafe('session'), key, plan);
+  safeSetItem(getStorageSafe('local'), key, plan);
+}
+
+export function loadCeoSelectedRenewalPlan(storeId: string): PlanPeriod | null {
+  const scope = getStoreScope(storeId);
+  const key = `cardapp_ceo_renewal_plan_${scope}`;
+  const valid: PlanPeriod[] = ['mensal', 'trimestral', 'semestral', 'anual', 'vitalicio'];
+  const val = safeGetItem(getStorageSafe('session'), key) || safeGetItem(getStorageSafe('local'), key);
+  if (val && valid.includes(val as PlanPeriod)) return val as PlanPeriod;
+  return null;
 }
 
 // ============================================================

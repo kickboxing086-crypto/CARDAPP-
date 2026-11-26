@@ -65,6 +65,7 @@ import {
   NeighborhoodDeliveryFee,
   UserAccount,
   PaymentInvoice,
+  PlanPeriod,
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
@@ -93,6 +94,8 @@ import {
   saveCeoSettingsDraft,
   loadCeoPrintOrderId,
   saveCeoPrintOrderId,
+  loadCeoSelectedRenewalPlan,
+  saveCeoSelectedRenewalPlan,
 } from '../utils/viewStatePersistence';
 
 interface CEOAdminModalProps {
@@ -268,6 +271,34 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   });
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
 
+  const RENEWAL_PLAN_OPTIONS = useMemo(
+    () => [
+      { id: 'mensal' as PlanPeriod, name: 'Plano Mensal', price: 29.99, periodLabel: '30 dias', tagline: 'Mais popular para começar', badge: 'Popular' },
+      { id: 'trimestral' as PlanPeriod, name: 'Plano Trimestral', price: 69.90, periodLabel: '90 dias', tagline: 'Economize R$ 20,00', badge: 'Economia' },
+      { id: 'semestral' as PlanPeriod, name: 'Plano Semestral', price: 129.90, periodLabel: '180 dias', tagline: 'Economize R$ 50,00', badge: 'Destaque' },
+      { id: 'anual' as PlanPeriod, name: 'Plano Anual', price: 239.90, periodLabel: '365 dias (1 ano)', tagline: 'Melhor custo/benefício', badge: 'Mais vantajoso' },
+      { id: 'vitalicio' as PlanPeriod, name: 'Plano Vitalício', price: 499.90, periodLabel: 'Sem expiração', tagline: 'Acesso permanente exclusivo', badge: 'VIP Permanente' },
+    ],
+    []
+  );
+
+  const [selectedRenewalPlan, setSelectedRenewalPlan] = useState<PlanPeriod>(() => {
+    const saved = loadCeoSelectedRenewalPlan(currentStoreId || initialStoreIdForDrafts);
+    if (saved) return saved;
+    if (currentSession?.planTier === 'vitalicio') return 'vitalicio';
+    if (
+      currentSession?.planTier &&
+      ['mensal', 'trimestral', 'semestral', 'anual', 'vitalicio'].includes(currentSession.planTier)
+    ) {
+      return currentSession.planTier as PlanPeriod;
+    }
+    return 'mensal';
+  });
+
+  useEffect(() => {
+    saveCeoSelectedRenewalPlan(currentStoreId, selectedRenewalPlan);
+  }, [currentStoreId, selectedRenewalPlan]);
+
   // Mantém a lista de faturas atualizada quando a sessão muda
   useEffect(() => {
     if (currentSession?.id) {
@@ -290,6 +321,9 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
         ? 'Vencido / Expirado'
         : `Ativo (${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'dia restante' : 'dias restantes'})`;
 
+    const chosenPlan =
+      RENEWAL_PLAN_OPTIONS.find((p) => p.id === selectedRenewalPlan) || RENEWAL_PLAN_OPTIONS[0];
+
     return [
       'Olá! Gostaria de solicitar a *renovação do meu plano CARDAPP*.',
       '',
@@ -299,9 +333,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
       `🔑 *Usuário:* ${usernameLabel}`,
       `📱 *WhatsApp:* ${phoneLabel}`,
       `📋 *Plano Atual:* ${planLabel}`,
-      `📌 *Status:* ${statusLabel}`,
+      `📌 *Status Atual:* ${statusLabel}`,
       '',
-      'Aguardo as instruções para concluir a renovação. Obrigado!',
+      `🎯 *Plano Selecionado para Renovação:* ${chosenPlan.name} (${chosenPlan.periodLabel}) - ${formatCurrency(chosenPlan.price)}`,
+      '',
+      'Aguardo as instruções para concluir a ativação do meu plano. Obrigado!',
     ].join('\n');
   }, [
     currentUserCode,
@@ -315,6 +351,8 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     currentSession?.planStatus,
     currentSession?.planTier,
     daysUntilExpiry,
+    selectedRenewalPlan,
+    RENEWAL_PLAN_OPTIONS,
   ]);
 
   const renewalWhatsAppUrl = useMemo(
@@ -3940,6 +3978,92 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                       {copiedUserCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       <span>{copiedUserCode ? 'ID Copiado!' : 'Copiar ID'}</span>
                     </button>
+                  </div>
+
+                  {/* SELEÇÃO DO PLANO DESEJADO COM OPÇÃO MARCADA DE FORMA EVIDENTE */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-1">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <Crown className="w-4 h-4 text-amber-500" />
+                          <h5 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                            Selecione o Plano Desejado para Renovação:
+                          </h5>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Clique em uma opção para marcar o plano que deseja ativar.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 w-fit flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-700 stroke-[3]" />
+                        <span>Plano Marcado: {RENEWAL_PLAN_OPTIONS.find((p) => p.id === selectedRenewalPlan)?.name}</span>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {RENEWAL_PLAN_OPTIONS.map((plan) => {
+                        const isSelected = selectedRenewalPlan === plan.id;
+                        return (
+                          <button
+                            key={plan.id}
+                            type="button"
+                            onClick={() => setSelectedRenewalPlan(plan.id)}
+                            className={`p-3.5 rounded-2xl text-left transition-all cursor-pointer border flex flex-col justify-between gap-2 relative ${
+                              isSelected
+                                ? 'bg-emerald-50/90 border-2 border-emerald-600 ring-2 ring-emerald-400/40 text-emerald-950 shadow-sm'
+                                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`text-xs font-black block leading-tight ${isSelected ? 'text-emerald-950' : 'text-slate-900'}`}>
+                                    {plan.name}
+                                  </span>
+                                  {plan.badge && (
+                                    <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                      isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                    }`}>
+                                      {plan.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className={`text-[10px] block font-semibold mt-0.5 ${isSelected ? 'text-emerald-800' : 'text-slate-500'}`}>
+                                  {plan.periodLabel}
+                                </span>
+                              </div>
+
+                              {/* Indicador de Opção Marcada com Ícone de Check e Círculo */}
+                              <div
+                                className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                  isSelected
+                                    ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
+                                    : 'border-2 border-slate-300 bg-white'
+                                }`}
+                              >
+                                {isSelected ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/70">
+                              <span className={`text-sm font-black font-mono tabular-nums ${isSelected ? 'text-emerald-950' : 'text-slate-900'}`}>
+                                {formatCurrency(plan.price)}
+                              </span>
+                              {isSelected ? (
+                                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  <span>Marcado</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  Clique para marcar
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Pré-visualização da Mensagem Organizada */}

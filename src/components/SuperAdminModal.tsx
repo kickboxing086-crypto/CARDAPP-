@@ -193,6 +193,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const [drawerTab, setDrawerTab] = useState<'actions' | 'edit'>(
     () => initialDrawer?.tab || 'actions'
   );
+  const [selectedDrawerPlanId, setSelectedDrawerPlanId] = useState<string | null>(null);
   const [drawerBlockReason, setDrawerBlockReason] = useState('Falta de pagamento / Renovação pendente');
   const [alertActionAccountId, setAlertActionAccountId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -360,6 +361,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   const openAccountDrawer = (acc: UserAccount, initialTab: 'actions' | 'edit' = 'actions') => {
     setDrawerAccountId(acc.id);
     setDrawerTab(initialTab);
+    const matching = plans.find(
+      (p) => p.isActive && (p.period === acc.planTier || p.name === acc.planName)
+    );
+    setSelectedDrawerPlanId(matching ? matching.id : plans.find((p) => p.isActive)?.id || null);
     setDrawerBlockReason(acc.blockedReason || 'Falta de pagamento / Renovação pendente');
     setEditUsername(acc.username);
     setEditPassword(accountService.getAccountPassword(acc) || '');
@@ -2029,28 +2034,41 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                               <div className="flex flex-wrap gap-2">
                                 {plans
                                   .filter((p) => p.isActive)
-                                  .map((plan) => (
-                                    <button
-                                      key={plan.id}
-                                      type="button"
-                                      onClick={() => handleApplyPlanToAccount(acc, plan)}
-                                      className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                        plan.period === 'vitalicio'
-                                          ? 'bg-slate-950 hover:bg-slate-800 text-amber-400 border-amber-400/50 shadow-xs'
-                                          : 'bg-amber-50 hover:bg-amber-400 text-slate-950 border-amber-300'
-                                      }`}
-                                    >
-                                      {plan.period === 'vitalicio' ? (
-                                        <InfinityIcon className="w-3.5 h-3.5" />
-                                      ) : (
-                                        <RefreshCw className="w-3 h-3" />
-                                      )}
-                                      <span>{plan.name}</span>
-                                      <span className="opacity-75 font-mono">
-                                        ({formatCurrency(plan.price)})
-                                      </span>
-                                    </button>
-                                  ))}
+                                  .map((plan) => {
+                                    const isCurrentPlan =
+                                      acc.planTier === plan.period || acc.planName === plan.name;
+                                    return (
+                                      <button
+                                        key={plan.id}
+                                        type="button"
+                                        onClick={() => handleApplyPlanToAccount(acc, plan)}
+                                        className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                          isCurrentPlan
+                                            ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-300 shadow-xs'
+                                            : plan.period === 'vitalicio'
+                                            ? 'bg-slate-950 hover:bg-slate-800 text-amber-400 border-amber-400/50 shadow-xs'
+                                            : 'bg-amber-50 hover:bg-amber-400 text-slate-950 border-amber-300'
+                                        }`}
+                                      >
+                                        {isCurrentPlan ? (
+                                          <Check className="w-3.5 h-3.5 stroke-[3] text-white" />
+                                        ) : plan.period === 'vitalicio' ? (
+                                          <InfinityIcon className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <RefreshCw className="w-3 h-3" />
+                                        )}
+                                        <span>{plan.name}</span>
+                                        {isCurrentPlan && (
+                                          <span className="bg-emerald-700/80 text-white text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                                            Marcado
+                                          </span>
+                                        )}
+                                        <span className={`opacity-85 font-mono ${isCurrentPlan ? 'text-emerald-100' : ''}`}>
+                                          ({formatCurrency(plan.price)})
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
                               </div>
                             </div>
                           )}
@@ -2218,32 +2236,57 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
 
                     {/* Seletor Luxury de Modalidade (Mensal, Trimestral, Semestral, Anual, Vitalício) */}
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-800">
-                        Modalidade do Plano *
-                      </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-800">
+                          Modalidade do Plano *
+                        </label>
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300">
+                          Opção marcada: {PLAN_PERIOD_LABELS[planPeriod] || planPeriod}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {(
                           [
-                            { id: 'mensal', label: 'Mensal' },
-                            { id: 'trimestral', label: 'Trimestral' },
-                            { id: 'semestral', label: 'Semestral' },
-                            { id: 'anual', label: 'Anual' },
-                            { id: 'vitalicio', label: 'Vitalício' },
-                          ] as { id: PlanPeriod; label: string }[]
-                        ).map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => handleSelectPlanPeriod(item.id)}
-                            className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
-                              planPeriod === item.id
-                                ? 'bg-slate-950 text-amber-400 border-slate-950 shadow-sm'
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
-                            }`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
+                            { id: 'mensal', label: 'Mensal', duration: '30 dias' },
+                            { id: 'trimestral', label: 'Trimestral', duration: '90 dias' },
+                            { id: 'semestral', label: 'Semestral', duration: '180 dias' },
+                            { id: 'anual', label: 'Anual', duration: '365 dias' },
+                            { id: 'vitalicio', label: 'Vitalício', duration: 'Sem vencimento' },
+                          ] as { id: PlanPeriod; label: string; duration: string }[]
+                        ).map((item) => {
+                          const isSelected = planPeriod === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => handleSelectPlanPeriod(item.id)}
+                              className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border flex items-center justify-between gap-2 ${
+                                isSelected
+                                  ? 'bg-slate-950 text-amber-300 border-2 border-slate-950 ring-2 ring-amber-400/40 shadow-sm'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div>
+                                <span className="text-xs font-black block leading-tight">
+                                  {item.label}
+                                </span>
+                                <span className={`text-[10px] block leading-tight ${isSelected ? 'text-amber-400/80 font-bold' : 'text-slate-400'}`}>
+                                  {item.duration}
+                                </span>
+                              </div>
+
+                              <div
+                                className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                  isSelected
+                                    ? 'bg-amber-400 text-slate-950 shadow-xs'
+                                    : 'border-2 border-slate-300 bg-white'
+                                }`}
+                              >
+                                {isSelected ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -2520,34 +2563,69 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </div>
 
                     {/* Seletor de Plano Inicial Exclusivo do Administrador Geral */}
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-800">
-                        Plano Inicial (Exclusivo Administrador Geral) *
-                      </label>
-                      <div className="flex flex-wrap gap-1.5">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-800">
+                          Plano Inicial (Exclusivo Administrador Geral) *
+                        </label>
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-amber-700 stroke-[3]" />
+                          <span>Marcado: {
+                            [
+                              { id: 'teste_gratis', label: '5 Dias Grátis' },
+                              { id: 'mensal', label: 'Mensal' },
+                              { id: 'trimestral', label: 'Trimestral' },
+                              { id: 'semestral', label: 'Semestral' },
+                              { id: 'anual', label: 'Anual' },
+                              { id: 'vitalicio', label: 'Vitalício' },
+                            ].find((t) => t.id === newAccountPlanTier)?.label
+                          }</span>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {(
                           [
-                            { id: 'teste_gratis', label: '5 Dias Grátis' },
-                            { id: 'mensal', label: 'Mensal' },
-                            { id: 'trimestral', label: 'Trimestral' },
-                            { id: 'semestral', label: 'Semestral' },
-                            { id: 'anual', label: 'Anual' },
-                            { id: 'vitalicio', label: 'Vitalício' },
-                          ] as { id: PlanTier; label: string }[]
-                        ).map((tier) => (
-                          <button
-                            key={tier.id}
-                            type="button"
-                            onClick={() => setNewAccountPlanTier(tier.id)}
-                            className={`px-3 py-2 rounded-xl text-xs font-black cursor-pointer transition-all border ${
-                              newAccountPlanTier === tier.id
-                                ? 'bg-slate-950 text-amber-400 border-slate-950 shadow-xs'
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
-                            }`}
-                          >
-                            {tier.label}
-                          </button>
-                        ))}
+                            { id: 'teste_gratis', label: '5 Dias Grátis', sub: 'Sem compromisso' },
+                            { id: 'mensal', label: 'Mensal', sub: '30 dias' },
+                            { id: 'trimestral', label: 'Trimestral', sub: '90 dias' },
+                            { id: 'semestral', label: 'Semestral', sub: '180 dias' },
+                            { id: 'anual', label: 'Anual', sub: '365 dias' },
+                            { id: 'vitalicio', label: 'Vitalício', sub: 'Sem expiração' },
+                          ] as { id: PlanTier; label: string; sub: string }[]
+                        ).map((tier) => {
+                          const isSelected = newAccountPlanTier === tier.id;
+                          return (
+                            <button
+                              key={tier.id}
+                              type="button"
+                              onClick={() => setNewAccountPlanTier(tier.id)}
+                              className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border flex items-center justify-between gap-2 ${
+                                isSelected
+                                  ? 'bg-slate-950 text-amber-300 border-2 border-slate-950 ring-2 ring-amber-400/40 shadow-sm'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div>
+                                <span className="text-xs font-black block leading-tight">
+                                  {tier.label}
+                                </span>
+                                <span className={`text-[10px] block leading-tight ${isSelected ? 'text-amber-400/80 font-bold' : 'text-slate-400'}`}>
+                                  {tier.sub}
+                                </span>
+                              </div>
+
+                              <div
+                                className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                  isSelected
+                                    ? 'bg-amber-400 text-slate-950 shadow-xs'
+                                    : 'border-2 border-slate-300 bg-white'
+                                }`}
+                              >
+                                {isSelected ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -2942,60 +3020,86 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     {/* Seção 1: Renovação Rápida com Planos Exclusivos */}
                     {isSuperAdmin && (
                       <div className="space-y-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <Crown className="w-4 h-4 text-amber-600" />
-                          <h4 className="font-black text-xs uppercase tracking-wider text-slate-900">
-                            Renovar / Aplicar Plano (Admin Geral)
-                          </h4>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <Crown className="w-4 h-4 text-amber-600" />
+                            <h4 className="font-black text-xs uppercase tracking-wider text-slate-900">
+                              Renovar / Aplicar Plano (Admin Geral)
+                            </h4>
+                          </div>
+                          {selectedDrawerPlanId && (
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-700 stroke-[3]" />
+                              <span>Marcado: {plans.find((p) => p.id === selectedDrawerPlanId)?.name || 'Plano'}</span>
+                            </span>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 gap-2">
                           {plans
                             .filter((p) => p.isActive)
-                            .map((plan) => (
-                              <button
-                                key={plan.id}
-                                type="button"
-                                onClick={() => handleApplyPlanToAccount(drawerAccount, plan)}
-                                className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
-                                  plan.period === 'vitalicio'
-                                    ? 'bg-slate-950 hover:bg-slate-900 text-white border-amber-400'
-                                    : 'bg-white hover:bg-amber-50 border-slate-200 hover:border-amber-400 text-slate-900'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  {plan.period === 'vitalicio' ? (
-                                    <InfinityIcon className="w-4 h-4 text-amber-400 shrink-0" />
-                                  ) : (
-                                    <Calendar className="w-4 h-4 text-amber-600 shrink-0" />
-                                  )}
-                                  <div>
-                                    <span className="font-black text-xs block">{plan.name}</span>
-                                    <span
-                                      className={`text-[10px] block ${
-                                        plan.period === 'vitalicio'
-                                          ? 'text-slate-300'
-                                          : 'text-slate-500'
-                                      }`}
-                                    >
-                                      {plan.period === 'vitalicio'
-                                        ? 'Sem data de expiração'
-                                        : `Renova por ${plan.durationDays} dias`}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <span
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-black font-mono ${
-                                    plan.period === 'vitalicio'
-                                      ? 'bg-amber-400 text-slate-950'
-                                      : 'bg-emerald-50 text-emerald-700'
+                            .map((plan) => {
+                              const isSelected = selectedDrawerPlanId === plan.id;
+                              return (
+                                <button
+                                  key={plan.id}
+                                  type="button"
+                                  onClick={() => setSelectedDrawerPlanId(plan.id)}
+                                  className={`w-full p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-amber-50/90 border-2 border-amber-500 ring-2 ring-amber-400/40 text-slate-950 shadow-sm'
+                                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-900'
                                   }`}
                                 >
-                                  {formatCurrency(plan.price)}
-                                </span>
-                              </button>
-                            ))}
+                                  <div className="flex items-center gap-2.5">
+                                    <div
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                        isSelected
+                                          ? 'bg-amber-500 text-slate-950 shadow-xs'
+                                          : 'border-2 border-slate-300 bg-white'
+                                      }`}
+                                    >
+                                      {isSelected ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-black text-xs block">{plan.name}</span>
+                                        {isSelected && (
+                                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                                            Marcado
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] block text-slate-500">
+                                        {plan.period === 'vitalicio'
+                                          ? 'Sem data de expiração (Vitalício)'
+                                          : `Renova por ${plan.durationDays} dias`}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <span className="px-2.5 py-1 rounded-lg text-xs font-black font-mono bg-amber-100 text-amber-900">
+                                    {formatCurrency(plan.price)}
+                                  </span>
+                                </button>
+                              );
+                            })}
                         </div>
+
+                        {selectedDrawerPlanId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetPlan = plans.find((p) => p.id === selectedDrawerPlanId);
+                              if (targetPlan) {
+                                handleApplyPlanToAccount(drawerAccount, targetPlan);
+                              }
+                            }}
+                            className="w-full py-2.5 rounded-xl bg-amber-400 hover:bg-amber-505 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-md flex items-center justify-center gap-2 transition-all"
+                          >
+                            <Check className="w-4 h-4 stroke-[3]" />
+                            <span>Aplicar Plano Marcado a {drawerAccount.storeName}</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
