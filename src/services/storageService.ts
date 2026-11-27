@@ -73,6 +73,32 @@ export function sanitizeForFirestore<T>(data: T): T {
   }
 }
 
+export function normalizeStoreSettings(parsed?: Partial<StoreSettings> | null): StoreSettings {
+  if (!parsed || typeof parsed !== 'object') {
+    return { ...INITIAL_SETTINGS };
+  }
+  return {
+    ...INITIAL_SETTINGS,
+    ...parsed,
+    serviceModes: {
+      ...INITIAL_SETTINGS.serviceModes,
+      ...(parsed.serviceModes || {}),
+    },
+    paymentMethods: {
+      ...INITIAL_SETTINGS.paymentMethods,
+      ...(parsed.paymentMethods || {}),
+    },
+    operatingHours: {
+      ...INITIAL_SETTINGS.operatingHours,
+      ...(parsed.operatingHours || {}),
+    },
+    deliveryNeighborhoods: Array.isArray(parsed.deliveryNeighborhoods)
+      ? parsed.deliveryNeighborhoods
+      : INITIAL_SETTINGS.deliveryNeighborhoods,
+    tables: Array.isArray(parsed.tables) ? parsed.tables : INITIAL_SETTINGS.tables,
+  };
+}
+
 function safeSetLocalStorage(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
@@ -328,9 +354,43 @@ export const storageService = {
           );
         }
       } catch {}
+      this.syncStoreToServer(cleanId).catch(() => {});
       return true;
     } catch (err) {
       console.warn('syncAllStoreDataToFirestore notice:', err);
+      return false;
+    }
+  },
+
+  async syncStoreToServer(storeId?: string): Promise<boolean> {
+    const cleanId = storeId || this.currentStoreId;
+    if (!cleanId || cleanId === 'default_store' || cleanId === 'master_admin') {
+      return false;
+    }
+    try {
+      const rawSettings = localStorage.getItem(`cardapp_settings_${cleanId}`);
+      const rawCategories = localStorage.getItem(`cardapp_categories_${cleanId}`);
+      const rawProducts = localStorage.getItem(`cardapp_products_${cleanId}`);
+
+      const settings = rawSettings ? JSON.parse(rawSettings) : this.getSettings();
+      const categories = rawCategories ? JSON.parse(rawCategories) : this.getCategories();
+      const products = rawProducts ? JSON.parse(rawProducts) : this.getProducts();
+      const slug = slugifyStoreName(settings?.storeName || '');
+
+      const res = await fetch('/api/stores/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: cleanId,
+          storeName: settings?.storeName || 'Minha Loja',
+          slug,
+          settings,
+          categories,
+          products,
+        }),
+      });
+      return res.ok;
+    } catch {
       return false;
     }
   },
@@ -342,6 +402,29 @@ export const storageService = {
     if (!clean || clean === 'default_store' || clean === 'master_admin') {
       return null;
     }
+
+    // 1. Tentar obter dados diretamente do servidor backend (rápido, cross-device instantâneo)
+    try {
+      const serverRes = await fetch(`/api/stores/${encodeURIComponent(clean)}`);
+      if (serverRes.ok) {
+        const data = await serverRes.json();
+        if (data.success && data.store?.storeId) {
+          const s = data.store;
+          if (s.settings) {
+            safeSetLocalStorage(`cardapp_settings_${s.storeId}`, JSON.stringify(normalizeStoreSettings(s.settings)));
+          }
+          if (Array.isArray(s.categories) && s.categories.length > 0) {
+            safeSetLocalStorage(`cardapp_categories_${s.storeId}`, JSON.stringify(s.categories));
+          }
+          if (Array.isArray(s.products)) {
+            inMemoryProductsByStore[s.storeId] = s.products;
+            safeSetLocalStorage(`cardapp_products_${s.storeId}`, JSON.stringify(s.products));
+          }
+          this.notifyChange();
+          return { storeId: s.storeId, storeName: s.storeName };
+        }
+      }
+    } catch {}
 
     const slug = slugifyStoreName(clean);
     if (slug && slug.length >= 2) {
@@ -511,6 +594,8 @@ export const storageService = {
     localStorage.setItem(ordKey, JSON.stringify([]));
     localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
     localStorage.setItem(setKey, JSON.stringify(freshSettings));
+
+    this.syncStoreToServer(cleanId).catch(() => {});
 
     (async () => {
       if (auth.currentUser) {
@@ -890,6 +975,7 @@ export const storageService = {
 
     // Sync to Firestore (Criptografado)
     (async () => {
+      this.syncStoreToServer(storeId).catch(() => {});
       if (!auth.currentUser) return;
       await this.ensureStoreDocument(storeId);
       await Promise.all(
@@ -924,6 +1010,7 @@ export const storageService = {
     const categories = this.getCategories();
     const updated = categories.filter((c) => c.id !== categoryId);
     this.saveCategories(updated);
+    this.syncStoreToServer(this.currentStoreId).catch(() => {});
 
     // Delete in Firestore
     try {
@@ -1127,7 +1214,8 @@ export const storageService = {
     safeSetLocalStorage(this.getProductsKey(), JSON.stringify(stamped));
     this.notifyChange();
 
-    // Sync to Firestore (Criptografado)
+    // Sync to Server & Firestore (Criptografado)
+    this.syncStoreToServer(storeId).catch(() => {});
     (async () => {
       await Promise.all(stamped.map((prod) => this.syncSingleProductToFirestore(storeId, prod)));
     })().catch(() => {});
@@ -1148,7 +1236,8 @@ export const storageService = {
     safeSetLocalStorage(this.getProductsKey(), JSON.stringify(updated));
     this.notifyChange();
 
-    // Sync new product to Firestore (Criptografado)
+    // Sync new product to Server and Firestore
+    this.syncStoreToServer(storeId).catch(() => {});
     this.syncSingleProductToFirestore(storeId, newProduct).catch(() => {});
 
     return newProduct;
@@ -1171,7 +1260,8 @@ export const storageService = {
       safeSetLocalStorage(this.getProductsKey(), JSON.stringify(nextProducts));
       this.notifyChange();
 
-      // Sync to Firestore (Criptografado)
+      // Sync to Server and Firestore
+      this.syncStoreToServer(storeId).catch(() => {});
       this.syncSingleProductToFirestore(storeId, stampedProduct).catch(() => {});
     }
   },
@@ -1186,6 +1276,7 @@ export const storageService = {
     safeSetLocalStorage(this.getProductsKey(), JSON.stringify(updated));
     this.notifyChange();
 
+    this.syncStoreToServer(storeId).catch(() => {});
     // Sync to Firestore
     try {
       const prodRef = doc(db, 'stores', storeId, 'products', productId);
@@ -1430,6 +1521,15 @@ export const storageService = {
     // Sync to Firestore: pedido completo (PII criptografada) + espelho público de status (sem PII)
     this.syncOrderToFirestore(storeId, newOrder).catch(() => {});
 
+    // Sync to Server backend para sincronização entre dispositivos
+    try {
+      fetch(`/api/stores/${encodeURIComponent(storeId)}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: newOrder }),
+      }).catch(() => {});
+    } catch {}
+
     return newOrder;
   },
 
@@ -1474,8 +1574,15 @@ export const storageService = {
         // ignore
       }
 
-      // Sync to Firestore (Criptografado + espelho de status sem PII)
+      // Sync to Firestore & Server
       this.syncOrderToFirestore(storeId, updatedOrder).catch(() => {});
+      try {
+        fetch(`/api/stores/${encodeURIComponent(storeId)}/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: updatedOrder }),
+        }).catch(() => {});
+      } catch {}
     }
   },
 
@@ -1623,19 +1730,17 @@ export const storageService = {
             parsed.phoneWhatsapp = '';
             safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(parsed));
           }
-          return {
-            ...INITIAL_SETTINGS,
+          return normalizeStoreSettings({
             ...parsed,
             storeName: parsed.storeName || (this.currentStoreId === 'default_store' ? INITIAL_SETTINGS.storeName : 'Minha Loja'),
-          };
+          });
         }
       }
     } catch {
       // fallback
     }
     if (this.currentStoreId !== 'default_store' && this.currentStoreId !== 'master_admin') {
-      const freshSettings: StoreSettings = {
-        ...INITIAL_SETTINGS,
+      const freshSettings: StoreSettings = normalizeStoreSettings({
         storeName: 'Minha Loja',
         phoneWhatsapp: '',
         logoBase64: '',
@@ -1645,20 +1750,20 @@ export const storageService = {
         pixKey: '',
         deliveryNeighborhoods: [],
         isOpen: true,
-      };
+      });
       safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(freshSettings));
       return freshSettings;
     }
     safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
-    return INITIAL_SETTINGS;
+    return normalizeStoreSettings(INITIAL_SETTINGS);
   },
 
   saveSettings(settings: StoreSettings) {
     const storeId = this.currentStoreId;
-    const stampedSettings: StoreSettings = {
+    const stampedSettings: StoreSettings = normalizeStoreSettings({
       ...settings,
       updatedAt: new Date().toISOString(),
-    };
+    });
     // Nunca permitir salvar WhatsApp pessoal no cardápio de demonstração
     if (storeId === 'default_store') {
       stampedSettings.phoneWhatsapp = '';
@@ -1666,6 +1771,8 @@ export const storageService = {
     this.markSettingsPending(storeId);
     safeSetLocalStorage(`cardapp_settings_${storeId}`, JSON.stringify(stampedSettings));
     this.notifyChange();
+
+    this.syncStoreToServer(storeId).catch(() => {});
 
     try {
       broadcastChannel?.postMessage({

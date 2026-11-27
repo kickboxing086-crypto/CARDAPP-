@@ -564,7 +564,10 @@ class AccountService {
           collection(db, 'accessRequests'),
           (snapshot) => {
             const list: UserAccessRequest[] = [];
-            snapshot.forEach((d) => list.push(decryptDataFromFirestore<UserAccessRequest>(d.data())));
+            snapshot.forEach((d) => {
+              const item = decryptDataFromFirestore<UserAccessRequest>(d.data());
+              if (item) list.push(item);
+            });
             this.accessRequests = list;
             this.saveRequestsToStorage();
           },
@@ -665,87 +668,12 @@ class AccountService {
         return auth.currentUser;
       }
 
-      let signedUser: FirebaseUser | null = auth.currentUser;
-      const candidatePassword = rawPassword || user.plainPassword || user.password || '';
-
-      // 1. Tenta autenticar ou criar com o e-mail do usuário + senha informada / determinística
-      if (user.email) {
-        const cleanEmail = user.email.toLowerCase().trim();
-        const detPass = await this.getDeterministicAuthPassword(cleanEmail);
-
-        if (!signedUser && candidatePassword) {
-          try {
-            const cred = await signInWithEmailAndPassword(auth, cleanEmail, candidatePassword);
-            signedUser = cred.user;
-          } catch {}
-        }
-        if (!signedUser) {
-          try {
-            const cred = await signInWithEmailAndPassword(auth, cleanEmail, detPass);
-            signedUser = cred.user;
-          } catch {}
-        }
-        if (!signedUser) {
-          try {
-            const cred = await createUserWithEmailAndPassword(
-              auth,
-              cleanEmail,
-              detPass
-            );
-            signedUser = cred.user;
-          } catch {}
-        }
+      // Sincroniza sempre os dados da loja para o servidor backend instantaneamente
+      if (user.storeId && user.storeId !== 'default_store' && user.storeId !== 'master_admin') {
+        storageService.syncStoreToServer(user.storeId).catch(() => {});
       }
 
-      // 2. Fallback seguro com e-mail técnico determinístico vinculado ao ID da conta
-      if (!signedUser) {
-        const safeLocalPart = (user.id || user.storeId || 'store')
-          .toLowerCase()
-          .replace(/[^a-z0-9_]/g, '');
-        const serviceEmail = `${safeLocalPart}@cardapp.auth`;
-        const detServicePass = await this.getDeterministicAuthPassword(user.id || serviceEmail);
-
-        try {
-          const cred = await signInWithEmailAndPassword(auth, serviceEmail, detServicePass);
-          signedUser = cred.user;
-        } catch {}
-
-        if (!signedUser) {
-          try {
-            const cred = await createUserWithEmailAndPassword(auth, serviceEmail, detServicePass);
-            signedUser = cred.user;
-          } catch {}
-        }
-      }
-
-      // 3. Fallback anônimo se provedores de email estiverem desabilitados
-      if (!signedUser) {
-        try {
-          const cred = await signInAnonymously(auth);
-          signedUser = cred.user;
-        } catch {}
-      }
-
-      if (signedUser) {
-        const updatedUser: UserAccount = { ...user, authUid: signedUser.uid };
-        this.accounts = this.accounts.map((a) => (a.id === user.id ? updatedUser : a));
-        if (this.currentSession?.id === user.id) {
-          this.currentSession = updatedUser;
-          try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedUser)); } catch {}
-        }
-        this.saveToStorage();
-        setDoc(
-          doc(db, 'accounts', user.id),
-          encryptAccountForFirestore(updatedUser),
-          { merge: true }
-        ).catch(() => {});
-
-        if (user.storeId && user.storeId !== 'default_store' && user.storeId !== 'master_admin') {
-          await storageService.syncAllStoreDataToFirestore(user.storeId, user.storeName);
-        }
-      }
-
-      return signedUser;
+      return auth.currentUser;
     };
 
     this.authSyncAccountId = user.id;

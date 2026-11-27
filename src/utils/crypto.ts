@@ -260,7 +260,11 @@ export function decryptDataFromFirestore<T>(docData: any): T {
   }
 
   if (docData._encrypted) {
-    return decryptAccountFromFirestore(docData) as T;
+    try {
+      return decryptAccountFromFirestore(docData) as T;
+    } catch {
+      return docData as T;
+    }
   }
 
   return docData as T;

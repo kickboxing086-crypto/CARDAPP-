@@ -236,6 +236,8 @@ export default function App() {
   });
   const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState<boolean>(() => {
     try {
+      const storeTarget = extractStoreTargetFromLocation();
+      if (storeTarget) return false;
       const urlParams = new URLSearchParams(window.location.search);
       const view = urlParams.get('view');
       const pathname = window.location.pathname.toLowerCase().replace(/\/$/, '');
@@ -291,6 +293,8 @@ export default function App() {
   });
   const [isCeoModalOpen, setIsCeoModalOpen] = useState<boolean>(() => {
     try {
+      const storeTarget = extractStoreTargetFromLocation();
+      if (storeTarget) return false;
       const urlParams = new URLSearchParams(window.location.search);
       const view = urlParams.get('view');
       const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
@@ -298,11 +302,13 @@ export default function App() {
       const session = accountService.getCurrentSession();
       const savedCeo = getSavedCeoOpenState();
 
-      if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || hash.includes('admin')) {
-        return session?.role !== 'super_admin';
-      }
-      if (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) {
-        return true;
+      if (session && (session.role === 'store_admin' || accountService.isImpersonating())) {
+        if (view === 'ceo' || view === 'admin' || pathname === '/ceo' || pathname === '/admin' || hash.includes('admin')) {
+          return true;
+        }
+        if (savedCeo === true) {
+          return true;
+        }
       }
     } catch {
       // fallback
@@ -414,6 +420,7 @@ export default function App() {
           setCurrentView('menu');
           setIsCeoModalOpen(false);
           setIsSuperAdminModalOpen(false);
+          setIsLoginModalOpen(false);
           setStoreResolveError(null);
           saveAppView('menu');
 
@@ -501,10 +508,22 @@ export default function App() {
           return;
         }
 
+        // Se tentar acessar rota de CEO/Admin sem estar autenticado, redireciona estritamente para o login
+        if (isCeoRoute && !session) {
+          setIsResolvingStore(false);
+          setLoginModalMode('login');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
+          try {
+            window.history.replaceState({}, '', '/?view=login');
+          } catch {}
+          return;
+        }
+
         // Se o lojista estava com o painel CEO aberto nesta aba (somente se não for link de loja compartilhado)
         if (
           (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) ||
-          (isCeoRoute && session?.role !== 'super_admin')
+          (isCeoRoute && session && session.role !== 'super_admin')
         ) {
           setIsResolvingStore(false);
           if (session) {
@@ -1065,9 +1084,7 @@ export default function App() {
       setIsSuperAdminModalOpen(false);
       setCurrentView('menu');
       try {
-        const cleanUrl = getClientAppUrl(user.storeId, user.storeName);
-        const parsed = new URL(cleanUrl);
-        window.history.replaceState({}, '', parsed.pathname + parsed.search);
+        window.history.replaceState({}, '', '/?view=ceo');
       } catch {
         // ignore
       }
@@ -1311,7 +1328,7 @@ export default function App() {
             customerOrdersCount={clientOrders.length}
             onViewTracking={() => setCurrentStep(4)}
             onGoToLanding={handleGoToLanding}
-            showCeoControls={Boolean(
+            showCeoControls={!extractStoreTargetFromLocation() && Boolean(
               currentUser &&
               (currentUser.role === 'super_admin' || currentUser.storeId === activeStoreId || accountService.isImpersonating())
             )}
@@ -1320,8 +1337,8 @@ export default function App() {
             }}
           />
 
-          {/* Banner de Acesso Rápido ao Painel do Administrador / CEO (Exibido Apenas para o Dono da Loja) */}
-          {Boolean(
+          {/* Banner de Acesso Rápido ao Painel do Administrador / CEO (Exibido Apenas para o Dono da Loja em modo gestão, NUNCA no link compartilhado do cliente) */}
+          {!extractStoreTargetFromLocation() && Boolean(
             currentUser &&
             (currentUser.role === 'super_admin' || currentUser.storeId === activeStoreId || accountService.isImpersonating())
           ) && (
@@ -1509,29 +1526,31 @@ export default function App() {
                 © {new Date().getFullYear()} • Todos os direitos reservados
               </p>
 
-              {/* Discreet Lower Quick Access for CEO / Landing / Login */}
-              <div className="pt-3 flex items-center justify-center gap-3 text-[11px]">
-                <button
-                  type="button"
-                  onClick={handleGoToLanding}
-                  className="text-slate-400 hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Voltar para a Landing Page Oficial"
-                >
-                  <Home className="w-3.5 h-3.5" />
-                  <span>Landing Page</span>
-                </button>
+              {/* Discreet Lower Quick Access for CEO / Landing / Login (Apenas quando não for link de loja compartilhado) */}
+              {!extractStoreTargetFromLocation() && (
+                <div className="pt-3 flex items-center justify-center gap-3 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={handleGoToLanding}
+                    className="text-slate-400 hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Voltar para a Landing Page Oficial"
+                  >
+                    <Home className="w-3.5 h-3.5" />
+                    <span>Landing Page</span>
+                  </button>
 
-                <span className="text-slate-300">•</span>
-                <button
-                  type="button"
-                  onClick={() => handleNavigateToLogin('login')}
-                  className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Ir para a aba de Login"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Entrar / Login</span>
-                </button>
-              </div>
+                  <span className="text-slate-300">•</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateToLogin('login')}
+                    className="text-slate-500 hover:text-slate-800 font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Ir para a aba de Login"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Entrar / Login</span>
+                  </button>
+                </div>
+              )}
             </div>
           </footer>
 

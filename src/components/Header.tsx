@@ -3,6 +3,7 @@ import { ShoppingBag, Menu, Info, Lock, UserCheck, Clock3, Home, Crown } from 'l
 import { StoreSettings, UserAccount } from '../types';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { getFontClass } from '../utils/typography';
+import { formatOrderDisplayId } from '../utils/comandaFormatter';
 
 interface HeaderProps {
   settings: StoreSettings;
@@ -110,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex flex-col text-left leading-none">
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] uppercase font-black tracking-wider text-slate-900">
-                    Status {activeOrderDisplayId ? `#${activeOrderDisplayId}` : 'do Pedido'}
+                    Status {activeOrderDisplayId ? formatOrderDisplayId(activeOrderDisplayId) : 'do Pedido'}
                   </span>
                   {customerOrdersCount && customerOrdersCount > 1 ? (
                     <span className="text-[9px] bg-slate-950 text-amber-300 font-mono px-1 rounded font-black">

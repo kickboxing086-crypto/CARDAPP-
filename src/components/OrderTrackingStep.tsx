@@ -20,7 +20,7 @@ import {
 import QRCode from 'qrcode';
 import { Order, OrderStatus, StoreSettings } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { getOrderWhatsAppUrl } from '../utils/comandaFormatter';
+import { getOrderWhatsAppUrl, formatOrderDisplayId } from '../utils/comandaFormatter';
 import { generatePixPayload, extractCleanPixKey } from '../utils/pixPayload';
 import { requestPushPermission, playNotificationSound } from '../utils/notificationService';
 
@@ -285,7 +285,7 @@ export const OrderTrackingStep: React.FC<OrderTrackingStepProps> = ({
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
                     }`}
                   >
-                    <span>#{o.displayId}</span>
+                    <span>{formatOrderDisplayId(o.displayId)}</span>
                     <span
                       className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
                         o.status === 'recebido'

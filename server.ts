@@ -508,8 +508,212 @@ app.get('/api/check-email-verification', async (req, res) => {
       email: cleanEmail,
     });
   } catch (error) {
-    console.warn('[Server] Error checking email verification:', error);
-    return res.json({ success: true, verified: false });
+    console.error('[Server] Error checking email verification:', error);
+    return res.status(500).json({ success: false, verified: false, message: 'Erro ao verificar e-mail.' });
+  }
+});
+
+// ===============================================================
+// Banco de Dados Local Seguro do Servidor para Sincronização Cross-Device
+// ===============================================================
+const DATA_DIR = path.resolve(__dirname, 'data');
+const STORES_FILE = path.join(DATA_DIR, 'stores-db.json');
+const ORDERS_FILE = path.join(DATA_DIR, 'orders-db.json');
+
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('[Server DB] Could not ensure data dir:', e);
+}
+
+interface ServerStoreData {
+  storeId: string;
+  storeName: string;
+  slug: string;
+  settings?: any;
+  categories?: any[];
+  products?: any[];
+  updatedAt: string;
+}
+
+const memoryStores: Record<string, ServerStoreData> = {};
+const memoryOrders: Record<string, any[]> = {};
+
+function loadStoresFromDisk() {
+  try {
+    if (fs.existsSync(STORES_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STORES_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        Object.assign(memoryStores, data);
+      }
+    }
+  } catch (e) {
+    console.warn('[Server DB] Error reading stores file:', e);
+  }
+}
+
+function saveStoresToDisk() {
+  try {
+    fs.writeFileSync(STORES_FILE, JSON.stringify(memoryStores, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Server DB] Error writing stores file:', e);
+  }
+}
+
+function loadOrdersFromDisk() {
+  try {
+    if (fs.existsSync(ORDERS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        Object.assign(memoryOrders, data);
+      }
+    }
+  } catch (e) {
+    console.warn('[Server DB] Error reading orders file:', e);
+  }
+}
+
+function saveOrdersToDisk() {
+  try {
+    fs.writeFileSync(ORDERS_FILE, JSON.stringify(memoryOrders, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Server DB] Error writing orders file:', e);
+  }
+}
+
+loadStoresFromDisk();
+loadOrdersFromDisk();
+
+function slugify(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+// API: Sincronizar dados completos da loja do CEO para o servidor
+app.post('/api/stores/sync', (req, res) => {
+  try {
+    const { storeId, storeName, settings, categories, products, slug: customSlug } = req.body;
+    if (!storeId || typeof storeId !== 'string') {
+      return res.status(400).json({ success: false, message: 'storeId inválido.' });
+    }
+
+    const cleanName = (storeName || settings?.storeName || 'Minha Loja').trim();
+    const resolvedSlug = customSlug || slugify(cleanName);
+
+    const existing = memoryStores[storeId] || {};
+    const updatedStore: ServerStoreData = {
+      storeId,
+      storeName: cleanName,
+      slug: resolvedSlug,
+      settings: settings !== undefined ? settings : existing.settings,
+      categories: Array.isArray(categories) ? categories : existing.categories || [],
+      products: Array.isArray(products) ? products : existing.products || [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    memoryStores[storeId] = updatedStore;
+    saveStoresToDisk();
+
+    return res.json({ success: true, store: updatedStore });
+  } catch (err) {
+    console.error('[Server DB] Error syncing store:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao salvar loja no servidor.' });
+  }
+});
+
+// API: Obter dados da loja pelo slug ou storeId (acesso imediato para clientes)
+app.get('/api/stores/:target', (req, res) => {
+  try {
+    const target = decodeURIComponent(req.params.target || '').trim();
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Loja não encontrada.' });
+    }
+
+    const targetLower = target.toLowerCase();
+    const targetSlug = slugify(target);
+
+    // 1. Busca por storeId exato
+    if (memoryStores[target]) {
+      return res.json({ success: true, store: memoryStores[target] });
+    }
+
+    // 2. Busca por slug ou nome aproximado
+    for (const s of Object.values(memoryStores)) {
+      if (
+        s.slug === targetLower ||
+        s.slug === targetSlug ||
+        s.storeId.toLowerCase() === targetLower ||
+        slugify(s.storeName) === targetSlug
+      ) {
+        return res.json({ success: true, store: s });
+      }
+    }
+
+    return res.status(404).json({ success: false, message: 'Loja não encontrada.' });
+  } catch (err) {
+    console.error('[Server DB] Error fetching store:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao consultar loja.' });
+  }
+});
+
+// API: Sincronizar Pedidos da Loja
+app.post('/api/stores/:storeId/orders', (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { order } = req.body;
+    if (!storeId || !order?.id) {
+      return res.status(400).json({ success: false, message: 'Dados do pedido inválidos.' });
+    }
+
+    if (!Array.isArray(memoryOrders[storeId])) {
+      memoryOrders[storeId] = [];
+    }
+
+    const existingIdx = memoryOrders[storeId].findIndex((o: any) => o.id === order.id);
+    if (existingIdx > -1) {
+      memoryOrders[storeId][existingIdx] = order;
+    } else {
+      memoryOrders[storeId].unshift(order);
+    }
+    saveOrdersToDisk();
+
+    return res.json({ success: true, order });
+  } catch (err) {
+    console.error('[Server DB] Error saving order:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao salvar pedido.' });
+  }
+});
+
+// API: Listar Pedidos da Loja
+app.get('/api/stores/:storeId/orders', (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const orders = memoryOrders[storeId] || [];
+    return res.json({ success: true, orders });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Erro ao listar pedidos.' });
+  }
+});
+
+// API: Rastreio de Pedido para o Cliente
+app.get('/api/stores/:storeId/orders/:orderId', (req, res) => {
+  try {
+    const { storeId, orderId } = req.params;
+    const orders = memoryOrders[storeId] || [];
+    const found = orders.find((o: any) => o.id === orderId);
+    if (!found) {
+      return res.status(404).json({ success: false, message: 'Pedido não encontrado.' });
+    }
+    return res.json({ success: true, order: found });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Erro ao consultar pedido.' });
   }
 });
 
