@@ -1298,7 +1298,7 @@ export default function App() {
             />
           )}
 
-          {/* Top Header - OPÇÕES DO CLIENTE & ACESSO AO PAINEL DO CEO */}
+          {/* Top Header - OPÇÕES DO CLIENTE & ACESSO AO PAINEL DO CEO (APENAS PARA O DONO) */}
           <Header
             settings={settings}
             cartCount={totalCartCount}
@@ -1311,30 +1311,34 @@ export default function App() {
             customerOrdersCount={clientOrders.length}
             onViewTracking={() => setCurrentStep(4)}
             onGoToLanding={handleGoToLanding}
-            showCeoControls={true}
+            showCeoControls={Boolean(
+              currentUser &&
+              (currentUser.role === 'super_admin' || currentUser.storeId === activeStoreId || accountService.isImpersonating())
+            )}
             onOpenCeoMenu={() => {
-              if (!currentUser && activeStoreId === 'default_store') {
-                setIsLoginModalOpen(true);
-              } else {
-                setIsCeoModalOpen(true);
-              }
+              setIsCeoModalOpen(true);
             }}
           />
 
-          {/* Banner de Acesso Rápido ao Painel do Administrador / CEO */}
-          <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 px-4 py-2.5 text-xs font-black shadow-sm flex flex-col sm:flex-row items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2">
-              <Crown className="w-4 h-4 text-slate-950 shrink-0" />
-              <span>Painel de Gestão da Loja: Você pode gerenciar pedidos, produtos, taxa de entrega e QR Code a qualquer momento.</span>
+          {/* Banner de Acesso Rápido ao Painel do Administrador / CEO (Exibido Apenas para o Dono da Loja) */}
+          {Boolean(
+            currentUser &&
+            (currentUser.role === 'super_admin' || currentUser.storeId === activeStoreId || accountService.isImpersonating())
+          ) && (
+            <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 px-4 py-2.5 text-xs font-black shadow-sm flex flex-col sm:flex-row items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4 text-slate-950 shrink-0" />
+                <span>Painel de Gestão da Loja: Você pode gerenciar pedidos, produtos, taxa de entrega e QR Code a qualquer momento.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCeoModalOpen(true)}
+                className="px-4 py-1.5 rounded-xl bg-slate-950 text-amber-300 hover:bg-slate-900 transition-all shadow-xs cursor-pointer text-[11px] uppercase tracking-wider shrink-0"
+              >
+                ⚙️ Abrir Painel do CEO / Admin
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsCeoModalOpen(true)}
-              className="px-4 py-1.5 rounded-xl bg-slate-950 text-amber-300 hover:bg-slate-900 transition-all shadow-xs cursor-pointer text-[11px] uppercase tracking-wider shrink-0"
-            >
-              ⚙️ Abrir Painel do CEO / Admin
-            </button>
-          </div>
+          )}
 
           {/* 4 ETAPAS TRACKER FOR CLIENT */}
           <StepTracker
