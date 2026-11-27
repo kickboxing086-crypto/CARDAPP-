@@ -48,7 +48,8 @@ const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 const isProd = process.env.NODE_ENV === 'production';
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Função auxiliar para gerar senha determinística para conta do Firebase Auth
 function getDeterministicAuthPassword(email: string): string {
@@ -532,6 +533,7 @@ interface ServerStoreData {
   storeId: string;
   storeName: string;
   slug: string;
+  previousSlugs?: string[];
   settings?: any;
   categories?: any[];
   products?: any[];
@@ -604,15 +606,54 @@ app.post('/api/stores/sync', (req, res) => {
       return res.status(400).json({ success: false, message: 'storeId inválido.' });
     }
 
-    const cleanName = (storeName || settings?.storeName || 'Minha Loja').trim();
-    const resolvedSlug = customSlug || slugify(cleanName);
+    const existing = memoryStores[storeId] || ({} as Partial<ServerStoreData>);
+    const incomingName = (storeName || settings?.storeName || '').trim();
+    const existingName = (existing.storeName || '').trim();
+    const cleanName =
+      (incomingName && incomingName !== 'Minha Loja' ? incomingName : '') ||
+      (existingName && existingName !== 'Minha Loja' ? existingName : '') ||
+      incomingName ||
+      existingName ||
+      'Minha Loja';
 
-    const existing = memoryStores[storeId] || {};
+    const nameSlug = slugify(cleanName);
+    const customSlugClean = slugify(customSlug || '');
+    const resolvedSlug =
+      (customSlugClean && customSlugClean !== 'minha-loja' ? customSlugClean : '') ||
+      (nameSlug && nameSlug !== 'minha-loja' ? nameSlug : '') ||
+      existing.slug ||
+      slugify(storeId);
+
+    const slugHistorySet = new Set<string>(
+      [
+        ...(Array.isArray(existing.previousSlugs) ? existing.previousSlugs : []),
+        existing.slug || '',
+        resolvedSlug,
+        nameSlug,
+        customSlugClean,
+      ]
+        .map((s) => (s || '').trim().toLowerCase())
+        .filter((s) => s.length >= 2 && s !== 'minha-loja')
+    );
+
+    const mergedSettings =
+      settings !== undefined
+        ? {
+            ...(existing.settings || {}),
+            ...settings,
+            storeName:
+              settings?.storeName && settings.storeName.trim() !== 'Minha Loja'
+                ? settings.storeName.trim()
+                : cleanName,
+          }
+        : existing.settings;
+
     const updatedStore: ServerStoreData = {
       storeId,
       storeName: cleanName,
       slug: resolvedSlug,
-      settings: settings !== undefined ? settings : existing.settings,
+      previousSlugs: Array.from(slugHistorySet),
+      settings: mergedSettings,
       categories: Array.isArray(categories) ? categories : existing.categories || [],
       products: Array.isArray(products) ? products : existing.products || [],
       updatedAt: new Date().toISOString(),
@@ -631,7 +672,13 @@ app.post('/api/stores/sync', (req, res) => {
 // API: Obter dados da loja pelo slug ou storeId (acesso imediato para clientes)
 app.get('/api/stores/:target', (req, res) => {
   try {
-    const target = decodeURIComponent(req.params.target || '').trim();
+    let rawParam = String(req.params.target || '');
+    try {
+      rawParam = decodeURIComponent(rawParam);
+    } catch {
+      // keep rawParam if malformed URI
+    }
+    const target = rawParam.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
     if (!target) {
       return res.status(404).json({ success: false, message: 'Loja não encontrada.' });
     }
@@ -644,13 +691,19 @@ app.get('/api/stores/:target', (req, res) => {
       return res.json({ success: true, store: memoryStores[target] });
     }
 
-    // 2. Busca por slug ou nome aproximado
+    // 2. Busca por storeId case-insensitive, slug atual, slugs anteriores ou nome normalizado
     for (const s of Object.values(memoryStores)) {
+      const storeSlug = (s.slug || '').toLowerCase();
+      const nameSlug = slugify(s.storeName);
+      const prevSlugs = Array.isArray(s.previousSlugs) ? s.previousSlugs : [];
+
       if (
-        s.slug === targetLower ||
-        s.slug === targetSlug ||
+        s.storeId === target ||
         s.storeId.toLowerCase() === targetLower ||
-        slugify(s.storeName) === targetSlug
+        storeSlug === targetLower ||
+        (targetSlug.length >= 2 && storeSlug === targetSlug) ||
+        (targetSlug.length >= 2 && nameSlug === targetSlug) ||
+        prevSlugs.some((ps) => ps === targetLower || (targetSlug.length >= 2 && ps === targetSlug))
       ) {
         return res.json({ success: true, store: s });
       }

@@ -34,12 +34,7 @@ export function slugifyStoreName(storeName?: string): string {
 function resolveBaseOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     const origin = window.location.origin;
-    if (
-      origin.includes('vercel.app') ||
-      origin.includes('localhost') ||
-      origin.includes('127.0.0.1') ||
-      origin.includes('run.app')
-    ) {
+    if (origin.startsWith('http://') || origin.startsWith('https://')) {
       return origin.replace(/\/+$/, '');
     }
   }

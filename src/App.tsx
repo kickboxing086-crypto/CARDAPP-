@@ -77,9 +77,18 @@ import {
 
 function extractStoreTargetFromLocation(): string {
   if (typeof window === 'undefined') return '';
+  const cleanTarget = (raw: string): string => {
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // keep raw
+    }
+    return decoded.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
+  };
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const storeQuery = (urlParams.get('store') || urlParams.get('loja') || '').trim();
+    const storeQuery = cleanTarget(urlParams.get('store') || urlParams.get('loja') || '');
     if (storeQuery) return storeQuery;
 
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
@@ -90,7 +99,7 @@ function extractStoreTargetFromLocation(): string {
       !firstSegment.includes('.') &&
       !RESERVED_ROUTE_SLUGS.has(lowerSeg)
     ) {
-      return decodeURIComponent(firstSegment);
+      return cleanTarget(firstSegment);
     }
   } catch {}
   return '';
@@ -444,7 +453,10 @@ export default function App() {
             setActiveOrderId(storageService.getActiveOrderId());
             hydrateClientUiForStore(quickStoreId, loadedProds);
             setIsResolvingStore(false);
-            storageService.loadStoreFromFirestoreOnce(quickStoreId).then(() => {
+            Promise.allSettled([
+              storageService.resolveStoreTarget(storeTarget),
+              storageService.loadStoreFromFirestoreOnce(quickStoreId),
+            ]).then(() => {
               if (!isMounted) return;
               const syncedProds = storageService.getProducts();
               setProducts(syncedProds);
@@ -462,7 +474,7 @@ export default function App() {
           setIsResolvingStore(true);
           const resolveTimer = window.setTimeout(() => {
             if (isMounted) setIsResolvingStore(false);
-          }, 3000);
+          }, 8000);
 
           (async () => {
             try {
@@ -480,10 +492,37 @@ export default function App() {
               }
 
               const hasLocalBefore = Boolean(localStorage.getItem(`cardapp_settings_${resolvedStoreId}`));
+
+              if (resolved?.fromServer || hasLocalBefore) {
+                storageService.setStoreId(resolvedStoreId, resolved?.storeName);
+                cacheStoreTargetResolution(storeTarget, resolvedStoreId, resolved?.storeName);
+                const syncedProds = storageService.getProducts();
+                setProducts(syncedProds);
+                setOrders(storageService.getOrders());
+                setCategories(storageService.getCategories());
+                setSettings(storageService.getSettings());
+                setActiveOrderId(storageService.getActiveOrderId());
+                hydrateClientUiForStore(resolvedStoreId, syncedProds);
+                window.clearTimeout(resolveTimer);
+                setIsResolvingStore(false);
+
+                // Atualiza em segundo plano via Firestore sem bloquear a exibição do cardápio
+                storageService.loadStoreFromFirestoreOnce(resolvedStoreId).then((foundInCloud) => {
+                  if (!isMounted || !foundInCloud) return;
+                  const cloudProds = storageService.getProducts();
+                  setProducts(cloudProds);
+                  setOrders(storageService.getOrders());
+                  setCategories(storageService.getCategories());
+                  setSettings(storageService.getSettings());
+                  setActiveOrderId(storageService.getActiveOrderId());
+                });
+                return;
+              }
+
               const foundInCloud = await storageService.loadStoreFromFirestoreOnce(resolvedStoreId);
               if (!isMounted) return;
 
-              if (!resolved && !hasLocalBefore && !foundInCloud) {
+              if (!resolved && !foundInCloud) {
                 setStoreResolveError('Loja não encontrada. Verifique o link com o estabelecimento.');
                 setIsResolvingStore(false);
                 return;
@@ -537,6 +576,7 @@ export default function App() {
             setCategories(storageService.getCategories());
             setSettings(storageService.getSettings());
             setActiveOrderId(storageService.getActiveOrderId());
+            storageService.syncStoreToServer(session.storeId).catch(() => {});
             storageService.loadStoreFromFirestoreOnce(session.storeId).then(() => {
               if (!isMounted) return;
               setProducts(storageService.getProducts());
@@ -544,6 +584,7 @@ export default function App() {
               setCategories(storageService.getCategories());
               setSettings(storageService.getSettings());
               setActiveOrderId(storageService.getActiveOrderId());
+              storageService.syncStoreToServer(session.storeId).catch(() => {});
             });
           }
           setCurrentView('menu');
@@ -643,6 +684,9 @@ export default function App() {
     );
     if (initialSession && initialSession.storeId && !urlStoreTarget) {
       storageService.setStoreId(initialSession.storeId, initialSession.storeName, initialSession.phoneWhatsapp);
+      if (initialSession.storeId !== 'default_store' && initialSession.storeId !== 'master_admin') {
+        storageService.syncStoreToServer(initialSession.storeId).catch(() => {});
+      }
     }
 
     setProducts(storageService.getProducts());
@@ -688,6 +732,9 @@ export default function App() {
       );
       if (sess && sess.storeId && !extractStoreTargetFromLocation()) {
         storageService.setStoreId(sess.storeId, sess.storeName, sess.phoneWhatsapp);
+        if (sess.storeId !== 'default_store' && sess.storeId !== 'master_admin') {
+          storageService.syncStoreToServer(sess.storeId).catch(() => {});
+        }
       }
     });
 

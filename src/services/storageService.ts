@@ -113,6 +113,8 @@ function safeSetLocalStorage(key: string, value: string): boolean {
 
 const inMemoryProductsByStore: Record<string, Product[]> = {};
 const inMemoryOrdersByStore: Record<string, Order[]> = {};
+const inMemorySettingsByStore: Record<string, StoreSettings> = {};
+const inMemoryCategoriesByStore: Record<string, Category[]> = {};
 const inMemoryPendingOrdersByStore: Record<string, Record<string, number>> = {};
 const ACTIVE_ORDER_ID_KEY = 'cardapp_active_order_id_v3';
 
@@ -175,21 +177,24 @@ export const storageService = {
 
     if (cleanId !== 'default_store' && cleanId !== 'master_admin') {
       const prodKey = this.getProductsKey();
-      if (localStorage.getItem(prodKey) === null) {
+      if (!Array.isArray(inMemoryProductsByStore[cleanId]) && localStorage.getItem(prodKey) === null) {
+        inMemoryProductsByStore[cleanId] = [];
         safeSetLocalStorage(prodKey, JSON.stringify([]));
       }
       const ordKey = this.getOrdersKey();
-      if (localStorage.getItem(ordKey) === null) {
+      if (!Array.isArray(inMemoryOrdersByStore[cleanId]) && localStorage.getItem(ordKey) === null) {
+        inMemoryOrdersByStore[cleanId] = [];
         safeSetLocalStorage(ordKey, JSON.stringify([]));
       }
       const catKey = this.getCategoriesKey();
-      if (localStorage.getItem(catKey) === null) {
-        safeSetLocalStorage(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
+      if (!Array.isArray(inMemoryCategoriesByStore[cleanId]) && localStorage.getItem(catKey) === null) {
+        const defaultCats = [{ id: 'todos', name: 'Todos os Itens' }];
+        inMemoryCategoriesByStore[cleanId] = defaultCats;
+        safeSetLocalStorage(catKey, JSON.stringify(defaultCats));
       }
       const setKey = this.getSettingsKey();
-      if (localStorage.getItem(setKey) === null) {
-        const freshSettings: StoreSettings = {
-          ...INITIAL_SETTINGS,
+      if (!inMemorySettingsByStore[cleanId] && localStorage.getItem(setKey) === null) {
+        const freshSettings: StoreSettings = normalizeStoreSettings({
           storeName: initialStoreName || 'Minha Loja',
           phoneWhatsapp: initialPhone || '',
           logoBase64: '',
@@ -199,8 +204,19 @@ export const storageService = {
           pixKey: '',
           deliveryNeighborhoods: [],
           isOpen: true,
-        };
+        });
+        inMemorySettingsByStore[cleanId] = freshSettings;
         safeSetLocalStorage(setKey, JSON.stringify(freshSettings));
+      } else if (!inMemorySettingsByStore[cleanId]) {
+        try {
+          const raw = localStorage.getItem(setKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              inMemorySettingsByStore[cleanId] = normalizeStoreSettings(parsed);
+            }
+          }
+        } catch {}
       }
     }
 
@@ -368,25 +384,46 @@ export const storageService = {
       return false;
     }
     try {
-      const rawSettings = localStorage.getItem(`cardapp_settings_${cleanId}`);
-      const rawCategories = localStorage.getItem(`cardapp_categories_${cleanId}`);
-      const rawProducts = localStorage.getItem(`cardapp_products_${cleanId}`);
+      let settings: StoreSettings | undefined = inMemorySettingsByStore[cleanId];
+      if (!settings) {
+        const rawSettings = localStorage.getItem(`cardapp_settings_${cleanId}`);
+        if (rawSettings) settings = normalizeStoreSettings(JSON.parse(rawSettings));
+      }
+      if (!settings && cleanId === this.currentStoreId) {
+        settings = this.getSettings();
+      }
 
-      const settings = rawSettings ? JSON.parse(rawSettings) : this.getSettings();
-      const categories = rawCategories ? JSON.parse(rawCategories) : this.getCategories();
-      const products = rawProducts ? JSON.parse(rawProducts) : this.getProducts();
-      const slug = slugifyStoreName(settings?.storeName || '');
+      let categories: Category[] | undefined = inMemoryCategoriesByStore[cleanId];
+      if (!categories) {
+        const rawCategories = localStorage.getItem(`cardapp_categories_${cleanId}`);
+        if (rawCategories) categories = JSON.parse(rawCategories);
+      }
+      if (!categories && cleanId === this.currentStoreId) {
+        categories = this.getCategories();
+      }
+
+      let products: Product[] | undefined = inMemoryProductsByStore[cleanId];
+      if (!products) {
+        const rawProducts = localStorage.getItem(`cardapp_products_${cleanId}`);
+        if (rawProducts) products = JSON.parse(rawProducts);
+      }
+      if (!products && cleanId === this.currentStoreId) {
+        products = this.getProducts();
+      }
+
+      const effectiveName = (settings?.storeName || '').trim() || 'Minha Loja';
+      const slug = slugifyStoreName(effectiveName);
 
       const res = await fetch('/api/stores/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId: cleanId,
-          storeName: settings?.storeName || 'Minha Loja',
+          storeName: effectiveName,
           slug,
-          settings,
-          categories,
-          products,
+          settings: settings || undefined,
+          categories: Array.isArray(categories) ? categories : [],
+          products: Array.isArray(products) ? products : [],
         }),
       });
       return res.ok;
@@ -397,43 +434,61 @@ export const storageService = {
 
   async resolveStoreTarget(
     param: string
-  ): Promise<{ storeId: string; storeName?: string } | null> {
-    const clean = (param || '').trim();
+  ): Promise<{ storeId: string; storeName?: string; fromServer?: boolean } | null> {
+    let decoded = (param || '').trim();
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // keep raw
+    }
+    const clean = decoded.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
     if (!clean || clean === 'default_store' || clean === 'master_admin') {
       return null;
     }
 
-    // 1. Tentar obter dados diretamente do servidor backend (rápido, cross-device instantâneo)
-    try {
-      const serverRes = await fetch(`/api/stores/${encodeURIComponent(clean)}`);
-      if (serverRes.ok) {
-        const data = await serverRes.json();
-        if (data.success && data.store?.storeId) {
-          const s = data.store;
-          if (s.settings) {
-            safeSetLocalStorage(`cardapp_settings_${s.storeId}`, JSON.stringify(normalizeStoreSettings(s.settings)));
-          }
-          if (Array.isArray(s.categories) && s.categories.length > 0) {
-            safeSetLocalStorage(`cardapp_categories_${s.storeId}`, JSON.stringify(s.categories));
-          }
-          if (Array.isArray(s.products)) {
-            inMemoryProductsByStore[s.storeId] = s.products;
-            safeSetLocalStorage(`cardapp_products_${s.storeId}`, JSON.stringify(s.products));
-          }
-          this.notifyChange();
-          return { storeId: s.storeId, storeName: s.storeName };
-        }
-      }
-    } catch {}
-
     const slug = slugifyStoreName(clean);
+    const candidates = Array.from(
+      new Set([clean, ...(slug && slug.length >= 2 && slug !== clean.toLowerCase() ? [slug] : [])])
+    );
+
+    // 1. Tentar obter dados diretamente do servidor backend (rápido, cross-device instantâneo)
+    for (const candidate of candidates) {
+      try {
+        const serverRes = await fetch(`/api/stores/${encodeURIComponent(candidate)}`);
+        if (serverRes.ok) {
+          const data = await serverRes.json();
+          if (data.success && data.store?.storeId) {
+            const s = data.store;
+            if (s.settings) {
+              const normalized = normalizeStoreSettings({
+                ...s.settings,
+                storeName: s.settings.storeName || s.storeName || 'Minha Loja',
+              });
+              inMemorySettingsByStore[s.storeId] = normalized;
+              safeSetLocalStorage(`cardapp_settings_${s.storeId}`, JSON.stringify(normalized));
+            }
+            if (Array.isArray(s.categories) && s.categories.length > 0) {
+              inMemoryCategoriesByStore[s.storeId] = s.categories;
+              safeSetLocalStorage(`cardapp_categories_${s.storeId}`, JSON.stringify(s.categories));
+            }
+            if (Array.isArray(s.products)) {
+              inMemoryProductsByStore[s.storeId] = s.products;
+              safeSetLocalStorage(`cardapp_products_${s.storeId}`, JSON.stringify(s.products));
+            }
+            this.notifyChange();
+            return { storeId: s.storeId, storeName: s.storeName, fromServer: true };
+          }
+        }
+      } catch {}
+    }
+
     if (slug && slug.length >= 2) {
       try {
         const slugSnap = await getDoc(doc(db, 'storeSlugs', slug));
         if (slugSnap.exists()) {
           const data = slugSnap.data() as { storeId?: string; storeName?: string };
           if (data?.storeId) {
-            return { storeId: data.storeId, storeName: data.storeName };
+            return { storeId: data.storeId, storeName: data.storeName, fromServer: false };
           }
         }
       } catch {}
@@ -443,7 +498,7 @@ export const storageService = {
       const storeSnap = await getDoc(doc(db, 'stores', clean));
       if (storeSnap.exists()) {
         const data = storeSnap.data() as { storeName?: string };
-        return { storeId: storeSnap.id, storeName: data?.storeName };
+        return { storeId: storeSnap.id, storeName: data?.storeName, fromServer: false };
       }
     } catch {}
 
@@ -463,9 +518,10 @@ export const storageService = {
             const parsedSlug = slugifyStoreName(parsed?.storeName);
             if (
               candidateId === clean ||
+              candidateId.toLowerCase() === clean.toLowerCase() ||
               (slug && slug.length >= 2 && parsedSlug === slug)
             ) {
-              return { storeId: candidateId, storeName: parsed?.storeName };
+              return { storeId: candidateId, storeName: parsed?.storeName, fromServer: false };
             }
           }
         }
@@ -497,13 +553,15 @@ export const storageService = {
       }
 
       if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
-        const data = decryptDataFromFirestore<StoreSettings>(settingsRes.value.data());
+        const data = normalizeStoreSettings(decryptDataFromFirestore<StoreSettings>(settingsRes.value.data()));
         const isPendingSettings = Boolean(this.getPendingSettingsTimestamp(cleanId));
         let localSettingsTs = 0;
         try {
-          const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
-          if (existingRaw) {
-            const existing = JSON.parse(existingRaw) as StoreSettings;
+          const existing = inMemorySettingsByStore[cleanId] || (() => {
+            const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
+            return existingRaw ? (JSON.parse(existingRaw) as StoreSettings) : null;
+          })();
+          if (existing) {
             localSettingsTs = existing?.updatedAt ? Date.parse(existing.updatedAt) || 0 : 0;
           }
         } catch {}
@@ -511,17 +569,17 @@ export const storageService = {
 
         if (!isPendingSettings && localSettingsTs <= remoteSettingsTs) {
           foundAny = true;
+          inMemorySettingsByStore[cleanId] = data;
           safeSetLocalStorage(`cardapp_settings_${cleanId}`, JSON.stringify(data));
         }
       } else if (rootStoreName) {
         try {
           const existingRaw = localStorage.getItem(`cardapp_settings_${cleanId}`);
-          const base = existingRaw ? JSON.parse(existingRaw) : { ...INITIAL_SETTINGS };
+          const base = inMemorySettingsByStore[cleanId] || (existingRaw ? JSON.parse(existingRaw) : { ...INITIAL_SETTINGS });
           if (!base.storeName || base.storeName === 'Minha Loja') {
-            safeSetLocalStorage(
-              `cardapp_settings_${cleanId}`,
-              JSON.stringify({ ...base, storeName: rootStoreName })
-            );
+            const updated = normalizeStoreSettings({ ...base, storeName: rootStoreName });
+            inMemorySettingsByStore[cleanId] = updated;
+            safeSetLocalStorage(`cardapp_settings_${cleanId}`, JSON.stringify(updated));
           }
         } catch {}
       }
@@ -533,6 +591,7 @@ export const storageService = {
           catsRes.value.forEach((d) => {
             categories.push(decryptDataFromFirestore<Category>(d.data()));
           });
+          inMemoryCategoriesByStore[cleanId] = categories;
           safeSetLocalStorage(`cardapp_categories_${cleanId}`, JSON.stringify(categories));
         }
       }
@@ -577,8 +636,8 @@ export const storageService = {
     const catKey = `cardapp_categories_${cleanId}`;
     const setKey = `cardapp_settings_${cleanId}`;
 
-    const freshSettings: StoreSettings = {
-      ...INITIAL_SETTINGS,
+    const freshCategories: Category[] = [{ id: 'todos', name: 'Todos os Itens' }];
+    const freshSettings: StoreSettings = normalizeStoreSettings({
       storeName: storeName || 'Minha Loja',
       phoneWhatsapp: phoneWhatsapp || '',
       logoBase64: storeExtras?.logoBase64 || '',
@@ -588,12 +647,17 @@ export const storageService = {
       pixKey: '',
       deliveryNeighborhoods: [],
       isOpen: true,
-    };
+    });
 
-    localStorage.setItem(prodKey, JSON.stringify([]));
-    localStorage.setItem(ordKey, JSON.stringify([]));
-    localStorage.setItem(catKey, JSON.stringify([{ id: 'todos', name: 'Todos os Itens' }]));
-    localStorage.setItem(setKey, JSON.stringify(freshSettings));
+    inMemoryProductsByStore[cleanId] = [];
+    inMemoryOrdersByStore[cleanId] = [];
+    inMemoryCategoriesByStore[cleanId] = freshCategories;
+    inMemorySettingsByStore[cleanId] = freshSettings;
+
+    safeSetLocalStorage(prodKey, JSON.stringify([]));
+    safeSetLocalStorage(ordKey, JSON.stringify([]));
+    safeSetLocalStorage(catKey, JSON.stringify(freshCategories));
+    safeSetLocalStorage(setKey, JSON.stringify(freshSettings));
 
     this.syncStoreToServer(cleanId).catch(() => {});
 
@@ -750,7 +814,9 @@ export const storageService = {
               return;
             }
 
-            safeSetLocalStorage(`cardapp_settings_${targetStore}`, JSON.stringify(data));
+            const normalized = normalizeStoreSettings(data);
+            inMemorySettingsByStore[targetStore] = normalized;
+            safeSetLocalStorage(`cardapp_settings_${targetStore}`, JSON.stringify(normalized));
             this.notifyChange();
           }
         },
@@ -914,6 +980,7 @@ export const storageService = {
             snap.forEach((d) => {
               categories.push(decryptDataFromFirestore<Category>(d.data()));
             });
+            inMemoryCategoriesByStore[targetStore] = categories;
             safeSetLocalStorage(`cardapp_categories_${targetStore}`, JSON.stringify(categories));
             this.notifyChange();
           }
@@ -952,24 +1019,40 @@ export const storageService = {
   },
 
   getCategories(): Category[] {
+    const key = this.getCategoriesKey();
+    if (localStorageQuotaFallbackKeys.has(key) && Array.isArray(inMemoryCategoriesByStore[this.currentStoreId])) {
+      return inMemoryCategoriesByStore[this.currentStoreId];
+    }
     try {
-      const stored = localStorage.getItem(this.getCategoriesKey());
-      if (stored) return JSON.parse(stored);
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          inMemoryCategoriesByStore[this.currentStoreId] = parsed;
+          return parsed;
+        }
+      }
     } catch {
       // fallback
     }
+    if (Array.isArray(inMemoryCategoriesByStore[this.currentStoreId])) {
+      return inMemoryCategoriesByStore[this.currentStoreId];
+    }
     if (this.currentStoreId !== 'default_store' && this.currentStoreId !== 'master_admin') {
       const cleanCats: Category[] = [{ id: 'todos', name: 'Todos os Itens' }];
-      localStorage.setItem(this.getCategoriesKey(), JSON.stringify(cleanCats));
+      inMemoryCategoriesByStore[this.currentStoreId] = cleanCats;
+      safeSetLocalStorage(key, JSON.stringify(cleanCats));
       return cleanCats;
     }
-    localStorage.setItem(this.getCategoriesKey(), JSON.stringify(INITIAL_CATEGORIES));
+    inMemoryCategoriesByStore[this.currentStoreId] = INITIAL_CATEGORIES;
+    safeSetLocalStorage(key, JSON.stringify(INITIAL_CATEGORIES));
     return INITIAL_CATEGORIES;
   },
 
   saveCategories(categories: Category[]) {
     const storeId = this.currentStoreId;
     this.markCategoriesPending(storeId);
+    inMemoryCategoriesByStore[storeId] = categories;
     safeSetLocalStorage(`cardapp_categories_${storeId}`, JSON.stringify(categories));
     this.notifyChange();
 
@@ -1720,24 +1803,33 @@ export const storageService = {
   },
 
   getSettings(): StoreSettings {
+    const key = this.getSettingsKey();
+    if (localStorageQuotaFallbackKeys.has(key) && inMemorySettingsByStore[this.currentStoreId]) {
+      return inMemorySettingsByStore[this.currentStoreId];
+    }
     try {
-      const stored = localStorage.getItem(this.getSettingsKey());
+      const stored = localStorage.getItem(key);
       if (stored && stored !== 'null' && stored !== 'undefined') {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
           // Garante que o cardápio de demonstração NUNCA contenha WhatsApp pessoal
           if (this.currentStoreId === 'default_store' && parsed.phoneWhatsapp) {
             parsed.phoneWhatsapp = '';
-            safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(parsed));
+            safeSetLocalStorage(key, JSON.stringify(parsed));
           }
-          return normalizeStoreSettings({
+          const normalized = normalizeStoreSettings({
             ...parsed,
             storeName: parsed.storeName || (this.currentStoreId === 'default_store' ? INITIAL_SETTINGS.storeName : 'Minha Loja'),
           });
+          inMemorySettingsByStore[this.currentStoreId] = normalized;
+          return normalized;
         }
       }
     } catch {
       // fallback
+    }
+    if (inMemorySettingsByStore[this.currentStoreId]) {
+      return inMemorySettingsByStore[this.currentStoreId];
     }
     if (this.currentStoreId !== 'default_store' && this.currentStoreId !== 'master_admin') {
       const freshSettings: StoreSettings = normalizeStoreSettings({
@@ -1751,11 +1843,14 @@ export const storageService = {
         deliveryNeighborhoods: [],
         isOpen: true,
       });
-      safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(freshSettings));
+      inMemorySettingsByStore[this.currentStoreId] = freshSettings;
+      safeSetLocalStorage(key, JSON.stringify(freshSettings));
       return freshSettings;
     }
-    safeSetLocalStorage(this.getSettingsKey(), JSON.stringify(INITIAL_SETTINGS));
-    return normalizeStoreSettings(INITIAL_SETTINGS);
+    const demoNormalized = normalizeStoreSettings(INITIAL_SETTINGS);
+    inMemorySettingsByStore[this.currentStoreId] = demoNormalized;
+    safeSetLocalStorage(key, JSON.stringify(INITIAL_SETTINGS));
+    return demoNormalized;
   },
 
   saveSettings(settings: StoreSettings) {
@@ -1769,6 +1864,7 @@ export const storageService = {
       stampedSettings.phoneWhatsapp = '';
     }
     this.markSettingsPending(storeId);
+    inMemorySettingsByStore[storeId] = stampedSettings;
     safeSetLocalStorage(`cardapp_settings_${storeId}`, JSON.stringify(stampedSettings));
     this.notifyChange();
 
