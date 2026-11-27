@@ -332,6 +332,21 @@ export default function App() {
   }, [currentView]);
 
   useEffect(() => {
+    const cleanName = (settings?.storeName || '').trim();
+    if (
+      currentView === 'menu' &&
+      activeStoreId !== 'default_store' &&
+      activeStoreId !== 'master_admin' &&
+      cleanName &&
+      cleanName !== 'Minha Loja'
+    ) {
+      document.title = `${cleanName} – Cardápio Digital`;
+    } else {
+      document.title = 'CARDAPP - Cardápio Digital';
+    }
+  }, [currentView, activeStoreId, settings?.storeName]);
+
+  useEffect(() => {
     if (isResolvingStore || hydratedStoreRef.current !== activeStoreId) return;
     saveClientStep(activeStoreId, currentStep);
   }, [activeStoreId, currentStep, isResolvingStore]);

@@ -77,7 +77,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   const handleOpenWhatsapp = (customTopic?: string) => {
-    const defaultText = `Olá! Gostaria de testar minha loja por 5 dias grátis no CARDAPP Luxury e conhecer os planos disponíveis.`;
+    const defaultText = `Olá! Gostaria de testar minha loja por 5 dias grátis no CARDAPP e conhecer os planos disponíveis.`;
     const textToSend = customTopic || defaultText;
     const url = `https://wa.me/5584986113980?text=${encodeURIComponent(textToSend)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -89,7 +89,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       return;
     }
     handleOpenWhatsapp(
-      `Olá! Quero testar minha loja por 5 dias grátis e contratar o plano "${plan.name}" (${formatCurrency(plan.price)}) no CARDAPP Luxury.`
+      `Olá! Quero testar minha loja por 5 dias grátis e contratar o plano "${plan.name}" (${formatCurrency(plan.price)}) no CARDAPP.`
     );
   };
 
@@ -142,7 +142,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
             <div className="whitespace-nowrap">
               <span className="font-serif font-bold text-lg tracking-wide text-white block leading-none">
-                CARDAPP <span className="text-amber-400 font-normal italic">Luxury</span>
+                CARDAPP
               </span>
               <span className="text-[10px] font-medium text-slate-400 tracking-[0.2em] uppercase block mt-1">
                 SF Tecnologia
@@ -698,7 +698,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="text-center font-bold text-[10px] text-slate-600">
                       ================================
                       <br />
-                      CARDAPP LUXURY · COZINHA
+                      CARDAPP · COZINHA
                       <br />
                       ================================
                     </div>
@@ -825,7 +825,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="p-6 rounded-2xl bg-emerald-950/20 border border-emerald-500/25 space-y-4">
             <span className="text-xs font-bold uppercase text-emerald-400 block tracking-wider">
-              Canal Próprio CARDAPP Luxury
+              Canal Próprio CARDAPP
             </span>
             <ul className="space-y-3 text-xs text-slate-300">
               <li className="flex items-start gap-2.5">
@@ -983,14 +983,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* SECTION: PLANOS, PROMOÇÕES & CONVITE 5 DIAS GRÁTIS */}
-      <section id="planos" className="py-20 max-w-6xl mx-auto px-4 sm:px-6">
+      {/* SECTION: PLANO MENSAL & CONVITE 5 DIAS GRÁTIS */}
+      <section id="planos" className="py-20 max-w-4xl mx-auto px-4 sm:px-6">
         <div className="text-center space-y-3 mb-10">
           <span className="text-[11px] font-semibold uppercase text-amber-400 tracking-[0.26em] block">
-            Planos & Benefícios
+            Plano Único Mensal
           </span>
           <h2 className="font-serif text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight">
-            Comece com 5 dias grátis e escolha o seu plano
+            Comece com 5 dias grátis e siga no plano mensal
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl mx-auto leading-relaxed">
             Não deixe para amanhã as vendas que você pode fazer hoje: crie sua conta gratuitamente,
@@ -1002,92 +1002,98 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </p>
         </div>
 
-        {/* Dynamic Plans Grid synced with SuperAdmin plans */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {plans.map((plan, index) => {
-            const isFeatured = plan.period === 'mensal' || index === 0;
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-3xl p-7 flex flex-col justify-between transition-all relative overflow-hidden ${
-                  isFeatured
-                    ? 'bg-gradient-to-b from-[#171C28] to-[#0E121A] border-2 border-amber-400/50 shadow-2xl shadow-amber-500/10'
-                    : 'bg-[#0D1017] border border-white/10 hover:border-amber-400/35'
-                }`}
-              >
-                {isFeatured && (
-                  <div className="absolute top-0 right-0 bg-amber-400 text-slate-950 font-bold text-[10px] uppercase px-4 py-1.5 rounded-bl-xl tracking-wider flex items-center gap-1">
-                    <Crown className="w-3 h-3" />
-                    <span>Mais Escolhido</span>
-                  </div>
-                )}
+        {/* Single Monthly Plan Card synced with SuperAdmin */}
+        {(() => {
+          const activeMonthlyPlan: SubscriptionPlan = mensalPlan || {
+            id: 'plan_mensal_padrao',
+            period: 'mensal',
+            name: 'Plano Mensal',
+            durationDays: 30,
+            price: 29.99,
+            description: 'Acesso completo ao cardápio digital, pedidos no WhatsApp e painel administrativo.',
+            isActive: true,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            createdBy: 'Sistema',
+          };
+          return (
+            <div className="max-w-2xl mx-auto rounded-3xl p-8 sm:p-10 bg-gradient-to-b from-[#171C28] to-[#0E121A] border-2 border-amber-400/50 shadow-2xl shadow-amber-500/10 relative overflow-hidden space-y-8">
+              <div className="absolute top-0 right-0 bg-amber-400 text-slate-950 font-bold text-[10px] uppercase px-5 py-1.5 rounded-bl-xl tracking-wider flex items-center gap-1.5">
+                <Crown className="w-3.5 h-3.5" />
+                <span>Plano Mensal · 0% Comissão</span>
+              </div>
 
-                <div className="space-y-5">
-                  <div>
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400 block">
-                      {plan.durationDays >= 36500
-                        ? 'Acesso Vitalício'
-                        : `${plan.durationDays} dias de licença`}
-                    </span>
-                    <h3 className="font-serif text-2xl font-bold text-white mt-1">{plan.name}</h3>
-                    <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                      {plan.description || 'Acesso completo ao cardápio digital, pedidos no WhatsApp e painel administrativo.'}
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-white/10">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-3xl font-bold text-white font-mono tabular-nums">
-                        {formatCurrency(plan.price)}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {plan.durationDays >= 36500 ? 'pagamento único' : `/ ${plan.durationDays} dias`}
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-semibold text-emerald-400 block mt-1">
-                      5 dias grátis no cadastro + 0% comissão
-                    </span>
-                  </div>
-
-                  <ul className="space-y-2.5 text-xs text-slate-300 pt-1">
-                    <li className="flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Pedidos ilimitados sem taxa por venda</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Comandas no WhatsApp & Impressão Térmica</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Link oficial e QR Code exclusivo para mesas</span>
-                    </li>
-                  </ul>
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-white/10 pt-2">
+                <div>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400 block">
+                    {activeMonthlyPlan.durationDays} dias de licença
+                  </span>
+                  <h3 className="font-serif text-2xl sm:text-3xl font-bold text-white mt-1">
+                    {activeMonthlyPlan.name}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1.5 max-w-sm leading-relaxed">
+                    {activeMonthlyPlan.description ||
+                      'Acesso completo ao cardápio digital, pedidos no WhatsApp e painel administrativo.'}
+                  </p>
                 </div>
 
-                <div className="pt-6 mt-6 border-t border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => handleAcquirePlan(plan)}
-                    className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                      isFeatured
-                        ? 'bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 hover:from-amber-200 hover:to-amber-400 text-slate-950 shadow-lg shadow-amber-500/20'
-                        : 'bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-white border border-white/15'
-                    }`}
-                  >
-                    <span>Testar 5 Dias Grátis & Adquirir</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                <div className="text-left sm:text-right shrink-0">
+                  <div className="flex items-baseline sm:justify-end gap-1.5">
+                    <span className="text-3xl sm:text-4xl font-bold text-white font-mono tabular-nums">
+                      {formatCurrency(activeMonthlyPlan.price)}
+                    </span>
+                    <span className="text-xs text-slate-400">/mês</span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-emerald-400 block mt-1">
+                    5 dias grátis no cadastro + 0% comissão
+                  </span>
                 </div>
               </div>
-            );
-          })}
-        </div>
 
-        <div className="mt-8 p-4 rounded-2xl bg-[#0D1017] border border-white/10 text-xs text-slate-300 flex items-start gap-3 max-w-3xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs text-slate-300">
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Pedidos ilimitados sem taxa por venda</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Comandas estruturadas no WhatsApp</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Impressão térmica 58mm e 80mm</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Link oficial e QR Code exclusivo para mesas</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Frete automático por bairro</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Recebimento direto no Pix sem retenção</span>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleAcquirePlan(activeMonthlyPlan)}
+                  className="w-full py-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 hover:from-amber-200 hover:to-amber-400 text-slate-950 shadow-lg shadow-amber-500/20"
+                >
+                  <span>Testar 5 Dias Grátis & Adquirir Plano Mensal</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        <div className="mt-8 p-4 rounded-2xl bg-[#0D1017] border border-white/10 text-xs text-slate-300 flex items-start gap-3 max-w-2xl mx-auto">
           <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            <strong className="text-white">Transparência na Renovação:</strong> Você inicia com 5 dias grátis completos e, após o período de testes, escolhe qualquer plano acima direto no painel da sua loja sem cobranças automáticas indesejadas.
+            <strong className="text-white">Transparência na Renovação:</strong> Você inicia com 5 dias grátis completos e, após o período de testes, ativa o plano mensal diretamente no painel da sua loja sem cobranças automáticas indesejadas.
           </p>
         </div>
       </section>
@@ -1186,7 +1192,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <ForkKnifeIcon className="w-4 h-4 stroke-[2.5]" />
               </div>
               <span className="font-serif font-bold text-base text-white tracking-wide">
-                CARDAPP <span className="text-amber-400 italic font-normal">Luxury</span>
+                CARDAPP
               </span>
             </div>
 
@@ -1222,7 +1228,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500 text-center sm:text-left">
             <p>
-              CARDAPP Luxury Digital · Desenvolvido por <strong className="text-slate-400">SF TECNOLOGIA</strong> · Todos os direitos reservados.
+              CARDAPP Digital · Desenvolvido por <strong className="text-slate-400">SF TECNOLOGIA</strong> · Todos os direitos reservados.
             </p>
             <button
               type="button"
