@@ -274,16 +274,27 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   });
   const [blockedAlertNotice, setBlockedAlertNotice] = useState<string | null>(null);
 
-  const RENEWAL_PLAN_OPTIONS = useMemo(
-    () => [
-      { id: 'mensal' as PlanPeriod, name: 'Plano Mensal', price: 29.99, periodLabel: '30 dias', tagline: 'Mais popular para começar', badge: 'Popular' },
-      { id: 'trimestral' as PlanPeriod, name: 'Plano Trimestral', price: 69.90, periodLabel: '90 dias', tagline: 'Economize R$ 20,00', badge: 'Economia' },
-      { id: 'semestral' as PlanPeriod, name: 'Plano Semestral', price: 129.90, periodLabel: '180 dias', tagline: 'Economize R$ 50,00', badge: 'Destaque' },
-      { id: 'anual' as PlanPeriod, name: 'Plano Anual', price: 239.90, periodLabel: '365 dias (1 ano)', tagline: 'Melhor custo/benefício', badge: 'Mais vantajoso' },
-      { id: 'vitalicio' as PlanPeriod, name: 'Plano Vitalício', price: 499.90, periodLabel: 'Sem expiração', tagline: 'Acesso permanente exclusivo', badge: 'VIP Permanente' },
-    ],
-    []
-  );
+  const RENEWAL_PLAN_OPTIONS = useMemo(() => {
+    const plans = accountService.getSubscriptionPlans().filter((p) => p.isActive);
+    if (plans.length > 0) {
+      return plans.map((p) => ({
+        id: p.period as PlanPeriod,
+        planId: p.id,
+        name: p.name,
+        price: p.price,
+        periodLabel: `${p.durationDays} dias`,
+        tagline: p.description || 'Plano exclusivo CARDAPP',
+        badge: p.period === 'vitalicio' ? 'VIP Permanente' : p.period === 'anual' ? 'Mais vantajoso' : 'Disponível',
+      }));
+    }
+    return [
+      { id: 'mensal' as PlanPeriod, planId: 'plan_mensal_padrao', name: 'Plano Mensal', price: 29.99, periodLabel: '30 dias', tagline: 'Mais popular para começar', badge: 'Popular' },
+      { id: 'trimestral' as PlanPeriod, planId: 'plan_trimestral_padrao', name: 'Plano Trimestral', price: 69.90, periodLabel: '90 dias', tagline: 'Economize R$ 20,00', badge: 'Economia' },
+      { id: 'semestral' as PlanPeriod, planId: 'plan_semestral_padrao', name: 'Plano Semestral', price: 129.90, periodLabel: '180 dias', tagline: 'Economize R$ 50,00', badge: 'Destaque' },
+      { id: 'anual' as PlanPeriod, planId: 'plan_anual_padrao', name: 'Plano Anual', price: 239.90, periodLabel: '365 dias (1 ano)', tagline: 'Melhor custo/benefício', badge: 'Mais vantajoso' },
+      { id: 'vitalicio' as PlanPeriod, planId: 'plan_vitalicio_padrao', name: 'Plano Vitalício', price: 499.90, periodLabel: 'Sem expiração', tagline: 'Acesso permanente exclusivo', badge: 'VIP Permanente' },
+    ];
+  }, []);
 
   const [selectedRenewalPlan, setSelectedRenewalPlan] = useState<PlanPeriod>(() => {
     const saved = loadCeoSelectedRenewalPlan(currentStoreId || initialStoreIdForDrafts);
