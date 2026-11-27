@@ -512,7 +512,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
                 required
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="Ex: (11) 98765-4321"
+                placeholder="Ex: (55)999999999"
                 className="w-full text-sm p-3.5 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
@@ -653,7 +653,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
                   </label>
                   <div className="relative flex items-center">
                     <input
-                      type="text"
+                      type="tel"
                       value={cep}
                       onChange={(e) => handleCepChange(e.target.value)}
                       onBlur={() => {

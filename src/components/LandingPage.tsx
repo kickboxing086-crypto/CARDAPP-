@@ -513,7 +513,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <p className="font-bold text-emerald-400">📋 *NOVO PEDIDO CONFIRMADO*</p>
                     <p className="text-slate-500">--------------------------------</p>
                     <p>👤 *Cliente:* Mariana Souza</p>
-                    <p>📱 *Telefone:* (11) 99887-6655</p>
+                    <p>📱 *Telefone:* (55)999999999</p>
                     <p>🛵 *Modalidade:* Delivery</p>
                     <p>📍 *Endereço:* Av. Paulista, 1000 - Apto 42</p>
                     <p className="text-slate-500">--------------------------------</p>
