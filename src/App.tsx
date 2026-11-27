@@ -409,69 +409,7 @@ export default function App() {
         const savedCeo = getSavedCeoOpenState();
         const savedSuperAdmin = getSavedSuperAdminOpenState();
 
-        // Se o lojista estava com o painel CEO aberto nesta aba (mesmo se URL atual tiver slug/login)
-        if (
-          (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) ||
-          (isCeoRoute && session?.role !== 'super_admin')
-        ) {
-          setIsResolvingStore(false);
-          if (session) {
-            storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
-            setActiveStoreId(session.storeId);
-            hydratedStoreRef.current = session.storeId;
-            saveActiveStoreSession(session.storeId);
-            setCurrentUser(session);
-            setProducts(storageService.getProducts());
-            setOrders(storageService.getOrders());
-            setCategories(storageService.getCategories());
-            setSettings(storageService.getSettings());
-            setActiveOrderId(storageService.getActiveOrderId());
-            storageService.loadStoreFromFirestoreOnce(session.storeId).then(() => {
-              if (!isMounted) return;
-              setProducts(storageService.getProducts());
-              setOrders(storageService.getOrders());
-              setCategories(storageService.getCategories());
-              setSettings(storageService.getSettings());
-              setActiveOrderId(storageService.getActiveOrderId());
-            });
-          }
-          setCurrentView('menu');
-          setIsSuperAdminModalOpen(false);
-          setIsCeoModalOpen(true);
-          return;
-        }
-
-        // Se o SuperAdmin estava com o painel aberto nesta aba
-        if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === true)) {
-          setIsResolvingStore(false);
-          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
-          setActiveStoreId(session.storeId);
-          hydratedStoreRef.current = session.storeId;
-          saveActiveStoreSession(session.storeId);
-          setCurrentUser(session);
-          setCurrentView('menu');
-          setIsCeoModalOpen(false);
-          setIsSuperAdminModalOpen(true);
-          return;
-        }
-
-        // Rotas explícitas de login e cadastro têm prioridade quando nenhum painel está aberto
-        if (isRegister) {
-          setIsResolvingStore(false);
-          setLoginModalMode('register');
-          setCurrentView('login');
-          setIsLoginModalOpen(true);
-          return;
-        }
-        if (isLogin) {
-          setIsResolvingStore(false);
-          setLoginModalMode('login');
-          setCurrentView('login');
-          setIsLoginModalOpen(true);
-          return;
-        }
-
-        // Link compartilhado da loja (/nome-da-loja ou ?store=... / ?loja=...)
+        // Link compartilhado da loja (/nome-da-loja ou ?store=... / ?loja=...) tem prioridade absoluta para abrir o cardápio do cliente
         if (storeTarget) {
           setCurrentView('menu');
           setIsCeoModalOpen(false);
@@ -560,6 +498,68 @@ export default function App() {
               if (isMounted) setIsResolvingStore(false);
             }
           })();
+          return;
+        }
+
+        // Se o lojista estava com o painel CEO aberto nesta aba (somente se não for link de loja compartilhado)
+        if (
+          (savedCeo === true && session && (session.role === 'store_admin' || accountService.isImpersonating())) ||
+          (isCeoRoute && session?.role !== 'super_admin')
+        ) {
+          setIsResolvingStore(false);
+          if (session) {
+            storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+            setActiveStoreId(session.storeId);
+            hydratedStoreRef.current = session.storeId;
+            saveActiveStoreSession(session.storeId);
+            setCurrentUser(session);
+            setProducts(storageService.getProducts());
+            setOrders(storageService.getOrders());
+            setCategories(storageService.getCategories());
+            setSettings(storageService.getSettings());
+            setActiveOrderId(storageService.getActiveOrderId());
+            storageService.loadStoreFromFirestoreOnce(session.storeId).then(() => {
+              if (!isMounted) return;
+              setProducts(storageService.getProducts());
+              setOrders(storageService.getOrders());
+              setCategories(storageService.getCategories());
+              setSettings(storageService.getSettings());
+              setActiveOrderId(storageService.getActiveOrderId());
+            });
+          }
+          setCurrentView('menu');
+          setIsSuperAdminModalOpen(false);
+          setIsCeoModalOpen(true);
+          return;
+        }
+
+        // Se o SuperAdmin estava com o painel aberto nesta aba
+        if (session && session.role === 'super_admin' && (isCeoRoute || savedSuperAdmin === true)) {
+          setIsResolvingStore(false);
+          storageService.setStoreId(session.storeId, session.storeName, session.phoneWhatsapp);
+          setActiveStoreId(session.storeId);
+          hydratedStoreRef.current = session.storeId;
+          saveActiveStoreSession(session.storeId);
+          setCurrentUser(session);
+          setCurrentView('menu');
+          setIsCeoModalOpen(false);
+          setIsSuperAdminModalOpen(true);
+          return;
+        }
+
+        // Rotas explícitas de login e cadastro têm prioridade quando nenhum painel está aberto
+        if (isRegister) {
+          setIsResolvingStore(false);
+          setLoginModalMode('register');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
+          return;
+        }
+        if (isLogin) {
+          setIsResolvingStore(false);
+          setLoginModalMode('login');
+          setCurrentView('login');
+          setIsLoginModalOpen(true);
           return;
         }
 
