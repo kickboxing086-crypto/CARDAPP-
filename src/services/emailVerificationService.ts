@@ -53,13 +53,41 @@ class EmailVerificationService {
         'gamil.com': 'gmail.com',
         'gmial.com': 'gmail.com',
         'gnail.com': 'gmail.com',
+        'gmaill.com': 'gmail.com',
+        'gmail.com.br': 'gmail.com',
         'hotmial.com': 'hotmail.com',
         'hotmaill.com': 'hotmail.com',
+        'hotmal.com': 'hotmail.com',
         'outlok.com': 'outlook.com',
         'outllok.com': 'outlook.com',
         'yaho.com': 'yahoo.com',
         'yahooo.com': 'yahoo.com',
+        'icoud.com': 'icloud.com',
+        'iclud.com': 'icloud.com',
       };
+
+      const disposableDomains = new Set([
+        'mailinator.com',
+        'tempmail.com',
+        'temp-mail.org',
+        '10minutemail.com',
+        'guerrillamail.com',
+        'yopmail.com',
+        'throwawaymail.com',
+        'trashmail.com',
+        'fakeinbox.com',
+        'getnada.com',
+        'dispostable.com',
+        'maildrop.cc',
+        'sharklasers.com',
+      ]);
+
+      if (disposableDomains.has(domainPart)) {
+        return {
+          isValid: false,
+          errorMessage: 'E-mails temporários ou descartáveis não são permitidos. Utilize um e-mail real.',
+        };
+      }
 
       if (typoMap[domainPart]) {
         const suggested = `${userPart}@${typoMap[domainPart]}`;
@@ -92,13 +120,17 @@ class EmailVerificationService {
   }
 
   /**
-   * Dispara o código de acesso no-reply de 6 dígitos e inicia a sessão de verificação
+   * Dispara o código de acesso formal CARDAPP (No-Reply) de 6 dígitos e inicia a sessão de verificação
    */
-  public async sendVerificationCode(data: ClientRegistrationFormData): Promise<{
+  public async sendVerificationCode(data: Partial<ClientRegistrationFormData> & { email: string; name: string; storeName: string }): Promise<{
     success: boolean;
     message: string;
+    customCodeEmailSent?: boolean;
+    firebaseLinkSent?: boolean;
+    invalidDomain?: boolean;
+    missingEmailProvider?: boolean;
   }> {
-    const trimmedEmail = data.email.trim().toLowerCase();
+    const trimmedEmail = (data.email || '').trim().toLowerCase();
     const validation = this.validateEmail(trimmedEmail);
     if (!validation.isValid) {
       return { success: false, message: validation.errorMessage || 'E-mail inválido.' };
@@ -108,6 +140,61 @@ class EmailVerificationService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutos de validade
 
+    const normalizedRegData: ClientRegistrationFormData = {
+      name: (data.name || '').trim(),
+      email: trimmedEmail,
+      phoneWhatsapp: (data.phoneWhatsapp || '').trim(),
+      storeName: (data.storeName || '').trim(),
+      logoBase64: data.logoBase64 || '',
+      address: data.address,
+      tagline: data.tagline,
+      instagramHandle: data.instagramHandle,
+      username: (data.username || '').trim(),
+      password: data.password || '',
+    };
+
+    // Dispara envio do e-mail formal CARDAPP (No-Reply) diretamente para a caixa de entrada via API do servidor
+    let serverData: {
+      success?: boolean;
+      message?: string;
+      customCodeEmailSent?: boolean;
+      firebaseLinkSent?: boolean;
+      invalidDomain?: boolean;
+      missingEmailProvider?: boolean;
+    } | null = null;
+
+    try {
+      const res = await fetch('/api/send-verification-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: trimmedEmail,
+          clientName: normalizedRegData.name,
+          storeName: normalizedRegData.storeName,
+          code,
+        }),
+      });
+      serverData = await res.json().catch(() => null);
+      if (!res.ok || !serverData?.success) {
+        return {
+          success: false,
+          invalidDomain: Boolean(serverData?.invalidDomain),
+          missingEmailProvider: Boolean(serverData?.missingEmailProvider),
+          message:
+            serverData?.message ||
+            'Não foi possível enviar o código de verificação para este e-mail. Verifique se o endereço está correto.',
+        };
+      }
+    } catch (err) {
+      console.warn('Falha na chamada da API de e-mail:', err);
+      return {
+        success: false,
+        message: 'Erro de conexão com o servidor ao enviar o código de verificação. Tente novamente.',
+      };
+    }
+
     const session: EmailVerificationSession = {
       email: trimmedEmail,
       code,
@@ -115,13 +202,7 @@ class EmailVerificationService {
       expiresAt: expiresAt.toISOString(),
       attempts: 0,
       verified: false,
-      registrationData: {
-        ...data,
-        email: trimmedEmail,
-        name: data.name.trim(),
-        storeName: data.storeName.trim(),
-        username: data.username.trim(),
-      },
+      registrationData: normalizedRegData,
     };
 
     this.activeSession = session;
@@ -144,8 +225,8 @@ class EmailVerificationService {
           expiresAt: expiresAt.toISOString(),
           attempts: 0,
           verified: false,
-          storeName: data.storeName.trim(),
-          clientName: data.name.trim(),
+          storeName: normalizedRegData.storeName,
+          clientName: normalizedRegData.name,
         }),
         { merge: true }
       );
@@ -153,36 +234,27 @@ class EmailVerificationService {
       console.warn('Firestore email verification fallback:', e);
     }
 
-    // Dispara envio do e-mail diretamente para a caixa de entrada do cliente via API do servidor
-    try {
-      await fetch('/api/send-verification-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          to: trimmedEmail,
-          clientName: data.name.trim(),
-          storeName: data.storeName.trim(),
-          code,
-        }),
-      });
-    } catch (err) {
-      console.warn('Falha na chamada da API de e-mail:', err);
-    }
-
     // O código JAMAIS deve ser retornado para a interface nem transmitido via eventos de tela,
     // garantindo que o usuário obrigatoriamente acerte o código abrindo sua caixa de entrada de e-mail.
     return {
       success: true,
-      message: `Código de verificação de 6 dígitos enviado para ${trimmedEmail}!`,
+      customCodeEmailSent: Boolean(serverData?.customCodeEmailSent),
+      firebaseLinkSent: Boolean(serverData?.firebaseLinkSent),
+      message:
+        serverData?.message ||
+        `Código de verificação formal CARDAPP (No-Reply) enviado para ${trimmedEmail}!`,
     };
   }
 
   /**
    * Reenvia um novo código de 6 dígitos para o e-mail ativo
    */
-  public async resendCode(): Promise<{ success: boolean; message: string }> {
+  public async resendCode(): Promise<{
+    success: boolean;
+    message: string;
+    customCodeEmailSent?: boolean;
+    firebaseLinkSent?: boolean;
+  }> {
     if (!this.activeSession) {
       return { success: false, message: 'Nenhuma sessão de verificação encontrada.' };
     }
@@ -205,6 +277,27 @@ class EmailVerificationService {
 
     if (cleanCode.length !== 6) {
       return { success: false, message: 'Por favor, digite todos os 6 dígitos do código.' };
+    }
+
+    // 1. Consulta o servidor para validação oficial
+    let serverVerified = false;
+    try {
+      const serverRes = await fetch('/api/verify-email-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmedEmail, code: cleanCode }),
+      });
+      const serverJson = await serverRes.json().catch(() => null);
+      if (serverRes.ok && serverJson?.verified) {
+        serverVerified = true;
+      } else if (serverJson && !serverJson.notFoundOnServer && !serverRes.ok) {
+        return {
+          success: false,
+          message: serverJson.message || 'Código incorreto ou expirado.',
+        };
+      }
+    } catch {
+      // fallback para validação local/Firestore caso offline
     }
 
     let session = this.activeSession;
@@ -247,55 +340,59 @@ class EmailVerificationService {
       }
     }
 
-    if (!session) {
+    if (!session && !serverVerified) {
       return {
         success: false,
         message: 'Sessão de verificação expirada ou inexistente. Solicite um novo código.',
       };
     }
 
-    // Verifica se expirou
-    const now = new Date().getTime();
-    const expTime = new Date(session.expiresAt).getTime();
-    if (now > expTime) {
-      return {
-        success: false,
-        message: 'Este código de 6 dígitos expirou (validade de 10 min). Solicite o reenvio de um novo código.',
-      };
+    if (session && !serverVerified) {
+      // Verifica se expirou
+      const now = new Date().getTime();
+      const expTime = new Date(session.expiresAt).getTime();
+      if (now > expTime) {
+        return {
+          success: false,
+          message: 'Este código de 6 dígitos expirou (validade de 10 min). Solicite o reenvio de um novo código.',
+        };
+      }
+
+      // Verifica tentativas de força bruta (máximo 5)
+      if (session.attempts >= 5) {
+        return {
+          success: false,
+          message: 'Limite máximo de 5 tentativas excedido. Por favor, solicite um novo código.',
+        };
+      }
+
+      // Confere o código
+      if (session.code !== cleanCode) {
+        session.attempts += 1;
+        this.activeSession = session;
+        try {
+          localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
+        } catch {
+          // ignore
+        }
+
+        const remaining = 5 - session.attempts;
+        return {
+          success: false,
+          message: `Código incorreto. ${remaining > 0 ? `Restam ${remaining} tentativas.` : 'Solicite um novo código.'}`,
+        };
+      }
     }
 
-    // Verifica tentativas de força bruta (máximo 5)
-    if (session.attempts >= 5) {
-      return {
-        success: false,
-        message: 'Limite máximo de 5 tentativas excedido. Por favor, solicite um novo código.',
-      };
-    }
-
-    // Confere o código
-    if (session.code !== cleanCode) {
-      session.attempts += 1;
+    // Código correto! Marca como verificado
+    if (session) {
+      session.verified = true;
       this.activeSession = session;
       try {
         localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
       } catch {
         // ignore
       }
-
-      const remaining = 5 - session.attempts;
-      return {
-        success: false,
-        message: `Código incorreto. ${remaining > 0 ? `Restam ${remaining} tentativas.` : 'Solicite um novo código.'}`,
-      };
-    }
-
-    // Código correto! Marca como verificado
-    session.verified = true;
-    this.activeSession = session;
-    try {
-      localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
-    } catch {
-      // ignore
     }
 
     // Atualiza Firestore
@@ -312,8 +409,8 @@ class EmailVerificationService {
 
     return {
       success: true,
-      message: 'E-mail verificado com sucesso!',
-      registrationData: session.registrationData,
+      message: 'E-mail autenticado com sucesso!',
+      registrationData: session?.registrationData,
     };
   }
 

@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
@@ -152,6 +153,98 @@ async function dispatchFirebaseEmailVerification(email: string, code: string): P
   return false;
 }
 
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com',
+  'tempmail.com',
+  'temp-mail.org',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'yopmail.com',
+  'throwawaymail.com',
+  'trashmail.com',
+  'fakeinbox.com',
+  'getnada.com',
+  'dispostable.com',
+  'maildrop.cc',
+  'sharklasers.com',
+]);
+
+function escapeEmailHtml(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function validateRealEmailDomain(email: string): Promise<{ valid: boolean; reason?: string }> {
+  const clean = (email || '').trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(clean)) {
+    return { valid: false, reason: 'Formato de e-mail inválido. Ex: seunome@gmail.com' };
+  }
+
+  const domain = clean.split('@')[1] || '';
+  if (!domain || DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+    return {
+      valid: false,
+      reason: 'E-mails temporários ou descartáveis não são permitidos. Utilize um e-mail real e permanente.',
+    };
+  }
+
+  try {
+    const withTimeout = <T>(promise: Promise<T>, ms = 3500): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('DNS_TIMEOUT')), ms)),
+      ]);
+
+    const mxRecords = await withTimeout(dns.resolveMx(domain));
+    const validMx = Array.isArray(mxRecords)
+      ? mxRecords.filter((rec) => Boolean(rec && rec.exchange && rec.exchange.trim() !== '' && rec.exchange !== '.'))
+      : [];
+    if (validMx.length > 0) {
+      return { valid: true };
+    }
+  } catch (mxErr: any) {
+    if (mxErr?.message === 'DNS_TIMEOUT') {
+      // Não bloqueia por timeout momentâneo de rede
+      return { valid: true };
+    }
+    // Tenta registro A caso não haja MX explícito
+    try {
+      const aRecords = await Promise.race([
+        dns.resolve4(domain),
+        new Promise<string[]>((_, reject) => setTimeout(() => reject(new Error('DNS_TIMEOUT')), 3500)),
+      ]);
+      if (Array.isArray(aRecords) && aRecords.length > 0) {
+        return { valid: true };
+      }
+    } catch {
+      return {
+        valid: false,
+        reason: `O domínio "@${domain}" não existe ou não está configurado para receber e-mails. Verifique o endereço digitado.`,
+      };
+    }
+  }
+
+  return {
+    valid: false,
+    reason: `O domínio "@${domain}" não possui servidor de e-mail válido. Informe um e-mail real.`,
+  };
+}
+
+interface ServerEmailVerificationRecord {
+  email: string;
+  code: string;
+  expiresAt: number;
+  attempts: number;
+  verified: boolean;
+}
+
+const memoryEmailVerifications = new Map<string, ServerEmailVerificationRecord>();
+
 // API: Enviar código de verificação no-reply por e-mail diretamente ao destinatário
 app.post('/api/send-verification-email', async (req, res) => {
   try {
@@ -161,73 +254,111 @@ app.post('/api/send-verification-email', async (req, res) => {
       return res.status(400).json({ success: false, message: 'E-mail de destino inválido.' });
     }
 
-    if (!code || typeof code !== 'string' || code.trim().length !== 6) {
-      return res.status(400).json({ success: false, message: 'Código inválido.' });
+    const recipientEmail = to.trim().toLowerCase();
+    const domainCheck = await validateRealEmailDomain(recipientEmail);
+    if (!domainCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        invalidDomain: true,
+        message: domainCheck.reason || 'E-mail inválido ou inexistente.',
+      });
     }
 
-    const recipientEmail = to.trim().toLowerCase();
+    const cleanCode =
+      typeof code === 'string' && /^\d{6}$/.test(code.trim())
+        ? code.trim()
+        : Math.floor(100000 + Math.random() * 900000).toString();
+
     const name = (clientName || 'Cliente').trim();
     const store = (storeName || 'Seu Estabelecimento').trim();
-    const cleanCode = code.trim();
+    const safeName = escapeEmailHtml(name);
+    const safeStore = escapeEmailHtml(store);
+    const noReplyAddress = process.env.EMAIL_FROM_ADDRESS || 'no-reply@cardapp.com.br';
 
-    const subject = `[CARDAPP] Código de confirmação: ${cleanCode}`;
+    // Armazena código no servidor para validação segura com expiração de 10 minutos
+    memoryEmailVerifications.set(recipientEmail, {
+      email: recipientEmail,
+      code: cleanCode,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      attempts: 0,
+      verified: false,
+    });
+
+    const subject = `CARDAPP • No-Reply | Código de Verificação Cadastral: ${cleanCode}`;
     const textContent = [
-      `Olá, ${name}!`,
+      `CARDAPP — Notificação Oficial de Segurança (No-Reply)`,
+      `========================================================`,
       '',
-      `Recebemos a solicitação de criação da sua conta no CARDAPP para a loja "${store}".`,
+      `Prezado(a) ${name},`,
       '',
-      `Seu código de acesso e verificação de 6 dígitos é:`,
-      `>>> ${cleanCode} <<<`,
+      `Recebemos a solicitação de cadastro do estabelecimento "${store}" na plataforma CARDAPP.`,
+      `Para confirmar que este endereço de e-mail é autêntico e concluir seu cadastro com total segurança, informe o código de verificação abaixo:`,
       '',
-      `• Este código expira em 10 minutos.`,
-      `• Não compartilhe este código com ninguém. Nossa equipe nunca solicitará este código.`,
-      `• Se você não solicitou este cadastro, basta ignorar este e-mail.`,
+      `CÓDIGO DE VERIFICAÇÃO: ${cleanCode}`,
+      '',
+      `• Validade: 10 minutos (uso único e intransferível).`,
+      `• Segurança: A equipe CARDAPP jamais solicitará este código por telefone, WhatsApp ou redes sociais.`,
+      `• Caso você não tenha iniciado este cadastro, desconsidere esta mensagem com segurança.`,
       '',
       `Atenciosamente,`,
-      `Equipe de Segurança CARDAPP • SF TECNOLOGIA`,
-      `no-reply@cardapp.com.br`,
+      `CARDAPP — Plataforma de Cardápio Digital`,
+      `Remetente Oficial: CARDAPP (No-Reply) <${noReplyAddress}>`,
+      `Este é um e-mail automático (No-Reply). Por favor, não responda a esta mensagem.`,
     ].join('\n');
 
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-        <div style="background-color: #fbbf24; padding: 24px; text-align: center;">
-          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">
+      <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);">
+        <div style="background-color: #0f172a; padding: 28px 24px; text-align: center; border-bottom: 4px solid #f59e0b;">
+          <div style="display: inline-block; background-color: #fbbf24; color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 12px; border-radius: 6px; margin-bottom: 10px;">
+            NO-REPLY • COMUNICAÇÃO OFICIAL
+          </div>
+          <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 900; letter-spacing: 1px;">
             CARDAPP
           </h1>
-          <p style="margin: 4px 0 0; color: #1e293b; font-size: 13px; font-weight: bold;">
-            Verificação de E-mail de Segurança
+          <p style="margin: 6px 0 0; color: #cbd5e1; font-size: 13px; font-weight: 500;">
+            Confirmação de Autenticidade de E-mail Cadastral
           </p>
         </div>
-        
-        <div style="padding: 28px 24px; color: #1e293b; line-height: 1.6;">
-          <p style="font-size: 15px; margin-top: 0;">
-            Olá, <strong>${name}</strong>!
+
+        <div style="padding: 32px 28px; color: #1e293b; line-height: 1.65;">
+          <p style="font-size: 15px; margin-top: 0; color: #0f172a;">
+            Prezado(a) <strong>${safeName}</strong>,
           </p>
           <p style="font-size: 14px; color: #475569;">
-            Recebemos a solicitação de abertura da conta para o estabelecimento <strong>"${store}"</strong>.
-            Para confirmar que este endereço de e-mail realmente pertence a você e proteger sua conta contra fraudes, utilize o código abaixo:
+            Recebemos a solicitação de cadastro do estabelecimento <strong>"${safeStore}"</strong> na plataforma <strong>CARDAPP</strong>.
+            Para confirmar que este endereço de e-mail é verdadeiro e proteger a sua conta administrativa, utilize o código de verificação abaixo:
           </p>
-          
+
           <div style="margin: 28px 0; text-align: center;">
-            <div style="display: inline-block; background-color: #fef3c7; border: 2px dashed #f59e0b; padding: 16px 36px; border-radius: 12px;">
-              <span style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #0f172a; font-family: monospace;">
+            <p style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #64748b; margin: 0 0 8px;">
+              Seu Código de Verificação
+            </p>
+            <div style="display: inline-block; background-color: #fffbeb; border: 2px solid #f59e0b; padding: 18px 40px; border-radius: 12px;">
+              <span style="font-size: 34px; font-weight: 900; letter-spacing: 8px; color: #0f172a; font-family: 'Courier New', Courier, monospace;">
                 ${cleanCode}
               </span>
             </div>
-            <p style="font-size: 12px; color: #64748b; margin-top: 8px;">
-              Válido por 10 minutos • Não compartilhe este código
+            <p style="font-size: 12px; color: #64748b; margin-top: 10px; margin-bottom: 0;">
+              Válido por <strong>10 minutos</strong> • Uso único e confidencial
             </p>
           </div>
-          
-          <div style="background-color: #f8fafc; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #334155; margin-bottom: 20px;">
-            <strong>Dica de Segurança:</strong> Se você não solicitou a criação de conta no CARDAPP, ignore esta mensagem.
+
+          <div style="background-color: #f8fafc; border-left: 4px solid #0f172a; padding: 14px 16px; border-radius: 6px; font-size: 12.5px; color: #334155; margin-bottom: 24px;">
+            <strong>Aviso de Segurança:</strong> Nunca compartilhe este código com terceiros. A equipe oficial do <strong>CARDAPP</strong> jamais solicita códigos de confirmação por telefone ou mensagens. Caso não tenha realizado este cadastro, desconsidere este e-mail.
           </div>
-          
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-          
-          <p style="font-size: 12px; color: #94a3b8; margin-bottom: 0; text-align: center;">
-            Esta é uma mensagem automática enviada por <strong>no-reply@cardapp.com.br</strong>.<br />
-            Por favor, não responda a este e-mail.
+
+          <p style="font-size: 13.5px; color: #334155; margin-bottom: 4px;">
+            Atenciosamente,
+          </p>
+          <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 0;">
+            CARDAPP — Sistema de Gestão e Cardápio Digital
+          </p>
+
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;" />
+
+          <p style="font-size: 11.5px; color: #64748b; margin: 0; text-align: center; line-height: 1.5;">
+            Mensagem automática enviada por <strong>CARDAPP (No-Reply)</strong> &lt;${escapeEmailHtml(noReplyAddress)}&gt;.<br />
+            Por favor, não responda a este endereço de e-mail.
           </p>
         </div>
       </div>
@@ -245,7 +376,8 @@ app.post('/api/send-verification-email', async (req, res) => {
             Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
           },
           body: JSON.stringify({
-            from: process.env.EMAIL_FROM || 'CARDAPP Security <no-reply@resend.dev>',
+            from: process.env.EMAIL_FROM || 'CARDAPP (No-Reply) <no-reply@resend.dev>',
+            reply_to: noReplyAddress,
             to: [recipientEmail],
             subject,
             text: textContent,
@@ -254,7 +386,7 @@ app.post('/api/send-verification-email', async (req, res) => {
         });
         if (resendResponse.ok) {
           providersUsed.push('resend');
-          console.log(`[Email Service] Sent verification code to ${recipientEmail} via Resend.`);
+          console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via Resend.`);
         }
       } catch (err) {
         console.warn('[Email Service] Resend exception:', err);
@@ -272,8 +404,12 @@ app.post('/api/send-verification-email', async (req, res) => {
           },
           body: JSON.stringify({
             sender: {
-              name: 'CARDAPP Segurança',
-              email: process.env.EMAIL_FROM || 'no-reply@cardapp.com.br',
+              name: 'CARDAPP (No-Reply)',
+              email: process.env.EMAIL_FROM_ADDRESS || noReplyAddress,
+            },
+            replyTo: {
+              name: 'CARDAPP (No-Reply)',
+              email: noReplyAddress,
             },
             to: [{ email: recipientEmail, name }],
             subject,
@@ -283,14 +419,14 @@ app.post('/api/send-verification-email', async (req, res) => {
         });
         if (brevoResponse.ok) {
           providersUsed.push('brevo');
-          console.log(`[Email Service] Sent verification code to ${recipientEmail} via Brevo.`);
+          console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via Brevo.`);
         }
       } catch (err) {
         console.warn('[Email Service] Brevo exception:', err);
       }
     }
 
-    // 3. Tentar via SMTP se SMTP_HOST estiver configurado
+    // 3. Tentar via SMTP se SMTP_HOST/SMTP_USER estiver configurado
     if (process.env.SMTP_HOST || process.env.SMTP_USER) {
       try {
         const transporter = nodemailer.createTransport({
@@ -304,39 +440,64 @@ app.post('/api/send-verification-email', async (req, res) => {
         });
 
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || `"CARDAPP Segurança" <${process.env.SMTP_USER}>`,
+          from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${process.env.SMTP_USER || noReplyAddress}>`,
+          replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
           to: recipientEmail,
           subject,
           text: textContent,
           html: htmlContent,
+          headers: {
+            'Auto-Submitted': 'auto-generated',
+            'X-Auto-Response-Suppress': 'OOF, AutoReply',
+          },
         });
 
         providersUsed.push('smtp');
-        console.log(`[Email Service] Sent verification code to ${recipientEmail} via SMTP.`);
+        console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via SMTP.`);
       } catch (err) {
         console.warn('[Email Service] SMTP exception:', err);
       }
     }
 
-    // 4. Disparo oficial via Google Firebase Authentication Identity Toolkit
-    // Isso garante 100% que um e-mail real chega à caixa de entrada do usuário diretamente dos servidores do Google
-    try {
-      const fbSent = await dispatchFirebaseEmailVerification(recipientEmail, cleanCode);
-      if (fbSent) {
-        providersUsed.push('firebase-identity-toolkit');
+    // 4. Fallback via Google Firebase Authentication Identity Toolkit apenas se nenhum provedor de código customizado enviou
+    if (!providersUsed.some((p) => p === 'resend' || p === 'brevo' || p === 'smtp')) {
+      try {
+        const fbSent = await dispatchFirebaseEmailVerification(recipientEmail, cleanCode);
+        if (fbSent) {
+          providersUsed.push('firebase-identity-toolkit');
+        }
+      } catch (fbErr) {
+        console.warn('[Email Service] Firebase dispatch error:', fbErr);
       }
-    } catch (fbErr) {
-      console.warn('[Email Service] Firebase dispatch error:', fbErr);
     }
+
+    const customCodeEmailSent = providersUsed.some((p) => p === 'resend' || p === 'brevo' || p === 'smtp');
+    const firebaseLinkSent = providersUsed.includes('firebase-identity-toolkit');
 
     console.log(
       `[Email Service] Verification dispatch complete for ${recipientEmail}. Providers: [${providersUsed.join(', ')}].`
     );
 
+    if (!customCodeEmailSent && !firebaseLinkSent) {
+      return res.status(503).json({
+        success: false,
+        missingEmailProvider: true,
+        customCodeEmailSent: false,
+        firebaseLinkSent: false,
+        providers: providersUsed,
+        message:
+          'Serviço de disparo de e-mail (SMTP, Resend ou Brevo) ainda não configurado nas variáveis do servidor. Configure as credenciais de e-mail para enviar códigos reais.',
+      });
+    }
+
     return res.json({
       success: true,
-      message: `E-mail de confirmação despachado com sucesso para ${recipientEmail}.`,
+      message: customCodeEmailSent
+        ? `Código de verificação formal CARDAPP (No-Reply) enviado para ${recipientEmail}.`
+        : `Link de confirmação enviado para ${recipientEmail}.`,
       sentDirectly: providersUsed.length > 0,
+      customCodeEmailSent,
+      firebaseLinkSent,
       providers: providersUsed,
     });
   } catch (error) {
@@ -345,6 +506,61 @@ app.post('/api/send-verification-email', async (req, res) => {
       success: false,
       message: 'Erro interno ao processar envio do e-mail de verificação.',
     });
+  }
+});
+
+// API: Validar código de verificação de 6 dígitos no servidor
+app.post('/api/verify-email-code', (req, res) => {
+  try {
+    const { email, code } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanCode = String(code || '').replace(/\D/g, '').trim();
+
+    if (!cleanEmail || !cleanCode || cleanCode.length !== 6) {
+      return res.status(400).json({ success: false, message: 'Informe um e-mail válido e o código de 6 dígitos.' });
+    }
+
+    const record = memoryEmailVerifications.get(cleanEmail);
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        notFoundOnServer: true,
+        message: 'Sessão não encontrada no servidor.',
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'Este código expirou (validade de 10 minutos). Solicite um novo código.',
+      });
+    }
+
+    if (record.attempts >= 5) {
+      return res.status(429).json({
+        success: false,
+        message: 'Limite de 5 tentativas excedido. Solicite o reenvio de um novo código.',
+      });
+    }
+
+    if (record.code !== cleanCode) {
+      record.attempts += 1;
+      const remaining = 5 - record.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Código incorreto. ${remaining > 0 ? `Restam ${remaining} tentativas.` : 'Solicite um novo código.'}`,
+      });
+    }
+
+    record.verified = true;
+    return res.json({
+      success: true,
+      verified: true,
+      message: 'E-mail autenticado com sucesso!',
+    });
+  } catch (err) {
+    console.error('[Email Service] Error verifying email code:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao validar código.' });
   }
 });
 
@@ -364,68 +580,121 @@ app.post('/api/send-recovery-email', async (req, res) => {
     const recipientEmail = to.trim().toLowerCase();
     const name = (clientName || 'Lojista').trim();
     const store = (storeName || 'Sua Loja').trim();
+    const safeName = escapeEmailHtml(name);
+    const safeStore = escapeEmailHtml(store);
     const cleanCode = code.trim();
+    const noReplyAddress = process.env.EMAIL_FROM_ADDRESS || 'no-reply@cardapp.com.br';
 
-    const subject = `[CARDAPP] Recuperação de Conta: Código ${cleanCode}`;
+    const subject = `CARDAPP • No-Reply | Recuperação de Conta: Código ${cleanCode}`;
     const textContent = [
-      `Olá, ${name}!`,
+      `CARDAPP — Notificação Oficial de Recuperação de Acesso (No-Reply)`,
+      `===================================================================`,
       '',
-      `Recebemos uma solicitação de recuperação de conta no CARDAPP para o estabelecimento "${store}".`,
+      `Prezado(a) ${name},`,
       '',
-      `Seu código de segurança para redefinir sua senha é:`,
-      `>>> ${cleanCode} <<<`,
+      `Recebemos uma solicitação de recuperação de acesso para o estabelecimento "${store}" na plataforma CARDAPP.`,
+      '',
+      `CÓDIGO DE SEGURANÇA: ${cleanCode}`,
       '',
       `• Este código é válido por 15 minutos.`,
       `• Não compartilhe este código com terceiros.`,
       `• Se você não solicitou esta recuperação, ignore esta mensagem e sua senha permanecerá inalterada.`,
       '',
       `Atenciosamente,`,
-      `Equipe de Segurança CARDAPP • SF TECNOLOGIA`,
-      `no-reply@cardapp.com.br`,
+      `CARDAPP — Sistema de Gestão e Cardápio Digital`,
+      `Remetente Oficial: CARDAPP (No-Reply) <${noReplyAddress}>`,
     ].join('\n');
 
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
-        <div style="background: #fbbf24; padding: 24px; text-align: center;">
-          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">
-            CARDAPP DIGITAL
+      <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);">
+        <div style="background: #0f172a; padding: 28px 24px; text-align: center; border-bottom: 4px solid #f59e0b;">
+          <div style="display: inline-block; background-color: #fbbf24; color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 12px; border-radius: 6px; margin-bottom: 10px;">
+            NO-REPLY • RECUPERAÇÃO DE ACESSO
+          </div>
+          <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 900; letter-spacing: 1px;">
+            CARDAPP
           </h1>
-          <p style="margin: 4px 0 0; color: #1e293b; font-size: 13px; font-weight: bold;">
-            Recuperação de Acesso e Redefinição de Senha
+          <p style="margin: 6px 0 0; color: #cbd5e1; font-size: 13px; font-weight: 500;">
+            Redefinição Segura de Senha
           </p>
         </div>
 
-        <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
-          <p>Olá, <strong>${name}</strong>!</p>
-          <p>
-            Recebemos uma solicitação de recuperação de acesso para a conta associada ao estabelecimento <strong>"${store}"</strong>.
+        <div style="padding: 32px 28px; color: #1e293b; font-size: 14px; line-height: 1.65;">
+          <p style="margin-top: 0;">Prezado(a) <strong>${safeName}</strong>,</p>
+          <p style="color: #475569;">
+            Recebemos uma solicitação de recuperação de acesso para a conta associada ao estabelecimento <strong>"${safeStore}"</strong> no <strong>CARDAPP</strong>.
           </p>
-          <p>Digite o código de 6 dígitos abaixo na tela de login para redefinir sua senha com segurança:</p>
+          <p style="color: #475569;">Informe o código de 6 dígitos abaixo na tela de recuperação para redefinir sua senha:</p>
 
           <div style="text-align: center; margin: 24px 0;">
-            <div style="display: inline-block; background: #fef3c7; border: 2px dashed #f59e0b; padding: 14px 32px; border-radius: 12px;">
-              <span style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #0f172a; font-family: monospace;">
+            <div style="display: inline-block; background: #fffbeb; border: 2px solid #f59e0b; padding: 16px 36px; border-radius: 12px;">
+              <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a; font-family: 'Courier New', Courier, monospace;">
                 ${cleanCode}
               </span>
             </div>
-            <p style="font-size: 11px; color: #64748b; margin-top: 6px;">
-              Válido por 15 minutos • Não compartilhe este código
+            <p style="font-size: 12px; color: #64748b; margin-top: 8px;">
+              Válido por <strong>15 minutos</strong> • Uso único e confidencial
             </p>
           </div>
 
-          <div style="background: #f8fafc; border-left: 4px solid #f59e0b; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #475569;">
-            <strong>Aviso de Segurança:</strong> Se você não solicitou a recuperação da sua conta, ignore esta mensagem com segurança.
+          <div style="background: #f8fafc; border-left: 4px solid #0f172a; padding: 12px 16px; border-radius: 6px; font-size: 12.5px; color: #334155;">
+            <strong>Aviso de Segurança:</strong> Se você não solicitou a recuperação da sua conta, desconsidere esta mensagem.
           </div>
 
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
-            CARDAPP Digital • SF TECNOLOGIA • E-mail automático oficial
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;" />
+          <p style="font-size: 11.5px; color: #64748b; text-align: center; margin: 0;">
+            Mensagem automática enviada por <strong>CARDAPP (No-Reply)</strong> &lt;${escapeEmailHtml(noReplyAddress)}&gt;.<br />
+            Por favor, não responda a este e-mail.
           </p>
         </div>
       </div>
     `;
 
-    // Tentar via SMTP / Resend / Brevo
+    // Tentar via Resend / Brevo / SMTP
+    if (process.env.RESEND_API_KEY) {
+      try {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          },
+          body: JSON.stringify({
+            from: process.env.EMAIL_FROM || 'CARDAPP (No-Reply) <no-reply@resend.dev>',
+            reply_to: noReplyAddress,
+            to: [recipientEmail],
+            subject,
+            text: textContent,
+            html: htmlContent,
+          }),
+        });
+      } catch (err) {
+        console.warn('[Email Service] Resend recovery error:', err);
+      }
+    }
+
+    if (process.env.BREVO_API_KEY) {
+      try {
+        await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'api-key': process.env.BREVO_API_KEY,
+          },
+          body: JSON.stringify({
+            sender: { name: 'CARDAPP (No-Reply)', email: process.env.EMAIL_FROM_ADDRESS || noReplyAddress },
+            replyTo: { name: 'CARDAPP (No-Reply)', email: noReplyAddress },
+            to: [{ email: recipientEmail, name }],
+            subject,
+            textContent,
+            htmlContent,
+          }),
+        });
+      } catch (err) {
+        console.warn('[Email Service] Brevo recovery error:', err);
+      }
+    }
+
     if (process.env.SMTP_HOST || process.env.SMTP_USER) {
       try {
         const transporter = nodemailer.createTransport({
@@ -439,13 +708,18 @@ app.post('/api/send-recovery-email', async (req, res) => {
         });
 
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || `"CARDAPP Segurança" <${process.env.SMTP_USER}>`,
+          from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${process.env.SMTP_USER || noReplyAddress}>`,
+          replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
           to: recipientEmail,
           subject,
           text: textContent,
           html: htmlContent,
+          headers: {
+            'Auto-Submitted': 'auto-generated',
+            'X-Auto-Response-Suppress': 'OOF, AutoReply',
+          },
         });
-        console.log(`[Email Service] Sent recovery code to ${recipientEmail} via SMTP.`);
+        console.log(`[Email Service] Sent CARDAPP No-Reply recovery code to ${recipientEmail} via SMTP.`);
       } catch (err) {
         console.warn('[Email Service] SMTP recovery error:', err);
       }
