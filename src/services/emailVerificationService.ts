@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import { ClientRegistrationFormData, EmailVerificationSession } from '../types';
 import { accountService } from './accountService';
 import { encryptDataForFirestore, decryptDataFromFirestore } from '../utils/crypto';
+import { sendVerificationEmailViaGmailApi } from './googleAuthService';
 
 const EMAIL_VERIFICATION_STORAGE_KEY = 'cardapp_pending_email_verification';
 
@@ -259,6 +260,147 @@ class EmailVerificationService {
       return { success: false, message: 'Nenhuma sessão de verificação encontrada.' };
     }
     return this.sendVerificationCode(this.activeSession.registrationData);
+  }
+
+  /**
+   * Dispara código formal CARDAPP (No-Reply) de 6 dígitos usando a sessão Google Gmail OAuth autorizada pelo usuário
+   */
+  public async sendVerificationCodeViaGmailOAuth(
+    data: Partial<ClientRegistrationFormData> & { email: string; name: string; storeName: string },
+    accessToken?: string | null
+  ): Promise<{ success: boolean; message: string }> {
+    const trimmedEmail = (data.email || '').trim().toLowerCase();
+    const validation = this.validateEmail(trimmedEmail);
+    if (!validation.isValid) {
+      return { success: false, message: validation.errorMessage || 'E-mail inválido.' };
+    }
+
+    const code = this.generateSixDigitCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+
+    const normalizedRegData: ClientRegistrationFormData = {
+      name: (data.name || '').trim(),
+      email: trimmedEmail,
+      phoneWhatsapp: (data.phoneWhatsapp || '').trim(),
+      storeName: (data.storeName || '').trim(),
+      logoBase64: data.logoBase64 || '',
+      address: data.address,
+      tagline: data.tagline,
+      instagramHandle: data.instagramHandle,
+      username: (data.username || '').trim(),
+      password: data.password || '',
+    };
+
+    const gmailRes = await sendVerificationEmailViaGmailApi({
+      toEmail: trimmedEmail,
+      verificationCode: code,
+      clientName: normalizedRegData.name,
+      storeName: normalizedRegData.storeName,
+      accessToken,
+    });
+
+    if (!gmailRes.success) {
+      return gmailRes;
+    }
+
+    const session: EmailVerificationSession = {
+      email: trimmedEmail,
+      code,
+      createdAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      attempts: 0,
+      verified: false,
+      registrationData: normalizedRegData,
+    };
+
+    this.activeSession = session;
+    try {
+      localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      // ignore
+    }
+
+    try {
+      const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(
+        doc(db, 'email_verifications', sanitizedEmail),
+        encryptDataForFirestore({
+          email: trimmedEmail,
+          code,
+          createdAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          attempts: 0,
+          verified: false,
+          storeName: normalizedRegData.storeName,
+          clientName: normalizedRegData.name,
+        }),
+        { merge: true }
+      );
+    } catch {
+      // ignore
+    }
+
+    return {
+      success: true,
+      message: gmailRes.message,
+    };
+  }
+
+  /**
+   * Registra confirmação direta de autenticidade do e-mail via Google OAuth
+   */
+  public async markEmailVerifiedViaGoogleOAuth(
+    email: string,
+    data?: Partial<ClientRegistrationFormData>
+  ): Promise<void> {
+    const trimmedEmail = (email || '').trim().toLowerCase();
+    if (!trimmedEmail) return;
+
+    const now = new Date();
+    const session: EmailVerificationSession = {
+      email: trimmedEmail,
+      code: 'OAUTH0',
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+      attempts: 0,
+      verified: true,
+      registrationData: {
+        name: (data?.name || '').trim(),
+        email: trimmedEmail,
+        phoneWhatsapp: (data?.phoneWhatsapp || '').trim(),
+        storeName: (data?.storeName || '').trim(),
+        logoBase64: data?.logoBase64 || '',
+        address: data?.address,
+        tagline: data?.tagline,
+        instagramHandle: data?.instagramHandle,
+        username: (data?.username || '').trim(),
+        password: data?.password || '',
+      },
+    };
+
+    this.activeSession = session;
+    try {
+      localStorage.setItem(EMAIL_VERIFICATION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      // ignore
+    }
+
+    try {
+      const sanitizedEmail = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(
+        doc(db, 'email_verifications', sanitizedEmail),
+        encryptDataForFirestore({
+          email: trimmedEmail,
+          verified: true,
+          verifiedAt: now.toISOString(),
+          provider: 'google-oauth',
+        }),
+        { merge: true }
+      );
+    } catch {
+      // ignore
+    }
   }
 
   /**

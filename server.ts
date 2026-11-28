@@ -63,7 +63,7 @@ function getDeterministicAuthPassword(email: string): string {
   return 'Cp!' + hash + '9a';
 }
 
-// Envia e-mail de verificação oficial via Firebase Auth Identity Toolkit (servidores do Google)
+// Envia e-mail de verificação oficial via Firebase Auth Identity Toolkit (somente quando Email/Password estiver habilitado)
 async function dispatchFirebaseEmailVerification(email: string, code: string): Promise<boolean> {
   if (!firebaseConfig.apiKey) {
     console.warn('[Firebase Auth Email] API key not found in config.');
@@ -83,12 +83,12 @@ async function dispatchFirebaseEmailVerification(email: string, code: string): P
         body: JSON.stringify({ email, password, returnSecureToken: true }),
       }
     );
-    const signupData = await signupRes.json();
+    const signupData = await signupRes.json().catch(() => ({}));
 
-    if (signupData.idToken) {
+    if (signupRes.ok && signupData.idToken) {
       idToken = signupData.idToken;
     } else if (signupData.error?.message?.includes('EMAIL_EXISTS')) {
-      // 2. Se já existe, tenta autenticar com a credencial determinística
+      // 2. Se já existe com a credencial determinística, autentica para enviar VERIFY_EMAIL
       const signinRes = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`,
         {
@@ -97,60 +97,196 @@ async function dispatchFirebaseEmailVerification(email: string, code: string): P
           body: JSON.stringify({ email, password, returnSecureToken: true }),
         }
       );
-      const signinData = await signinRes.json();
-      if (signinData.idToken) {
+      const signinData = await signinRes.json().catch(() => ({}));
+      if (signinRes.ok && signinData.idToken) {
         idToken = signinData.idToken;
       }
+    } else if (!signupRes.ok) {
+      console.warn('[Firebase Auth Email] signUp skipped/blocked:', signupData.error?.message || signupRes.status);
+    }
+
+    if (!idToken) {
+      return false;
     }
 
     const domain = firebaseConfig.authDomain || 'cardapp.com.br';
     const continueUrl = `https://${domain}/?verified_email=${encodeURIComponent(email)}&code=${code}`;
 
-    if (idToken) {
-      // 3. Dispara e-mail de verificação oficial do Firebase
-      const verifyRes = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${firebaseConfig.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requestType: 'VERIFY_EMAIL',
-            idToken,
-            continueUrl,
-          }),
-        }
-      );
-      const verifyData = await verifyRes.json();
-      if (verifyData.kind || verifyData.email) {
-        console.log(`[Firebase Auth Email] VERIFY_EMAIL successfully sent to ${email} via Google Identity Toolkit.`);
-        return true;
-      }
-      console.warn('[Firebase Auth Email] sendOobCode response:', verifyData);
-    }
-
-    // 4. Fallback caso não obtenha idToken: envia e-mail de reset/verificação direta
-    const resetRes = await fetch(
+    // 3. Dispara e-mail de verificação oficial do Firebase (sem usar PASSWORD_RESET enganoso)
+    const verifyRes = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${firebaseConfig.apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          requestType: 'PASSWORD_RESET',
-          email,
+          requestType: 'VERIFY_EMAIL',
+          idToken,
           continueUrl,
         }),
       }
     );
-    const resetData = await resetRes.json();
-    if (resetData.kind || resetData.email) {
-      console.log(`[Firebase Auth Email] PASSWORD_RESET email dispatched to ${email}.`);
+    const verifyData = await verifyRes.json().catch(() => ({}));
+    if (verifyRes.ok && (verifyData.kind || verifyData.email)) {
+      console.log(`[Firebase Auth Email] VERIFY_EMAIL successfully sent to ${email} via Google Identity Toolkit.`);
       return true;
     }
+    console.warn('[Firebase Auth Email] sendOobCode error:', verifyData);
   } catch (err) {
     console.warn('[Firebase Auth Email] Error dispatching email:', err);
   }
 
   return false;
+}
+
+async function dispatchCardappEmail(params: {
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  textContent: string;
+  htmlContent: string;
+  noReplyAddress: string;
+}): Promise<{
+  providersUsed: string[];
+  configuredAnyProvider: boolean;
+  providerErrors: string[];
+}> {
+  const { recipientEmail, recipientName, subject, textContent, htmlContent, noReplyAddress } = params;
+  const providersUsed: string[] = [];
+  const providerErrors: string[] = [];
+  let configuredAnyProvider = false;
+
+  const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+  const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
+  const smtpUser = (process.env.SMTP_USER || '').trim();
+  const smtpHostRaw = (process.env.SMTP_HOST || '').trim();
+  const smtpHost = smtpHostRaw || 'smtp.gmail.com';
+  const rawSmtpPass = process.env.SMTP_PASS || '';
+  const smtpPass = smtpHost.toLowerCase().includes('gmail')
+    ? rawSmtpPass.replace(/\s+/g, '')
+    : rawSmtpPass.trim();
+
+  // 1. Tentar via Resend se RESEND_API_KEY estiver configurado
+  if (resendApiKey) {
+    configuredAnyProvider = true;
+    try {
+      const resendFrom =
+        (process.env.RESEND_FROM || process.env.EMAIL_FROM || '').trim() ||
+        'CARDAPP (No-Reply) <onboarding@resend.dev>';
+      const resendResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${resendApiKey}`,
+        },
+        body: JSON.stringify({
+          from: resendFrom,
+          reply_to: noReplyAddress,
+          to: [recipientEmail],
+          subject,
+          text: textContent,
+          html: htmlContent,
+        }),
+      });
+      if (resendResponse.ok) {
+        providersUsed.push('resend');
+        console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via Resend.`);
+      } else {
+        const errBody = await resendResponse.json().catch(() => ({}));
+        const msg = errBody?.message || `HTTP ${resendResponse.status}`;
+        providerErrors.push(`Resend: ${msg}`);
+        console.warn('[Email Service] Resend rejected:', resendResponse.status, errBody);
+      }
+    } catch (err: any) {
+      providerErrors.push(`Resend: ${err?.message || 'erro de rede'}`);
+      console.warn('[Email Service] Resend exception:', err);
+    }
+  }
+
+  // 2. Tentar via Brevo se BREVO_API_KEY estiver configurado
+  if (brevoApiKey && providersUsed.length === 0) {
+    configuredAnyProvider = true;
+    try {
+      const brevoSenderEmail =
+        (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_FROM_ADDRESS || smtpUser || noReplyAddress).trim();
+      const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': brevoApiKey,
+        },
+        body: JSON.stringify({
+          sender: {
+            name: 'CARDAPP (No-Reply)',
+            email: brevoSenderEmail,
+          },
+          replyTo: {
+            name: 'CARDAPP (No-Reply)',
+            email: noReplyAddress,
+          },
+          to: [{ email: recipientEmail, name: recipientName }],
+          subject,
+          textContent,
+          htmlContent,
+        }),
+      });
+      if (brevoResponse.ok) {
+        providersUsed.push('brevo');
+        console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via Brevo.`);
+      } else {
+        const errBody = await brevoResponse.json().catch(() => ({}));
+        const msg = errBody?.message || `HTTP ${brevoResponse.status}`;
+        providerErrors.push(`Brevo: ${msg}`);
+        console.warn('[Email Service] Brevo rejected:', brevoResponse.status, errBody);
+      }
+    } catch (err: any) {
+      providerErrors.push(`Brevo: ${err?.message || 'erro de rede'}`);
+      console.warn('[Email Service] Brevo exception:', err);
+    }
+  }
+
+  // 3. Tentar via SMTP (Nodemailer — ex: Gmail com Senha de App)
+  if ((smtpUser || smtpHostRaw) && smtpPass && providersUsed.length === 0) {
+    configuredAnyProvider = true;
+    try {
+      const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: process.env.SMTP_SECURE === 'true' || smtpPort === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
+
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${smtpUser || noReplyAddress}>`,
+        replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
+        to: recipientEmail,
+        subject,
+        text: textContent,
+        html: htmlContent,
+        headers: {
+          'Auto-Submitted': 'auto-generated',
+          'X-Auto-Response-Suppress': 'OOF, AutoReply',
+        },
+      });
+
+      providersUsed.push('smtp');
+      console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via SMTP.`);
+    } catch (err: any) {
+      providerErrors.push(`SMTP: ${err?.message || 'falha de autenticação ou conexão'}`);
+      console.warn('[Email Service] SMTP exception:', err);
+    }
+  } else if ((smtpUser || smtpHostRaw) && !smtpPass) {
+    configuredAnyProvider = true;
+    providerErrors.push('SMTP: SMTP_PASS não configurado.');
+  }
+
+  return { providersUsed, configuredAnyProvider, providerErrors };
 }
 
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
@@ -364,103 +500,17 @@ app.post('/api/send-verification-email', async (req, res) => {
       </div>
     `;
 
-    const providersUsed: string[] = [];
+    const { providersUsed, configuredAnyProvider, providerErrors } = await dispatchCardappEmail({
+      recipientEmail,
+      recipientName: name,
+      subject,
+      textContent,
+      htmlContent,
+      noReplyAddress,
+    });
 
-    // 1. Tentar via Resend se RESEND_API_KEY estiver configurado
-    if (process.env.RESEND_API_KEY) {
-      try {
-        const resendResponse = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          },
-          body: JSON.stringify({
-            from: process.env.EMAIL_FROM || 'CARDAPP (No-Reply) <no-reply@resend.dev>',
-            reply_to: noReplyAddress,
-            to: [recipientEmail],
-            subject,
-            text: textContent,
-            html: htmlContent,
-          }),
-        });
-        if (resendResponse.ok) {
-          providersUsed.push('resend');
-          console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via Resend.`);
-        }
-      } catch (err) {
-        console.warn('[Email Service] Resend exception:', err);
-      }
-    }
-
-    // 2. Tentar via Brevo se BREVO_API_KEY estiver configurado
-    if (process.env.BREVO_API_KEY) {
-      try {
-        const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': process.env.BREVO_API_KEY,
-          },
-          body: JSON.stringify({
-            sender: {
-              name: 'CARDAPP (No-Reply)',
-              email: process.env.EMAIL_FROM_ADDRESS || noReplyAddress,
-            },
-            replyTo: {
-              name: 'CARDAPP (No-Reply)',
-              email: noReplyAddress,
-            },
-            to: [{ email: recipientEmail, name }],
-            subject,
-            textContent,
-            htmlContent,
-          }),
-        });
-        if (brevoResponse.ok) {
-          providersUsed.push('brevo');
-          console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via Brevo.`);
-        }
-      } catch (err) {
-        console.warn('[Email Service] Brevo exception:', err);
-      }
-    }
-
-    // 3. Tentar via SMTP se SMTP_HOST/SMTP_USER estiver configurado
-    if (process.env.SMTP_HOST || process.env.SMTP_USER) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: parseInt(process.env.SMTP_PORT || '587', 10),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        });
-
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${process.env.SMTP_USER || noReplyAddress}>`,
-          replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
-          to: recipientEmail,
-          subject,
-          text: textContent,
-          html: htmlContent,
-          headers: {
-            'Auto-Submitted': 'auto-generated',
-            'X-Auto-Response-Suppress': 'OOF, AutoReply',
-          },
-        });
-
-        providersUsed.push('smtp');
-        console.log(`[Email Service] Sent CARDAPP No-Reply verification code to ${recipientEmail} via SMTP.`);
-      } catch (err) {
-        console.warn('[Email Service] SMTP exception:', err);
-      }
-    }
-
-    // 4. Fallback via Google Firebase Authentication Identity Toolkit apenas se nenhum provedor de código customizado enviou
-    if (!providersUsed.some((p) => p === 'resend' || p === 'brevo' || p === 'smtp')) {
+    // 4. Fallback via Google Firebase Authentication Identity Toolkit apenas se nenhum provedor customizado enviou
+    if (providersUsed.length === 0) {
       try {
         const fbSent = await dispatchFirebaseEmailVerification(recipientEmail, cleanCode);
         if (fbSent) {
@@ -479,6 +529,17 @@ app.post('/api/send-verification-email', async (req, res) => {
     );
 
     if (!customCodeEmailSent && !firebaseLinkSent) {
+      if (configuredAnyProvider && providerErrors.length > 0) {
+        return res.status(502).json({
+          success: false,
+          providerError: true,
+          customCodeEmailSent: false,
+          firebaseLinkSent: false,
+          providers: providersUsed,
+          message: `Falha ao enviar o e-mail pelo provedor configurado (${providerErrors[0]}). Verifique as credenciais de envio nos Secrets do servidor.`,
+        });
+      }
+
       return res.status(503).json({
         success: false,
         missingEmailProvider: true,
@@ -486,7 +547,7 @@ app.post('/api/send-verification-email', async (req, res) => {
         firebaseLinkSent: false,
         providers: providersUsed,
         message:
-          'Serviço de disparo de e-mail (SMTP, Resend ou Brevo) ainda não configurado nas variáveis do servidor. Configure as credenciais de e-mail para enviar códigos reais.',
+          'O envio de códigos por e-mail requer um provedor SMTP (ex: Gmail com Senha de App), Brevo ou Resend configurado nas variáveis de ambiente do servidor (Secrets).',
       });
     }
 
@@ -650,85 +711,29 @@ app.post('/api/send-recovery-email', async (req, res) => {
       </div>
     `;
 
-    // Tentar via Resend / Brevo / SMTP
-    if (process.env.RESEND_API_KEY) {
-      try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          },
-          body: JSON.stringify({
-            from: process.env.EMAIL_FROM || 'CARDAPP (No-Reply) <no-reply@resend.dev>',
-            reply_to: noReplyAddress,
-            to: [recipientEmail],
-            subject,
-            text: textContent,
-            html: htmlContent,
-          }),
-        });
-      } catch (err) {
-        console.warn('[Email Service] Resend recovery error:', err);
-      }
-    }
+    const { providersUsed, configuredAnyProvider, providerErrors } = await dispatchCardappEmail({
+      recipientEmail,
+      recipientName: name,
+      subject,
+      textContent,
+      htmlContent,
+      noReplyAddress,
+    });
 
-    if (process.env.BREVO_API_KEY) {
-      try {
-        await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': process.env.BREVO_API_KEY,
-          },
-          body: JSON.stringify({
-            sender: { name: 'CARDAPP (No-Reply)', email: process.env.EMAIL_FROM_ADDRESS || noReplyAddress },
-            replyTo: { name: 'CARDAPP (No-Reply)', email: noReplyAddress },
-            to: [{ email: recipientEmail, name }],
-            subject,
-            textContent,
-            htmlContent,
-          }),
-        });
-      } catch (err) {
-        console.warn('[Email Service] Brevo recovery error:', err);
-      }
-    }
-
-    if (process.env.SMTP_HOST || process.env.SMTP_USER) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: parseInt(process.env.SMTP_PORT || '587', 10),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        });
-
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${process.env.SMTP_USER || noReplyAddress}>`,
-          replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
-          to: recipientEmail,
-          subject,
-          text: textContent,
-          html: htmlContent,
-          headers: {
-            'Auto-Submitted': 'auto-generated',
-            'X-Auto-Response-Suppress': 'OOF, AutoReply',
-          },
-        });
-        console.log(`[Email Service] Sent CARDAPP No-Reply recovery code to ${recipientEmail} via SMTP.`);
-      } catch (err) {
-        console.warn('[Email Service] SMTP recovery error:', err);
-      }
+    if (providersUsed.length === 0) {
+      return res.status(configuredAnyProvider ? 502 : 503).json({
+        success: false,
+        missingEmailProvider: !configuredAnyProvider,
+        message:
+          configuredAnyProvider && providerErrors.length > 0
+            ? `Falha ao enviar e-mail de recuperação (${providerErrors[0]}).`
+            : 'Provedor de e-mail (SMTP, Brevo ou Resend) não configurado nos Secrets do servidor.',
+      });
     }
 
     return res.json({
       success: true,
       message: 'Código de recuperação enviado para seu e-mail.',
-      code: isProd ? undefined : cleanCode,
     });
   } catch (error) {
     console.error('[Email Service] Error sending recovery email:', error);

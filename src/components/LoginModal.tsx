@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
 import { emailVerificationService } from '../services/emailVerificationService';
+import { googleOAuthVerifyIdentity } from '../services/googleAuthService';
 import { UserAccount } from '../types';
 import {
   validateUsernameSecurity,
@@ -106,6 +107,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [emailFirebaseLinkSent, setEmailFirebaseLinkSent] = useState(false);
   const [emailCustomCodeSent, setEmailCustomCodeSent] = useState(false);
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
+  const [isGoogleLoginLoading, setIsGoogleLoginLoading] = useState(false);
+  const [isGoogleEmailAuthLoading, setIsGoogleEmailAuthLoading] = useState(false);
+  const [pendingGmailSendEmail, setPendingGmailSendEmail] = useState<string | null>(null);
   const [regUsername, setRegUsername] = useState(() => initialDraft?.regUsername || '');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
@@ -190,6 +194,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setEmailVerificationCode('');
       setEmailVerifyNotice(null);
       setEmailSuggestion(null);
+      setPendingGmailSendEmail(null);
     }
   }, [initialMode, isOpen]);
 
@@ -325,6 +330,43 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setLoginError(result.message);
       }
     }, 300);
+  };
+
+  // Login direto com Google OAuth (sem precisar digitar senha)
+  const handleGoogleOAuthLogin = async () => {
+    setLoginError('');
+    setRegError('');
+    setIsGoogleLoginLoading(true);
+    try {
+      const result = await accountService.loginWithGoogleOAuth();
+      if (result.success && result.user) {
+        saveLoginModalDraft(null);
+        onLoginSuccess(result.user);
+        return;
+      }
+
+      if (result.needsRegistration && result.email) {
+        await emailVerificationService.markEmailVerifiedViaGoogleOAuth(result.email, {
+          name: result.displayName || regName,
+        });
+        setRegEmail(result.email);
+        setVerifiedEmail(result.email);
+        if (!regName.trim() && result.displayName) {
+          setRegName(result.displayName);
+        }
+        setActiveMode('register');
+        setWizardStep(!regName.trim() && result.displayName ? 2 : 1);
+        setEmailVerifyNotice({
+          type: 'success',
+          text: `E-mail ${result.email} já autenticado via Google!`,
+        });
+        return;
+      }
+
+      setLoginError(result.message);
+    } finally {
+      setIsGoogleLoginLoading(false);
+    }
   };
 
 
@@ -464,6 +506,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     setIsSendingEmailCode(true);
+    setPendingGmailSendEmail(null);
     try {
       const res = await emailVerificationService.sendVerificationCode({
         name: regName.trim() || 'Cliente',
@@ -479,6 +522,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       });
 
       if (!res.success) {
+        if (res.missingEmailProvider) {
+          setPendingGmailSendEmail(cleanEmail);
+          setEmailVerifyNotice({
+            type: 'info',
+            text: `Você pode autenticar com o Google agora mesmo ou confirmar o envio do código formal CARDAPP (No-Reply) para ${cleanEmail} pelo seu Gmail.`,
+          });
+          return;
+        }
         setRegError(res.message);
         return;
       }
@@ -496,6 +547,96 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       });
     } finally {
       setIsSendingEmailCode(false);
+    }
+  };
+
+  // Envia código formal CARDAPP (No-Reply) via Gmail API somente após confirmação explícita do usuário
+  const handleConfirmSendViaGmailOAuth = async () => {
+    const targetEmail = (pendingGmailSendEmail || regEmail).trim().toLowerCase();
+    if (!targetEmail) return;
+    setRegError('');
+    setIsSendingEmailCode(true);
+    try {
+      const res = await emailVerificationService.sendVerificationCodeViaGmailOAuth({
+        name: regName.trim() || 'Cliente',
+        storeName: regStoreName.trim() || 'Minha Loja',
+        email: targetEmail,
+        phoneWhatsapp: regPhone.trim(),
+        logoBase64: regLogoBase64,
+        address: regAddress.trim(),
+        tagline: regTagline.trim(),
+        instagramHandle: regInstagram.trim(),
+        username: regUsername.trim(),
+        password: regPassword,
+      });
+      if (!res.success) {
+        setRegError(res.message);
+        return;
+      }
+      setPendingGmailSendEmail(null);
+      setEmailCodeSentTo(targetEmail);
+      setEmailVerificationCode('');
+      setEmailCustomCodeSent(true);
+      setEmailFirebaseLinkSent(false);
+      setEmailResendCooldown(30);
+      setEmailVerifyNotice({
+        type: 'info',
+        text: `Enviamos o código formal de 6 dígitos via CARDAPP (No-Reply) para ${targetEmail}. Confira sua Caixa de Entrada ou Spam.`,
+      });
+    } finally {
+      setIsSendingEmailCode(false);
+    }
+  };
+
+  // Verifica autenticidade real do e-mail diretamente via Google OAuth
+  const handleVerifyEmailWithGoogleOAuth = async () => {
+    setRegError('');
+    setEmailVerifyNotice(null);
+    setPendingGmailSendEmail(null);
+    setIsGoogleEmailAuthLoading(true);
+    try {
+      const identity = await googleOAuthVerifyIdentity();
+      const cleanEmail = identity.email.trim().toLowerCase();
+
+      const validation = emailVerificationService.validateEmail(cleanEmail);
+      if (!validation.isValid) {
+        setRegError(validation.errorMessage || 'Este e-mail Google já está cadastrado ou é inválido.');
+        return;
+      }
+
+      await emailVerificationService.markEmailVerifiedViaGoogleOAuth(cleanEmail, {
+        name: regName.trim() || identity.displayName || 'Cliente',
+        storeName: regStoreName.trim() || 'Minha Loja',
+        phoneWhatsapp: regPhone.trim(),
+        logoBase64: regLogoBase64,
+        address: regAddress.trim(),
+        tagline: regTagline.trim(),
+        instagramHandle: regInstagram.trim(),
+      });
+
+      setRegEmail(cleanEmail);
+      setVerifiedEmail(cleanEmail);
+      setEmailCodeSentTo('');
+      setEmailVerificationCode('');
+      setEmailSuggestion(null);
+      setEmailVerifyNotice({
+        type: 'success',
+        text: `E-mail ${cleanEmail} autenticado pelo Google com sucesso! Avançando...`,
+      });
+      setTimeout(() => {
+        setWizardStep(6);
+      }, 450);
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setRegError('Janela do Google fechada antes de confirmar o e-mail.');
+      } else if (code === 'auth/popup-blocked') {
+        setRegError('O navegador bloqueou a janela do Google. Libere popups para continuar.');
+      } else {
+        setRegError(err?.message || 'Não foi possível confirmar o e-mail com o Google.');
+      }
+    } finally {
+      setIsGoogleEmailAuthLoading(false);
     }
   };
 
@@ -927,7 +1068,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
             <button
               type="submit"
-              disabled={isLoginLoading}
+              disabled={isLoginLoading || isGoogleLoginLoading}
               className="w-full mt-2 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
             >
               {isLoginLoading ? (
@@ -936,6 +1077,40 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <>
                   <span>Entrar no Sistema</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </>
+              )}
+            </button>
+
+            <div className="relative flex items-center py-1">
+              <div className="flex-grow border-t border-slate-200" />
+              <span className="shrink mx-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                ou
+              </span>
+              <div className="flex-grow border-t border-slate-200" />
+            </div>
+
+            {/* Botão oficial Entrar com Google (OAuth) */}
+            <button
+              type="button"
+              onClick={handleGoogleOAuthLogin}
+              disabled={isGoogleLoginLoading || isLoginLoading}
+              className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 active:scale-98 border border-slate-300 text-slate-800 font-bold text-sm flex items-center justify-center gap-3 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+            >
+              {isGoogleLoginLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                  <span>Conectando com Google...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                    <path fill="none" d="M0 0h48v48H0z" />
+                  </svg>
+                  <span>Entrar com o Google</span>
                 </>
               )}
             </button>
@@ -1421,6 +1596,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setRegEmail(nextVal);
                         setRegError('');
                         setEmailVerifyNotice(null);
+                        setPendingGmailSendEmail(null);
                         const norm = nextVal.trim().toLowerCase();
                         if (verifiedEmail && norm !== verifiedEmail) {
                           setVerifiedEmail('');
@@ -1456,7 +1632,77 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[10px] font-black uppercase">Corrigir</span>
                     </button>
                   )}
+                  {verifiedEmail !== regEmail.trim().toLowerCase() || !verifiedEmail ? (
+                    <div className="pt-1 space-y-2">
+                      <button
+                        type="button"
+                        onClick={handleVerifyEmailWithGoogleOAuth}
+                        disabled={isGoogleEmailAuthLoading || isSendingEmailCode}
+                        className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold text-xs flex items-center justify-center gap-2.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                      >
+                        {isGoogleEmailAuthLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                            <span>Autenticando e-mail com Google...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                              <path fill="none" d="M0 0h48v48H0z" />
+                            </svg>
+                            <span>Confirmar E-mail Instantaneamente com Google</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
+
+                {/* Confirmação explícita obrigatória antes de enviar código via Gmail conectado */}
+                {pendingGmailSendEmail && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-2.5 animate-in fade-in">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <div className="text-xs text-slate-800 leading-relaxed">
+                        <p className="font-black text-slate-950">Confirmar envio de código via Gmail</p>
+                        <p className="mt-0.5 text-slate-700">
+                          Deseja autorizar o envio do código formal <strong>CARDAPP (No-Reply)</strong> de 6 dígitos para <strong>{pendingGmailSendEmail}</strong> usando sua conta Gmail conectada?
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPendingGmailSendEmail(null)}
+                        className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSendingEmailCode}
+                        onClick={handleConfirmSendViaGmailOAuth}
+                        className="flex-1 py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-300 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSendingEmailCode ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Enviando via Gmail...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Confirmar e Enviar Código via Gmail</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Feedback informativo / sucesso da verificação */}
                 {emailVerifyNotice && (
