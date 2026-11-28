@@ -69,7 +69,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ForkKnifeIcon, ForkKnifePlaceholder } from './ForkKnifeIcon';
-import { getClientAppUrl } from '../utils/constants';
+import { getClientAppUrl, getClientShareUrl } from '../utils/constants';
 import {
   getEstimatedTimeWindow,
   getDeliveryTypeLabel,
@@ -618,6 +618,10 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     return getClientAppUrl(currentStoreId, effectiveStoreName);
   }, [currentStoreId, effectiveStoreName]);
 
+  const shareStoreUrl = useMemo(() => {
+    return getClientShareUrl(currentStoreId, effectiveStoreName);
+  }, [currentStoreId, effectiveStoreName]);
+
   useEffect(() => {
     const nextSnapshot = JSON.stringify(settings);
     const storeChanged = lastSyncedStoreIdRef.current !== currentStoreId;
@@ -1114,7 +1118,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
 
   // Copy share link
   const handleCopyMenuLink = () => {
-    navigator.clipboard.writeText(officialStoreUrl);
+    navigator.clipboard.writeText(shareStoreUrl);
     setCopiedClientLink(true);
     setTimeout(() => setCopiedClientLink(false), 2500);
   };
@@ -3718,13 +3722,13 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <input
                     type="text"
                     readOnly
-                    value={officialStoreUrl}
+                    value={shareStoreUrl}
                     className="bg-transparent text-xs text-slate-900 font-bold flex-1 px-2 font-mono outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(officialStoreUrl);
+                      navigator.clipboard.writeText(shareStoreUrl);
                       setCopiedClientLink(true);
                       setTimeout(() => setCopiedClientLink(false), 2500);
                     }}
@@ -3774,7 +3778,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                                   <h1>${settings.storeName}</h1>
                                   <p>Aponte a câmera do seu celular para ver nosso cardápio</p>
                                   <img src="https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(officialStoreUrl)}" />
-                                  <div class="url">${officialStoreUrl}</div>
+                                  <div class="url">${shareStoreUrl}</div>
                                   <script>window.onload = function() { window.print(); };</script>
                                 </body>
                               </html>

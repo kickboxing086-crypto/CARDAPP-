@@ -60,7 +60,7 @@ import {
   generateSecurePassword,
 } from '../utils/security';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { getClientAppUrl, slugifyStoreName } from '../utils/constants';
+import { getClientAppUrl, getClientShareUrl, slugifyStoreName } from '../utils/constants';
 import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 import { auth } from '../firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -433,7 +433,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     slugifyStoreName(acc.storeName) || acc.id;
 
   const handleCopyStoreLink = (acc: UserAccount) => {
-    const url = getClientAppUrl(acc.storeId, acc.storeName);
+    const url = getClientShareUrl(acc.storeId, acc.storeName);
     navigator.clipboard.writeText(url);
     setCopiedStoreId(acc.id);
     setTimeout(() => setCopiedStoreId(null), 2500);

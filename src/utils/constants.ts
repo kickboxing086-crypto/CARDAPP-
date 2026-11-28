@@ -73,6 +73,14 @@ export function getClientAppUrl(storeId?: string, storeName?: string): string {
   return `${baseUrl}/?view=cardapio`;
 }
 
+export function formatShareUrlWithoutProtocol(url: string): string {
+  return (url || '').replace(/^https?:\/\//i, '');
+}
+
+export function getClientShareUrl(storeId?: string, storeName?: string): string {
+  return formatShareUrlWithoutProtocol(getClientAppUrl(storeId, storeName));
+}
+
 export function getCeoAppUrl(): string {
   return `${resolveBaseOrigin()}/?view=ceo`;
 }
