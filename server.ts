@@ -2,12 +2,10 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import * as admin from 'firebase-admin';
-import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
+import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
 dotenv.config();
 
@@ -53,753 +51,13 @@ const isProd = process.env.NODE_ENV === 'production';
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Função auxiliar para gerar senha determinística para conta do Firebase Auth
-function getDeterministicAuthPassword(email: string): string {
-  const hash = crypto
-    .createHash('sha256')
-    .update(email.toLowerCase().trim() + '_cardapp_salt_2026')
-    .digest('hex')
-    .slice(0, 16);
-  return 'Cp!' + hash + '9a';
-}
-
-// Envia e-mail de verificação oficial via Firebase Auth Identity Toolkit (somente quando Email/Password estiver habilitado)
-async function dispatchFirebaseEmailVerification(email: string, code: string): Promise<boolean> {
-  if (!firebaseConfig.apiKey) {
-    console.warn('[Firebase Auth Email] API key not found in config.');
-    return false;
-  }
-
-  const password = getDeterministicAuthPassword(email);
-  let idToken: string | null = null;
-
-  try {
-    // 1. Tenta criar usuário no Firebase Auth
-    const signupRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, returnSecureToken: true }),
-      }
-    );
-    const signupData = await signupRes.json().catch(() => ({}));
-
-    if (signupRes.ok && signupData.idToken) {
-      idToken = signupData.idToken;
-    } else if (signupData.error?.message?.includes('EMAIL_EXISTS')) {
-      // 2. Se já existe com a credencial determinística, autentica para enviar VERIFY_EMAIL
-      const signinRes = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, returnSecureToken: true }),
-        }
-      );
-      const signinData = await signinRes.json().catch(() => ({}));
-      if (signinRes.ok && signinData.idToken) {
-        idToken = signinData.idToken;
-      }
-    } else if (!signupRes.ok) {
-      console.warn('[Firebase Auth Email] signUp skipped/blocked:', signupData.error?.message || signupRes.status);
-    }
-
-    if (!idToken) {
-      return false;
-    }
-
-    const domain = firebaseConfig.authDomain || 'cardapp.com.br';
-    const continueUrl = `https://${domain}/?verified_email=${encodeURIComponent(email)}&code=${code}`;
-
-    // 3. Dispara e-mail de verificação oficial do Firebase (sem usar PASSWORD_RESET enganoso)
-    const verifyRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requestType: 'VERIFY_EMAIL',
-          idToken,
-          continueUrl,
-        }),
-      }
-    );
-    const verifyData = await verifyRes.json().catch(() => ({}));
-    if (verifyRes.ok && (verifyData.kind || verifyData.email)) {
-      console.log(`[Firebase Auth Email] VERIFY_EMAIL successfully sent to ${email} via Google Identity Toolkit.`);
-      return true;
-    }
-    console.warn('[Firebase Auth Email] sendOobCode error:', verifyData);
-  } catch (err) {
-    console.warn('[Firebase Auth Email] Error dispatching email:', err);
-  }
-
-  return false;
-}
-
-async function dispatchCardappEmail(params: {
-  recipientEmail: string;
-  recipientName: string;
-  subject: string;
-  textContent: string;
-  htmlContent: string;
-  noReplyAddress: string;
-}): Promise<{
-  providersUsed: string[];
-  configuredAnyProvider: boolean;
-  providerErrors: string[];
-}> {
-  const { recipientEmail, recipientName, subject, textContent, htmlContent, noReplyAddress } = params;
-  const providersUsed: string[] = [];
-  const providerErrors: string[] = [];
-  let configuredAnyProvider = false;
-
-  const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
-  const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
-  const smtpUser = (process.env.SMTP_USER || '').trim();
-  const smtpHostRaw = (process.env.SMTP_HOST || '').trim();
-  const smtpHost = smtpHostRaw || 'smtp.gmail.com';
-  const rawSmtpPass = process.env.SMTP_PASS || '';
-  const smtpPass = smtpHost.toLowerCase().includes('gmail')
-    ? rawSmtpPass.replace(/\s+/g, '')
-    : rawSmtpPass.trim();
-
-  // 1. Tentar via Resend se RESEND_API_KEY estiver configurado
-  if (resendApiKey) {
-    configuredAnyProvider = true;
-    try {
-      const resendFrom =
-        (process.env.RESEND_FROM || process.env.EMAIL_FROM || '').trim() ||
-        'CARDAPP (No-Reply) <onboarding@resend.dev>';
-      const resendResponse = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${resendApiKey}`,
-        },
-        body: JSON.stringify({
-          from: resendFrom,
-          reply_to: noReplyAddress,
-          to: [recipientEmail],
-          subject,
-          text: textContent,
-          html: htmlContent,
-        }),
-      });
-      if (resendResponse.ok) {
-        providersUsed.push('resend');
-        console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via Resend.`);
-      } else {
-        const errBody = await resendResponse.json().catch(() => ({}));
-        const msg = errBody?.message || `HTTP ${resendResponse.status}`;
-        providerErrors.push(`Resend: ${msg}`);
-        console.warn('[Email Service] Resend rejected:', resendResponse.status, errBody);
-      }
-    } catch (err: any) {
-      providerErrors.push(`Resend: ${err?.message || 'erro de rede'}`);
-      console.warn('[Email Service] Resend exception:', err);
-    }
-  }
-
-  // 2. Tentar via Brevo se BREVO_API_KEY estiver configurado
-  if (brevoApiKey && providersUsed.length === 0) {
-    configuredAnyProvider = true;
-    try {
-      const brevoSenderEmail =
-        (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_FROM_ADDRESS || smtpUser || noReplyAddress).trim();
-      const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-        },
-        body: JSON.stringify({
-          sender: {
-            name: 'CARDAPP (No-Reply)',
-            email: brevoSenderEmail,
-          },
-          replyTo: {
-            name: 'CARDAPP (No-Reply)',
-            email: noReplyAddress,
-          },
-          to: [{ email: recipientEmail, name: recipientName }],
-          subject,
-          textContent,
-          htmlContent,
-        }),
-      });
-      if (brevoResponse.ok) {
-        providersUsed.push('brevo');
-        console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via Brevo.`);
-      } else {
-        const errBody = await brevoResponse.json().catch(() => ({}));
-        const msg = errBody?.message || `HTTP ${brevoResponse.status}`;
-        providerErrors.push(`Brevo: ${msg}`);
-        console.warn('[Email Service] Brevo rejected:', brevoResponse.status, errBody);
-      }
-    } catch (err: any) {
-      providerErrors.push(`Brevo: ${err?.message || 'erro de rede'}`);
-      console.warn('[Email Service] Brevo exception:', err);
-    }
-  }
-
-  // 3. Tentar via SMTP (Nodemailer — ex: Gmail com Senha de App)
-  if ((smtpUser || smtpHostRaw) && smtpPass && providersUsed.length === 0) {
-    configuredAnyProvider = true;
-    try {
-      const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: process.env.SMTP_SECURE === 'true' || smtpPort === 465,
-        auth: {
-          user: smtpUser,
-          pass: smtpPass,
-        },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
-      });
-
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || `"CARDAPP (No-Reply)" <${smtpUser || noReplyAddress}>`,
-        replyTo: `"CARDAPP (No-Reply)" <${noReplyAddress}>`,
-        to: recipientEmail,
-        subject,
-        text: textContent,
-        html: htmlContent,
-        headers: {
-          'Auto-Submitted': 'auto-generated',
-          'X-Auto-Response-Suppress': 'OOF, AutoReply',
-        },
-      });
-
-      providersUsed.push('smtp');
-      console.log(`[Email Service] Sent CARDAPP No-Reply email to ${recipientEmail} via SMTP.`);
-    } catch (err: any) {
-      providerErrors.push(`SMTP: ${err?.message || 'falha de autenticação ou conexão'}`);
-      console.warn('[Email Service] SMTP exception:', err);
-    }
-  } else if ((smtpUser || smtpHostRaw) && !smtpPass) {
-    configuredAnyProvider = true;
-    providerErrors.push('SMTP: SMTP_PASS não configurado.');
-  }
-
-  return { providersUsed, configuredAnyProvider, providerErrors };
-}
-
-const DISPOSABLE_EMAIL_DOMAINS = new Set([
-  'mailinator.com',
-  'tempmail.com',
-  'temp-mail.org',
-  '10minutemail.com',
-  'guerrillamail.com',
-  'yopmail.com',
-  'throwawaymail.com',
-  'trashmail.com',
-  'fakeinbox.com',
-  'getnada.com',
-  'dispostable.com',
-  'maildrop.cc',
-  'sharklasers.com',
-]);
-
-function escapeEmailHtml(value: string): string {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-async function validateRealEmailDomain(email: string): Promise<{ valid: boolean; reason?: string }> {
-  const clean = (email || '').trim().toLowerCase();
-  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  if (!emailRegex.test(clean)) {
-    return { valid: false, reason: 'Formato de e-mail inválido. Ex: seunome@gmail.com' };
-  }
-
-  const domain = clean.split('@')[1] || '';
-  if (!domain || DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
-    return {
-      valid: false,
-      reason: 'E-mails temporários ou descartáveis não são permitidos. Utilize um e-mail real e permanente.',
-    };
-  }
-
-  try {
-    const withTimeout = <T>(promise: Promise<T>, ms = 3500): Promise<T> =>
-      Promise.race([
-        promise,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('DNS_TIMEOUT')), ms)),
-      ]);
-
-    const mxRecords = await withTimeout(dns.resolveMx(domain));
-    const validMx = Array.isArray(mxRecords)
-      ? mxRecords.filter((rec) => Boolean(rec && rec.exchange && rec.exchange.trim() !== '' && rec.exchange !== '.'))
-      : [];
-    if (validMx.length > 0) {
-      return { valid: true };
-    }
-  } catch (mxErr: any) {
-    if (mxErr?.message === 'DNS_TIMEOUT') {
-      // Não bloqueia por timeout momentâneo de rede
-      return { valid: true };
-    }
-    // Tenta registro A caso não haja MX explícito
-    try {
-      const aRecords = await Promise.race([
-        dns.resolve4(domain),
-        new Promise<string[]>((_, reject) => setTimeout(() => reject(new Error('DNS_TIMEOUT')), 3500)),
-      ]);
-      if (Array.isArray(aRecords) && aRecords.length > 0) {
-        return { valid: true };
-      }
-    } catch {
-      return {
-        valid: false,
-        reason: `O domínio "@${domain}" não existe ou não está configurado para receber e-mails. Verifique o endereço digitado.`,
-      };
-    }
-  }
-
-  return {
-    valid: false,
-    reason: `O domínio "@${domain}" não possui servidor de e-mail válido. Informe um e-mail real.`,
-  };
-}
-
-interface ServerEmailVerificationRecord {
-  email: string;
-  code: string;
-  expiresAt: number;
-  attempts: number;
-  verified: boolean;
-}
-
-const memoryEmailVerifications = new Map<string, ServerEmailVerificationRecord>();
-
-// API: Enviar código de verificação no-reply por e-mail diretamente ao destinatário
-app.post('/api/send-verification-email', async (req, res) => {
-  try {
-    const { to, clientName, storeName, code } = req.body;
-
-    if (!to || typeof to !== 'string' || !to.includes('@')) {
-      return res.status(400).json({ success: false, message: 'E-mail de destino inválido.' });
-    }
-
-    const recipientEmail = to.trim().toLowerCase();
-    const domainCheck = await validateRealEmailDomain(recipientEmail);
-    if (!domainCheck.valid) {
-      return res.status(400).json({
-        success: false,
-        invalidDomain: true,
-        message: domainCheck.reason || 'E-mail inválido ou inexistente.',
-      });
-    }
-
-    const cleanCode =
-      typeof code === 'string' && /^\d{6}$/.test(code.trim())
-        ? code.trim()
-        : Math.floor(100000 + Math.random() * 900000).toString();
-
-    const name = (clientName || 'Cliente').trim();
-    const store = (storeName || 'Seu Estabelecimento').trim();
-    const safeName = escapeEmailHtml(name);
-    const safeStore = escapeEmailHtml(store);
-    const noReplyAddress = process.env.EMAIL_FROM_ADDRESS || 'no-reply@cardapp.com.br';
-
-    // Armazena código no servidor para validação segura com expiração de 10 minutos
-    memoryEmailVerifications.set(recipientEmail, {
-      email: recipientEmail,
-      code: cleanCode,
-      expiresAt: Date.now() + 10 * 60 * 1000,
-      attempts: 0,
-      verified: false,
-    });
-
-    const subject = `CARDAPP • No-Reply | Código de Verificação Cadastral: ${cleanCode}`;
-    const textContent = [
-      `CARDAPP — Notificação Oficial de Segurança (No-Reply)`,
-      `========================================================`,
-      '',
-      `Prezado(a) ${name},`,
-      '',
-      `Recebemos a solicitação de cadastro do estabelecimento "${store}" na plataforma CARDAPP.`,
-      `Para confirmar que este endereço de e-mail é autêntico e concluir seu cadastro com total segurança, informe o código de verificação abaixo:`,
-      '',
-      `CÓDIGO DE VERIFICAÇÃO: ${cleanCode}`,
-      '',
-      `• Validade: 10 minutos (uso único e intransferível).`,
-      `• Segurança: A equipe CARDAPP jamais solicitará este código por telefone, WhatsApp ou redes sociais.`,
-      `• Caso você não tenha iniciado este cadastro, desconsidere esta mensagem com segurança.`,
-      '',
-      `Atenciosamente,`,
-      `CARDAPP — Plataforma de Cardápio Digital`,
-      `Remetente Oficial: CARDAPP (No-Reply) <${noReplyAddress}>`,
-      `Este é um e-mail automático (No-Reply). Por favor, não responda a esta mensagem.`,
-    ].join('\n');
-
-    const htmlContent = `
-      <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);">
-        <div style="background-color: #0f172a; padding: 28px 24px; text-align: center; border-bottom: 4px solid #f59e0b;">
-          <div style="display: inline-block; background-color: #fbbf24; color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 12px; border-radius: 6px; margin-bottom: 10px;">
-            NO-REPLY • COMUNICAÇÃO OFICIAL
-          </div>
-          <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 900; letter-spacing: 1px;">
-            CARDAPP
-          </h1>
-          <p style="margin: 6px 0 0; color: #cbd5e1; font-size: 13px; font-weight: 500;">
-            Confirmação de Autenticidade de E-mail Cadastral
-          </p>
-        </div>
-
-        <div style="padding: 32px 28px; color: #1e293b; line-height: 1.65;">
-          <p style="font-size: 15px; margin-top: 0; color: #0f172a;">
-            Prezado(a) <strong>${safeName}</strong>,
-          </p>
-          <p style="font-size: 14px; color: #475569;">
-            Recebemos a solicitação de cadastro do estabelecimento <strong>"${safeStore}"</strong> na plataforma <strong>CARDAPP</strong>.
-            Para confirmar que este endereço de e-mail é verdadeiro e proteger a sua conta administrativa, utilize o código de verificação abaixo:
-          </p>
-
-          <div style="margin: 28px 0; text-align: center;">
-            <p style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #64748b; margin: 0 0 8px;">
-              Seu Código de Verificação
-            </p>
-            <div style="display: inline-block; background-color: #fffbeb; border: 2px solid #f59e0b; padding: 18px 40px; border-radius: 12px;">
-              <span style="font-size: 34px; font-weight: 900; letter-spacing: 8px; color: #0f172a; font-family: 'Courier New', Courier, monospace;">
-                ${cleanCode}
-              </span>
-            </div>
-            <p style="font-size: 12px; color: #64748b; margin-top: 10px; margin-bottom: 0;">
-              Válido por <strong>10 minutos</strong> • Uso único e confidencial
-            </p>
-          </div>
-
-          <div style="background-color: #f8fafc; border-left: 4px solid #0f172a; padding: 14px 16px; border-radius: 6px; font-size: 12.5px; color: #334155; margin-bottom: 24px;">
-            <strong>Aviso de Segurança:</strong> Nunca compartilhe este código com terceiros. A equipe oficial do <strong>CARDAPP</strong> jamais solicita códigos de confirmação por telefone ou mensagens. Caso não tenha realizado este cadastro, desconsidere este e-mail.
-          </div>
-
-          <p style="font-size: 13.5px; color: #334155; margin-bottom: 4px;">
-            Atenciosamente,
-          </p>
-          <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 0;">
-            CARDAPP — Sistema de Gestão e Cardápio Digital
-          </p>
-
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;" />
-
-          <p style="font-size: 11.5px; color: #64748b; margin: 0; text-align: center; line-height: 1.5;">
-            Mensagem automática enviada por <strong>CARDAPP (No-Reply)</strong> &lt;${escapeEmailHtml(noReplyAddress)}&gt;.<br />
-            Por favor, não responda a este endereço de e-mail.
-          </p>
-        </div>
-      </div>
-    `;
-
-    const { providersUsed, configuredAnyProvider, providerErrors } = await dispatchCardappEmail({
-      recipientEmail,
-      recipientName: name,
-      subject,
-      textContent,
-      htmlContent,
-      noReplyAddress,
-    });
-
-    // 4. Fallback via Google Firebase Authentication Identity Toolkit apenas se nenhum provedor customizado enviou
-    if (providersUsed.length === 0) {
-      try {
-        const fbSent = await dispatchFirebaseEmailVerification(recipientEmail, cleanCode);
-        if (fbSent) {
-          providersUsed.push('firebase-identity-toolkit');
-        }
-      } catch (fbErr) {
-        console.warn('[Email Service] Firebase dispatch error:', fbErr);
-      }
-    }
-
-    const customCodeEmailSent = providersUsed.some((p) => p === 'resend' || p === 'brevo' || p === 'smtp');
-    const firebaseLinkSent = providersUsed.includes('firebase-identity-toolkit');
-
-    console.log(
-      `[Email Service] Verification dispatch complete for ${recipientEmail}. Providers: [${providersUsed.join(', ')}].`
-    );
-
-    if (!customCodeEmailSent && !firebaseLinkSent) {
-      if (configuredAnyProvider && providerErrors.length > 0) {
-        return res.status(502).json({
-          success: false,
-          providerError: true,
-          customCodeEmailSent: false,
-          firebaseLinkSent: false,
-          providers: providersUsed,
-          message: `Falha ao enviar o e-mail pelo provedor configurado (${providerErrors[0]}). Verifique as credenciais de envio nos Secrets do servidor.`,
-        });
-      }
-
-      return res.status(503).json({
-        success: false,
-        missingEmailProvider: true,
-        customCodeEmailSent: false,
-        firebaseLinkSent: false,
-        providers: providersUsed,
-        message:
-          'O envio de códigos por e-mail requer um provedor SMTP (ex: Gmail com Senha de App), Brevo ou Resend configurado nas variáveis de ambiente do servidor (Secrets).',
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: customCodeEmailSent
-        ? `Código de verificação formal CARDAPP (No-Reply) enviado para ${recipientEmail}.`
-        : `Link de confirmação enviado para ${recipientEmail}.`,
-      sentDirectly: providersUsed.length > 0,
-      customCodeEmailSent,
-      firebaseLinkSent,
-      providers: providersUsed,
-    });
-  } catch (error) {
-    console.error('[Email Service] Fatal error dispatching email:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro interno ao processar envio do e-mail de verificação.',
-    });
-  }
-});
-
-// API: Validar código de verificação de 6 dígitos no servidor
-app.post('/api/verify-email-code', (req, res) => {
-  try {
-    const { email, code } = req.body;
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    const cleanCode = String(code || '').replace(/\D/g, '').trim();
-
-    if (!cleanEmail || !cleanCode || cleanCode.length !== 6) {
-      return res.status(400).json({ success: false, message: 'Informe um e-mail válido e o código de 6 dígitos.' });
-    }
-
-    const record = memoryEmailVerifications.get(cleanEmail);
-    if (!record) {
-      return res.status(404).json({
-        success: false,
-        notFoundOnServer: true,
-        message: 'Sessão não encontrada no servidor.',
-      });
-    }
-
-    if (Date.now() > record.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: 'Este código expirou (validade de 10 minutos). Solicite um novo código.',
-      });
-    }
-
-    if (record.attempts >= 5) {
-      return res.status(429).json({
-        success: false,
-        message: 'Limite de 5 tentativas excedido. Solicite o reenvio de um novo código.',
-      });
-    }
-
-    if (record.code !== cleanCode) {
-      record.attempts += 1;
-      const remaining = 5 - record.attempts;
-      return res.status(400).json({
-        success: false,
-        message: `Código incorreto. ${remaining > 0 ? `Restam ${remaining} tentativas.` : 'Solicite um novo código.'}`,
-      });
-    }
-
-    record.verified = true;
-    return res.json({
-      success: true,
-      verified: true,
-      message: 'E-mail autenticado com sucesso!',
-    });
-  } catch (err) {
-    console.error('[Email Service] Error verifying email code:', err);
-    return res.status(500).json({ success: false, message: 'Erro ao validar código.' });
-  }
-});
-
-// API: Enviar código oficial de recuperação de conta por e-mail
-app.post('/api/send-recovery-email', async (req, res) => {
-  try {
-    const { to, clientName, storeName, code } = req.body;
-
-    if (!to || typeof to !== 'string' || !to.includes('@')) {
-      return res.status(400).json({ success: false, message: 'E-mail de destino inválido.' });
-    }
-
-    if (!code || typeof code !== 'string' || code.trim().length !== 6) {
-      return res.status(400).json({ success: false, message: 'Código de recuperação inválido.' });
-    }
-
-    const recipientEmail = to.trim().toLowerCase();
-    const name = (clientName || 'Lojista').trim();
-    const store = (storeName || 'Sua Loja').trim();
-    const safeName = escapeEmailHtml(name);
-    const safeStore = escapeEmailHtml(store);
-    const cleanCode = code.trim();
-    const noReplyAddress = process.env.EMAIL_FROM_ADDRESS || 'no-reply@cardapp.com.br';
-
-    const subject = `CARDAPP • No-Reply | Recuperação de Conta: Código ${cleanCode}`;
-    const textContent = [
-      `CARDAPP — Notificação Oficial de Recuperação de Acesso (No-Reply)`,
-      `===================================================================`,
-      '',
-      `Prezado(a) ${name},`,
-      '',
-      `Recebemos uma solicitação de recuperação de acesso para o estabelecimento "${store}" na plataforma CARDAPP.`,
-      '',
-      `CÓDIGO DE SEGURANÇA: ${cleanCode}`,
-      '',
-      `• Este código é válido por 15 minutos.`,
-      `• Não compartilhe este código com terceiros.`,
-      `• Se você não solicitou esta recuperação, ignore esta mensagem e sua senha permanecerá inalterada.`,
-      '',
-      `Atenciosamente,`,
-      `CARDAPP — Sistema de Gestão e Cardápio Digital`,
-      `Remetente Oficial: CARDAPP (No-Reply) <${noReplyAddress}>`,
-    ].join('\n');
-
-    const htmlContent = `
-      <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);">
-        <div style="background: #0f172a; padding: 28px 24px; text-align: center; border-bottom: 4px solid #f59e0b;">
-          <div style="display: inline-block; background-color: #fbbf24; color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 12px; border-radius: 6px; margin-bottom: 10px;">
-            NO-REPLY • RECUPERAÇÃO DE ACESSO
-          </div>
-          <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 900; letter-spacing: 1px;">
-            CARDAPP
-          </h1>
-          <p style="margin: 6px 0 0; color: #cbd5e1; font-size: 13px; font-weight: 500;">
-            Redefinição Segura de Senha
-          </p>
-        </div>
-
-        <div style="padding: 32px 28px; color: #1e293b; font-size: 14px; line-height: 1.65;">
-          <p style="margin-top: 0;">Prezado(a) <strong>${safeName}</strong>,</p>
-          <p style="color: #475569;">
-            Recebemos uma solicitação de recuperação de acesso para a conta associada ao estabelecimento <strong>"${safeStore}"</strong> no <strong>CARDAPP</strong>.
-          </p>
-          <p style="color: #475569;">Informe o código de 6 dígitos abaixo na tela de recuperação para redefinir sua senha:</p>
-
-          <div style="text-align: center; margin: 24px 0;">
-            <div style="display: inline-block; background: #fffbeb; border: 2px solid #f59e0b; padding: 16px 36px; border-radius: 12px;">
-              <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a; font-family: 'Courier New', Courier, monospace;">
-                ${cleanCode}
-              </span>
-            </div>
-            <p style="font-size: 12px; color: #64748b; margin-top: 8px;">
-              Válido por <strong>15 minutos</strong> • Uso único e confidencial
-            </p>
-          </div>
-
-          <div style="background: #f8fafc; border-left: 4px solid #0f172a; padding: 12px 16px; border-radius: 6px; font-size: 12.5px; color: #334155;">
-            <strong>Aviso de Segurança:</strong> Se você não solicitou a recuperação da sua conta, desconsidere esta mensagem.
-          </div>
-
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;" />
-          <p style="font-size: 11.5px; color: #64748b; text-align: center; margin: 0;">
-            Mensagem automática enviada por <strong>CARDAPP (No-Reply)</strong> &lt;${escapeEmailHtml(noReplyAddress)}&gt;.<br />
-            Por favor, não responda a este e-mail.
-          </p>
-        </div>
-      </div>
-    `;
-
-    const { providersUsed, configuredAnyProvider, providerErrors } = await dispatchCardappEmail({
-      recipientEmail,
-      recipientName: name,
-      subject,
-      textContent,
-      htmlContent,
-      noReplyAddress,
-    });
-
-    if (providersUsed.length === 0) {
-      return res.status(configuredAnyProvider ? 502 : 503).json({
-        success: false,
-        missingEmailProvider: !configuredAnyProvider,
-        message:
-          configuredAnyProvider && providerErrors.length > 0
-            ? `Falha ao enviar e-mail de recuperação (${providerErrors[0]}).`
-            : 'Provedor de e-mail (SMTP, Brevo ou Resend) não configurado nos Secrets do servidor.',
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Código de recuperação enviado para seu e-mail.',
-    });
-  } catch (error) {
-    console.error('[Email Service] Error sending recovery email:', error);
-    return res.status(500).json({ success: false, message: 'Erro ao enviar e-mail de recuperação.' });
-  }
-});
-
-// API: Verificar se o e-mail foi validado (por link de confirmação do Firebase)
-app.get('/api/check-email-verification', async (req, res) => {
-  try {
-    const email = req.query.email as string;
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ success: false, verified: false, message: 'E-mail inválido.' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const password = getDeterministicAuthPassword(cleanEmail);
-
-    if (!firebaseConfig.apiKey) {
-      return res.json({ success: true, verified: false });
-    }
-
-    // Tenta autenticar para obter o idToken
-    const signinRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password, returnSecureToken: true }),
-      }
-    );
-    const signinData = await signinRes.json();
-
-    if (!signinData.idToken) {
-      return res.json({ success: true, verified: false });
-    }
-
-    // Consulta se o e-mail está verificado
-    const lookupRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: signinData.idToken }),
-      }
-    );
-    const lookupData = await lookupRes.json();
-    const isVerified = Boolean(lookupData.users?.[0]?.emailVerified);
-
-    return res.json({
-      success: true,
-      verified: isVerified,
-      email: cleanEmail,
-    });
-  } catch (error) {
-    console.error('[Server] Error checking email verification:', error);
-    return res.status(500).json({ success: false, verified: false, message: 'Erro ao verificar e-mail.' });
-  }
-});
-
 // ===============================================================
 // Banco de Dados Local Seguro do Servidor para Sincronização Cross-Device
 // ===============================================================
 const DATA_DIR = path.resolve(__dirname, 'data');
 const STORES_FILE = path.join(DATA_DIR, 'stores-db.json');
 const ORDERS_FILE = path.join(DATA_DIR, 'orders-db.json');
+const SYSTEM_CONFIG_FILE = path.join(DATA_DIR, 'system-config.json');
 
 try {
   if (!fs.existsSync(DATA_DIR)) {
@@ -808,6 +66,107 @@ try {
 } catch (e) {
   console.warn('[Server DB] Could not ensure data dir:', e);
 }
+
+interface ServerSystemConfig {
+  supportWhatsapp: string;
+  updatedAt: string;
+}
+
+const memorySystemConfig: ServerSystemConfig = {
+  supportWhatsapp: '',
+  updatedAt: '',
+};
+
+function loadSystemConfigFromDisk() {
+  try {
+    if (fs.existsSync(SYSTEM_CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SYSTEM_CONFIG_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        memorySystemConfig.supportWhatsapp = String(data.supportWhatsapp || '').replace(/\D/g, '');
+        memorySystemConfig.updatedAt = String(data.updatedAt || '');
+      }
+    }
+  } catch (e) {
+    console.warn('[Server DB] Error reading system-config file:', e);
+  }
+}
+
+function saveSystemConfigToDisk() {
+  try {
+    fs.writeFileSync(SYSTEM_CONFIG_FILE, JSON.stringify(memorySystemConfig, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Server DB] Error writing system-config file:', e);
+  }
+}
+
+loadSystemConfigFromDisk();
+
+app.get('/api/system-config', async (_req, res) => {
+  try {
+    if (!memorySystemConfig.supportWhatsapp && db) {
+      try {
+        const snap = await db.collection('systemConfig').doc('platformSettings').get();
+        if (snap.exists) {
+          const data = snap.data() as any;
+          if (data?.supportWhatsapp) {
+            memorySystemConfig.supportWhatsapp = String(data.supportWhatsapp).replace(/\D/g, '');
+            memorySystemConfig.updatedAt = String(data.updatedAt || new Date().toISOString());
+            saveSystemConfigToDisk();
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return res.json({
+      success: true,
+      supportWhatsapp: memorySystemConfig.supportWhatsapp || '',
+      updatedAt: memorySystemConfig.updatedAt || '',
+    });
+  } catch {
+    return res.status(500).json({ success: false, supportWhatsapp: '' });
+  }
+});
+
+app.post('/api/system-config', async (req, res) => {
+  try {
+    const rawPhone = String(req.body?.supportWhatsapp || '').replace(/\D/g, '');
+    let normalized = rawPhone;
+    if (normalized.startsWith('0') && (normalized.length === 11 || normalized.length === 12)) {
+      normalized = normalized.slice(1);
+    }
+    if (normalized && !normalized.startsWith('55') && (normalized.length === 10 || normalized.length === 11)) {
+      normalized = `55${normalized}`;
+    }
+
+    memorySystemConfig.supportWhatsapp = normalized;
+    memorySystemConfig.updatedAt = new Date().toISOString();
+    saveSystemConfigToDisk();
+
+    if (db) {
+      try {
+        await db.collection('systemConfig').doc('platformSettings').set(
+          {
+            supportWhatsapp: memorySystemConfig.supportWhatsapp,
+            updatedAt: memorySystemConfig.updatedAt,
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        console.warn('[Server DB] Firestore systemConfig sync notice:', e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      supportWhatsapp: memorySystemConfig.supportWhatsapp,
+      updatedAt: memorySystemConfig.updatedAt,
+    });
+  } catch (err) {
+    console.error('[Server DB] Error updating system config:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao salvar configuração do sistema.' });
+  }
+});
 
 interface ServerStoreData {
   storeId: string;

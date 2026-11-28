@@ -41,6 +41,7 @@ import {
   ArrowLeft,
   Award,
   Bell,
+  Phone,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -64,7 +65,8 @@ import { getClientAppUrl, getClientShareUrl, slugifyStoreName } from '../utils/c
 import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 import { auth } from '../firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { googleSignIn, googleLogout } from '../services/googleAuthService';
+import { googleFirebaseSignIn, googleLogout } from '../services/googleAuthService';
+import { formatBrazilPhoneInput, isValidBrazilPhone, toWhatsAppE164 } from '../utils/phoneUtils';
 import {
   SuperAdminTabMode,
   loadSuperAdminTab,
@@ -250,6 +252,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
   // Quick Copy Link State
   const [copiedStoreId, setCopiedStoreId] = useState<string | null>(null);
   const [dbFeedback, setDbFeedback] = useState<string | null>(null);
+  const [supportWhatsappInput, setSupportWhatsappInput] = useState<string>(() =>
+    formatBrazilPhoneInput(accountService.getSupportWhatsapp())
+  );
+  const [isSavingSupportPhone, setIsSavingSupportPhone] = useState(false);
+  const [supportPhoneFeedback, setSupportPhoneFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   // Two-step renewal confirmation state (organized 2-step verification)
   const [renewalModal, setRenewalModal] = useState<{
@@ -317,13 +327,13 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     setIsLinkingFirebaseAuth(true);
     setSecurityLinkFeedback(null);
     try {
-      const res = await googleSignIn();
-      if (res?.user) {
-        setFirebaseUser(res.user);
+      const fbUser = await googleFirebaseSignIn();
+      if (fbUser) {
+        setFirebaseUser(fbUser);
         const syncedCount = await accountService.syncAllLocalStoresToFirestore();
         setSecurityLinkFeedback({
           type: 'success',
-          message: `Firebase Auth conectado como ${res.user.email || res.user.uid}. ${syncedCount > 0 ? `${syncedCount} loja(s) sincronizada(s) na nuvem!` : 'Regras e leituras administrativas sincronizadas.'}`,
+          message: `Firebase Auth conectado como ${fbUser.email || fbUser.uid}. ${syncedCount > 0 ? `${syncedCount} loja(s) sincronizada(s) na nuvem!` : 'Regras e leituras administrativas sincronizadas.'}`,
         });
         showToast('success', 'Sessão Firebase Admin conectada e lojas sincronizadas!');
       }
@@ -344,6 +354,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       setAccounts(accountService.getAccounts());
       setAccessRequests(accountService.getAccessRequests());
       setPlans(accountService.getSubscriptionPlans());
+      setSupportWhatsappInput(formatBrazilPhoneInput(accountService.getSupportWhatsapp()));
     }
     const unsub = accountService.subscribe(() => {
       setAccounts(accountService.getAccounts());
@@ -369,7 +380,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     setEditUsername(acc.username);
     setEditPassword(accountService.getAccountPassword(acc) || '');
     setEditEmail(acc.email || '');
-    setEditPhone(acc.phoneWhatsapp || '');
+    setEditPhone(formatBrazilPhoneInput(acc.phoneWhatsapp || ''));
     setEditExpiresAt(acc.expiresAt ? acc.expiresAt.slice(0, 10) : '');
     setEditFeedback(null);
     setShowEditPassword(true);
@@ -527,10 +538,10 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       return;
     }
 
-    if (!newPhone || !newPhone.trim()) {
+    if (!newPhone || !isValidBrazilPhone(newPhone)) {
       setFormFeedback({
         type: 'error',
-        message: 'O telefone (WhatsApp) é obrigatório para cadastrar a conta.',
+        message: 'Informe um WhatsApp válido com DDD (10 ou 11 dígitos, ex: (11) 98765-4321).',
       });
       return;
     }
@@ -585,6 +596,14 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
     e.preventDefault();
     if (!drawerAccount) return;
 
+    if (editPhone.trim() && !isValidBrazilPhone(editPhone)) {
+      setEditFeedback({
+        type: 'error',
+        message: 'Informe um número de WhatsApp válido com DDD (ex: (11) 98765-4321).',
+      });
+      return;
+    }
+
     const expiryISO = editExpiresAt
       ? new Date(editExpiresAt + 'T23:59:59.000Z').toISOString()
       : drawerAccount.expiresAt;
@@ -595,7 +614,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
       plainPassword: editPassword,
       passwordHash: editPassword,
       email: editEmail,
-      phoneWhatsapp: editPhone,
+      phoneWhatsapp: formatBrazilPhoneInput(editPhone),
       expiresAt: expiryISO,
     });
 
@@ -1230,7 +1249,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                 }`}
               >
                 <Settings className="w-4 h-4 shrink-0" />
-                <span>Ajustes & Backup</span>
+                <span>Ajustes & Telefone</span>
               </button>
             </div>
           </nav>
@@ -1287,7 +1306,7 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     {activeTab === 'generator' && 'Cadastrar Novo Usuário / Loja'}
                     {activeTab === 'requests' && 'Solicitações de Acesso'}
                     {activeTab === 'reports' && 'Relatórios Executivos'}
-                    {activeTab === 'database' && 'Ajustes & Backup'}
+                    {activeTab === 'database' && 'Ajustes, Telefone Oficial & Backup'}
                   </span>
                   <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
                     <Crown className="w-3 h-3" />
@@ -2541,11 +2560,15 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                           WhatsApp / Telefone *
                         </label>
                         <input
-                          type="text"
+                          type="tel"
+                          name="cardapp-admin-new-phone"
+                          autoComplete="off"
+                          inputMode="tel"
+                          maxLength={15}
                           required
                           value={newPhone}
-                          onChange={(e) => setNewPhone(e.target.value)}
-                          placeholder="Ex: (11) 98765-4321"
+                          onChange={(e) => setNewPhone(formatBrazilPhoneInput(e.target.value))}
+                          placeholder="(00) 00000-0000"
                           className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -2816,10 +2839,121 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
             {/* TAB: DATABASE & SETTINGS                                     */}
             {/* ============================================================ */}
             {activeTab === 'database' && (
-              <div className="max-w-xl mx-auto space-y-4 animate-in fade-in">
+              <div className="max-w-xl mx-auto space-y-5 animate-in fade-in">
+                {/* Configuração do Número de Telefone Oficial da Plataforma */}
+                <div className="bg-white p-6 rounded-3xl border border-amber-300 shadow-sm space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                      <Phone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-base sm:text-lg text-slate-950 font-display">
+                        WhatsApp Oficial da Plataforma (CARDAPP)
+                      </h3>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Define o número de atendimento usado nos botões de suporte da página inicial e na solicitação de renovação dos lojistas. Evita qualquer número pessoal de terceiros.
+                      </p>
+                    </div>
+                  </div>
+
+                  {supportPhoneFeedback && (
+                    <div
+                      className={`p-3 rounded-xl text-xs font-bold border ${
+                        supportPhoneFeedback.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                          : 'bg-red-50 border-red-200 text-red-900'
+                      }`}
+                    >
+                      {supportPhoneFeedback.message}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      setSupportPhoneFeedback(null);
+                      setIsSavingSupportPhone(true);
+                      try {
+                        const res = await accountService.setSupportWhatsapp(supportWhatsappInput);
+                        setSupportPhoneFeedback({
+                          type: res.success ? 'success' : 'error',
+                          message: res.message,
+                        });
+                        if (res.success) {
+                          showToast('success', res.message);
+                        }
+                      } finally {
+                        setIsSavingSupportPhone(false);
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-800">
+                        Número do WhatsApp com DDD *
+                      </label>
+                      <input
+                        type="tel"
+                        name="cardapp-platform-support-phone"
+                        autoComplete="off"
+                        inputMode="tel"
+                        maxLength={15}
+                        value={supportWhatsappInput}
+                        onChange={(e) => {
+                          setSupportWhatsappInput(formatBrazilPhoneInput(e.target.value));
+                          setSupportPhoneFeedback(null);
+                        }}
+                        placeholder="(00) 00000-0000"
+                        className="w-full px-3.5 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white"
+                      />
+                      <span className="text-[11px] text-slate-500 block">
+                        {isValidBrazilPhone(supportWhatsappInput)
+                          ? `Link ativo gerado: wa.me/${toWhatsAppE164(supportWhatsappInput)}`
+                          : 'Nenhum número configurado no momento. Digite DDD + número para ativar.'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="submit"
+                        disabled={isSavingSupportPhone}
+                        className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wide cursor-pointer shadow-sm disabled:opacity-50"
+                      >
+                        {isSavingSupportPhone ? 'Salvando...' : 'Salvar Telefone Oficial'}
+                      </button>
+                      {accountService.getSupportWhatsapp() && (
+                        <button
+                          type="button"
+                          disabled={isSavingSupportPhone}
+                          onClick={async () => {
+                            setIsSavingSupportPhone(true);
+                            try {
+                              setSupportWhatsappInput('');
+                              const res = await accountService.setSupportWhatsapp('');
+                              setSupportPhoneFeedback({
+                                type: res.success ? 'success' : 'error',
+                                message: res.message,
+                              });
+                              if (res.success) {
+                                showToast('success', res.message);
+                              }
+                            } finally {
+                              setIsSavingSupportPhone(false);
+                            }
+                          }}
+                          className="py-3 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs cursor-pointer"
+                        >
+                          Remover Número
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </div>
+
+                {/* Backup de Segurança */}
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                   <h3 className="font-black text-lg text-slate-950 font-display">
-                    Ajustes & Backup de Segurança
+                    Backup de Segurança
                   </h3>
                   <p className="text-xs text-slate-500">
                     Exporte todas as contas, lojas e históricos em arquivo JSON para cópia de segurança.
@@ -3264,12 +3398,17 @@ export const SuperAdminModal: React.FC<SuperAdminModalProps> = ({
                     </div>
 
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-800">WhatsApp *</label>
+                      <label className="block text-xs font-bold text-slate-800">WhatsApp (com DDD) *</label>
                       <input
-                        type="text"
+                        type="tel"
+                        name="cardapp-admin-edit-phone"
+                        autoComplete="off"
+                        inputMode="tel"
+                        maxLength={15}
                         required
                         value={editPhone}
-                        onChange={(e) => setEditPhone(e.target.value)}
+                        onChange={(e) => setEditPhone(formatBrazilPhoneInput(e.target.value))}
+                        placeholder="(00) 00000-0000"
                         className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
                       />
                     </div>

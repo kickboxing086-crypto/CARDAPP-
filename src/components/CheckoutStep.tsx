@@ -32,6 +32,7 @@ import {
   saveCheckoutDraft,
   clearCheckoutCashDraft,
 } from '../utils/viewStatePersistence';
+import { formatBrazilPhoneInput, isValidBrazilPhone } from '../utils/phoneUtils';
 
 interface CheckoutStepProps {
   items: CartItem[];
@@ -52,7 +53,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   const initialDraft = useMemo(() => loadCheckoutDraft(effectiveStoreId), [effectiveStoreId]);
 
   const [name, setName] = useState(() => initialDraft?.name || '');
-  const [phone, setPhone] = useState(() => initialDraft?.phone || '');
+  const [phone, setPhone] = useState(() => formatBrazilPhoneInput(initialDraft?.phone || ''));
 
   // Service modes available from settings
   const { allowDelivery, allowRetirada, allowMesa } = settings.serviceModes;
@@ -363,8 +364,8 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
       setError('Por favor, informe seu nome completo.');
       return;
     }
-    if (!phone.trim() || phone.replace(/\D/g, '').length < 8) {
-      setError('Por favor, informe um número de telefone/WhatsApp válido.');
+    if (!phone.trim() || !isValidBrazilPhone(phone)) {
+      setError('Por favor, informe um número de telefone/WhatsApp válido com DDD (Ex: (11) 98765-4321).');
       return;
     }
 
@@ -412,7 +413,7 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
   };
 
   const hasName = Boolean(name.trim());
-  const hasPhone = Boolean(phone.replace(/\D/g, '').length >= 8);
+  const hasPhone = isValidBrazilPhone(phone);
   const hasDeliveryLocation =
     deliveryType === 'retirada'
       ? true
@@ -508,12 +509,26 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Section 1: Customer Contact */}
         <div className="bg-white rounded-3xl border border-amber-200 p-6 shadow-sm">
-          <h2 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2 uppercase tracking-wide">
-            <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-extrabold">
-              1
-            </span>
-            Seus Dados de Contato
-          </h2>
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-wide">
+              <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-xs font-extrabold">
+                1
+              </span>
+              Seus Dados de Contato
+            </h2>
+            {(name || phone) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setName('');
+                  setPhone('');
+                }}
+                className="text-[11px] font-bold text-slate-500 hover:text-red-600 underline cursor-pointer"
+              >
+                Limpar dados
+              </button>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -522,24 +537,30 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
               </label>
               <input
                 type="text"
+                name="cardapp_checkout_name"
+                autoComplete="off"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Lucas Ferreira"
+                placeholder="Digite seu nome completo"
                 className="w-full text-sm p-3.5 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                WhatsApp / Telefone *
+                WhatsApp / Telefone (com DDD) *
               </label>
               <input
                 type="tel"
+                name="cardapp_checkout_phone"
+                autoComplete="off"
+                inputMode="tel"
+                maxLength={15}
                 required
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Ex: (55)999999999"
+                onChange={(e) => setPhone(formatBrazilPhoneInput(e.target.value))}
+                placeholder="(00) 00000-0000"
                 className="w-full text-sm p-3.5 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
               />
               <span className="text-[11px] text-slate-400 mt-1 block">

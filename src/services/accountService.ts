@@ -39,15 +39,16 @@ import {
 import { slugifyStoreName } from '../utils/constants';
 import {
   googleFirebaseSignIn,
-  googleOAuthVerifyIdentity,
   googleLogout,
 } from './googleAuthService';
+import { toWhatsAppE164, isValidBrazilPhone } from '../utils/phoneUtils';
 
 const ACCOUNTS_STORAGE_KEY = 'cardapp_accounts_v3';
 const SESSION_STORAGE_KEY = 'cardapp_current_session_v3';
 const SUPER_ADMIN_BACKUP_KEY = 'cardapp_super_admin_backup_v1';
 const REQUESTS_STORAGE_KEY = 'cardapp_access_requests_v1';
 const PLANS_STORAGE_KEY = 'cardapp_subscription_plans_v1';
+const SUPPORT_WHATSAPP_STORAGE_KEY = 'cardapp_system_support_whatsapp_v1';
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const USER_CODE_REGEX = /^[A-Z]{3}\d{3}$/;
@@ -185,6 +186,7 @@ class AccountService {
   private subscriptionPlans: SubscriptionPlan[] = [...DEFAULT_PLANS];
   private currentSession: UserAccount | null = null;
   private originalAdminSession: UserAccount | null = null;
+  private supportWhatsapp: string = '';
   private listeners: (() => void)[] = [];
   private accountsUnsub: (() => void) | null = null;
   private ownAccountUnsub: (() => void) | null = null;
@@ -197,6 +199,7 @@ class AccountService {
   constructor() {
     this.loadFromStorage();
     this.initFirestoreSync();
+    this.loadSystemConfigFromServer();
     this.checkExpirations();
     if (this.currentSession && this.currentSession.role === 'store_admin') {
       this.ensureFirebaseAuthForSession(this.currentSession).catch(() => {});
@@ -780,12 +783,119 @@ class AccountService {
         () => {}
       );
 
+      // Carrega WhatsApp oficial configurado pelo Administrador Geral (quando autenticado)
+      const platformDoc = doc(db, 'systemConfig', 'platformSettings');
+      this.configUnsub = onSnapshot(
+        platformDoc,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data() as { supportWhatsapp?: string };
+            if (typeof data?.supportWhatsapp === 'string') {
+              const clean = toWhatsAppE164(data.supportWhatsapp);
+              if (clean !== this.supportWhatsapp) {
+                this.supportWhatsapp = clean;
+                try {
+                  localStorage.setItem(SUPPORT_WHATSAPP_STORAGE_KEY, clean);
+                } catch {}
+                this.notify();
+              }
+            }
+          }
+        },
+        () => {}
+      );
+
       onAuthStateChanged(auth, (firebaseUser) => {
         this.syncWithFirebaseUser(firebaseUser);
       });
     } catch (e) {
       console.warn('Firestore sync init notice:', e);
     }
+  }
+
+  private async loadSystemConfigFromServer() {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const storedPhone = localStorage.getItem(SUPPORT_WHATSAPP_STORAGE_KEY);
+        if (storedPhone) {
+          this.supportWhatsapp = toWhatsAppE164(storedPhone);
+        }
+      }
+      const res = await fetch('/api/system-config');
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data?.supportWhatsapp === 'string') {
+          const clean = toWhatsAppE164(data.supportWhatsapp);
+          this.supportWhatsapp = clean;
+          try {
+            localStorage.setItem(SUPPORT_WHATSAPP_STORAGE_KEY, clean);
+          } catch {}
+          this.notify();
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  public getSupportWhatsapp(): string {
+    return this.supportWhatsapp || '';
+  }
+
+  public async setSupportWhatsapp(phone: string): Promise<{ success: boolean; message: string }> {
+    const trimmed = (phone || '').trim();
+    if (!trimmed) {
+      this.supportWhatsapp = '';
+      try {
+        localStorage.removeItem(SUPPORT_WHATSAPP_STORAGE_KEY);
+      } catch {}
+      this.notify();
+      fetch('/api/system-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supportWhatsapp: '' }),
+      }).catch(() => {});
+      if (auth.currentUser && this.isFirebaseAdminAuthenticated()) {
+        setDoc(
+          doc(db, 'systemConfig', 'platformSettings'),
+          { supportWhatsapp: '', updatedAt: new Date().toISOString() },
+          { merge: true }
+        ).catch(() => {});
+      }
+      return { success: true, message: 'Número de WhatsApp oficial removido com sucesso.' };
+    }
+
+    if (!isValidBrazilPhone(trimmed)) {
+      return {
+        success: false,
+        message: 'Informe um número de telefone válido com DDD (10 ou 11 dígitos, ex: (11) 98765-4321).',
+      };
+    }
+
+    const e164 = toWhatsAppE164(trimmed);
+    this.supportWhatsapp = e164;
+    try {
+      localStorage.setItem(SUPPORT_WHATSAPP_STORAGE_KEY, e164);
+    } catch {}
+    this.notify();
+
+    try {
+      await fetch('/api/system-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supportWhatsapp: e164 }),
+      });
+    } catch {}
+
+    if (auth.currentUser && this.isFirebaseAdminAuthenticated()) {
+      setDoc(
+        doc(db, 'systemConfig', 'platformSettings'),
+        { supportWhatsapp: e164, updatedAt: new Date().toISOString() },
+        { merge: true }
+      ).catch(() => {});
+    }
+
+    return { success: true, message: 'Número de telefone oficial salvo e sincronizado!' };
   }
 
   private checkExpirations() {
@@ -910,106 +1020,6 @@ class AccountService {
 
     this.notify();
     return { success: true, message: 'Login realizado.', user };
-  }
-
-  public async loginWithGoogleOAuth(): Promise<{
-    success: boolean;
-    needsRegistration?: boolean;
-    email?: string;
-    displayName?: string;
-    message: string;
-    user?: UserAccount;
-  }> {
-    try {
-      const identity = await googleOAuthVerifyIdentity();
-      const emailLower = identity.email.trim().toLowerCase();
-
-      const matchedAccount = await this.findAccountByUsernameOrEmailAsync(emailLower);
-      if (!matchedAccount) {
-        return {
-          success: false,
-          needsRegistration: true,
-          email: emailLower,
-          displayName: identity.displayName,
-          message: `Conta Google (${emailLower}) autenticada! Conclua o cadastro da sua loja abaixo.`,
-        };
-      }
-
-      const idx = this.accounts.findIndex((a) => a.id === matchedAccount.id);
-      let user = sanitizeAccountForStorage({
-        ...matchedAccount,
-        authUid: identity.user.uid,
-        emailVerified: true,
-      });
-
-      if (
-        user.role !== 'super_admin' &&
-        user.planTier !== 'vitalicio' &&
-        user.planStatus === 'ativo' &&
-        user.expiresAt &&
-        new Date(user.expiresAt) < new Date()
-      ) {
-        user = {
-          ...user,
-          planStatus: 'bloqueado',
-          blockedReason:
-            'Seu período de 5 dias grátis ou assinatura expirou. Realize o pagamento de renovação para liberar o acesso.',
-        };
-      }
-
-      if (idx >= 0) {
-        this.accounts[idx] = user;
-      } else {
-        this.accounts.push(user);
-      }
-
-      this.currentSession = user;
-      try {
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
-      } catch {}
-      this.saveToStorage();
-      storageService.setAuthContext(user.role, user.storeId);
-
-      try {
-        setDoc(doc(db, 'accounts', user.id), encryptAccountForFirestore(user), { merge: true }).catch(() => {});
-      } catch {}
-
-      if (user.storeId && user.storeId !== 'default_store' && user.storeId !== 'master_admin') {
-        storageService.syncAllStoreDataToFirestore(user.storeId, user.storeName).catch(() => {});
-        storageService.syncStoreToServer(user.storeId).catch(() => {});
-      }
-
-      if (this.isFirebaseAdminAuthenticated()) {
-        this.syncAllLocalStoresToFirestore().catch(() => {});
-      }
-
-      this.notify();
-      return {
-        success: true,
-        email: emailLower,
-        displayName: identity.displayName,
-        message: 'Autenticado com Google OAuth!',
-        user,
-      };
-    } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        return {
-          success: false,
-          message: 'Janela de autenticação Google fechada antes de concluir.',
-        };
-      }
-      if (code === 'auth/popup-blocked') {
-        return {
-          success: false,
-          message: 'O navegador bloqueou o popup do Google. Libere popups para continuar.',
-        };
-      }
-      return {
-        success: false,
-        message: err?.message || 'Não foi possível autenticar com a conta Google.',
-      };
-    }
   }
 
   public isImpersonating(): boolean {

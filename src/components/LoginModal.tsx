@@ -24,17 +24,16 @@ import {
   Instagram,
   FileText,
   Image as ImageIcon,
-  RefreshCw,
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
 import { emailVerificationService } from '../services/emailVerificationService';
-import { googleOAuthVerifyIdentity } from '../services/googleAuthService';
 import { UserAccount } from '../types';
 import {
   validateUsernameSecurity,
   validatePasswordSecurity,
   hasAccentsOrDiacritics,
 } from '../utils/security';
+import { formatBrazilPhoneInput, isValidBrazilPhone } from '../utils/phoneUtils';
 import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { CredentialSecurityChecklist } from './CredentialSecurityChecklist';
 import {
@@ -92,24 +91,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [regInstagram, setRegInstagram] = useState(() => initialDraft?.regInstagram || '');
   const [regLogoBase64, setRegLogoBase64] = useState(() => initialDraft?.regLogoBase64 || '');
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
-  const [regPhone, setRegPhone] = useState(() => initialDraft?.regPhone || '');
+  const [regPhone, setRegPhone] = useState(() => formatBrazilPhoneInput(initialDraft?.regPhone || ''));
   const [regEmail, setRegEmail] = useState(() => initialDraft?.regEmail || '');
-  const [verifiedEmail, setVerifiedEmail] = useState(() => initialDraft?.verifiedEmail || '');
-  const [emailCodeSentTo, setEmailCodeSentTo] = useState('');
-  const [emailVerificationCode, setEmailVerificationCode] = useState('');
-  const [isSendingEmailCode, setIsSendingEmailCode] = useState(false);
-  const [isVerifyingEmailCode, setIsVerifyingEmailCode] = useState(false);
   const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
-  const [emailVerifyNotice, setEmailVerifyNotice] = useState<{
-    type: 'info' | 'success' | 'warning';
-    text: string;
-  } | null>(null);
-  const [emailFirebaseLinkSent, setEmailFirebaseLinkSent] = useState(false);
-  const [emailCustomCodeSent, setEmailCustomCodeSent] = useState(false);
-  const [emailResendCooldown, setEmailResendCooldown] = useState(0);
-  const [isGoogleLoginLoading, setIsGoogleLoginLoading] = useState(false);
-  const [isGoogleEmailAuthLoading, setIsGoogleEmailAuthLoading] = useState(false);
-  const [pendingGmailSendEmail, setPendingGmailSendEmail] = useState<string | null>(null);
   const [regUsername, setRegUsername] = useState(() => initialDraft?.regUsername || '');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
@@ -189,22 +173,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setLoginError('');
       setRecoverError('');
       setRecoverSuccess('');
-      setVerifiedEmail('');
-      setEmailCodeSentTo('');
-      setEmailVerificationCode('');
-      setEmailVerifyNotice(null);
       setEmailSuggestion(null);
-      setPendingGmailSendEmail(null);
     }
   }, [initialMode, isOpen]);
-
-  useEffect(() => {
-    if (emailResendCooldown <= 0) return;
-    const t = window.setTimeout(() => {
-      setEmailResendCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => window.clearTimeout(t);
-  }, [emailResendCooldown]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -220,7 +191,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       regLogoBase64,
       regPhone,
       regEmail,
-      verifiedEmail,
       regUsername,
       recoverStep: identifiedAccount ? recoverStep : 1,
       recoverIdentifier,
@@ -238,7 +208,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     regLogoBase64,
     regPhone,
     regEmail,
-    verifiedEmail,
     regUsername,
     recoverStep,
     recoverIdentifier,
@@ -332,45 +301,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }, 300);
   };
 
-  // Login direto com Google OAuth (sem precisar digitar senha)
-  const handleGoogleOAuthLogin = async () => {
-    setLoginError('');
-    setRegError('');
-    setIsGoogleLoginLoading(true);
-    try {
-      const result = await accountService.loginWithGoogleOAuth();
-      if (result.success && result.user) {
-        saveLoginModalDraft(null);
-        onLoginSuccess(result.user);
-        return;
-      }
-
-      if (result.needsRegistration && result.email) {
-        await emailVerificationService.markEmailVerifiedViaGoogleOAuth(result.email, {
-          name: result.displayName || regName,
-        });
-        setRegEmail(result.email);
-        setVerifiedEmail(result.email);
-        if (!regName.trim() && result.displayName) {
-          setRegName(result.displayName);
-        }
-        setActiveMode('register');
-        setWizardStep(!regName.trim() && result.displayName ? 2 : 1);
-        setEmailVerifyNotice({
-          type: 'success',
-          text: `E-mail ${result.email} já autenticado via Google!`,
-        });
-        return;
-      }
-
-      setLoginError(result.message);
-    } finally {
-      setIsGoogleLoginLoading(false);
-    }
-  };
-
-
-
   // Avançar no Wizard de Cadastro (Obrigações da Loja -> Credenciais de Acesso)
   const handleNextWizardStep = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -399,32 +329,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
       setWizardStep(4);
     } else if (wizardStep === 4) {
-      const digitsOnly = regPhone.replace(/\D/g, '');
-      if (!regPhone.trim() || digitsOnly.length < 10) {
-        setRegError('Por favor, informe seu WhatsApp com DDD (Ex: 11 98888-7777).');
+      if (!regPhone.trim() || !isValidBrazilPhone(regPhone)) {
+        setRegError('Por favor, informe um número de WhatsApp válido com DDD (Ex: (11) 98765-4321).');
         return;
       }
       setWizardStep(5);
     } else if (wizardStep === 5) {
-      // E-MAIL OBRIGATÓRIO COM VERIFICAÇÃO REAL POR CÓDIGO NO-REPLY
       const cleanEmail = regEmail.trim().toLowerCase();
       if (!cleanEmail) {
-        setRegError('O e-mail é OBRIGATÓRIO para garantir a autenticidade e recuperação segura da sua conta.');
+        setRegError('O e-mail é obrigatório para identificar e recuperar sua conta com segurança.');
         return;
       }
       const validation = emailVerificationService.validateEmail(cleanEmail);
       if (!validation.isValid) {
         setRegError(validation.errorMessage || 'Por favor, informe um endereço de e-mail válido.');
-        return;
-      }
-      if (verifiedEmail !== cleanEmail) {
-        if (emailCodeSentTo !== cleanEmail) {
-          void handleSendEmailVerificationCode();
-        } else if (emailVerificationCode.replace(/\D/g, '').length === 6) {
-          void handleVerifyEmailCode();
-        } else {
-          setRegError('Digite o código de verificação de 6 dígitos enviado para o seu e-mail antes de avançar.');
-        }
         return;
       }
       setWizardStep(6);
@@ -487,215 +405,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Enviar código formal CARDAPP (No-Reply) de 6 dígitos para verificar se o e-mail é real
-  const handleSendEmailVerificationCode = async (overrideEmail?: string) => {
-    const cleanEmail = (overrideEmail ?? regEmail).trim().toLowerCase();
-    setRegError('');
-    setEmailVerifyNotice(null);
-
-    const validation = emailVerificationService.validateEmail(cleanEmail);
-    if (!validation.isValid) {
-      setRegError(validation.errorMessage || 'Informe um endereço de e-mail válido.');
-      return;
-    }
-
-    if (validation.suggestion && !overrideEmail) {
-      setEmailSuggestion(validation.suggestion);
-    } else {
-      setEmailSuggestion(null);
-    }
-
-    setIsSendingEmailCode(true);
-    setPendingGmailSendEmail(null);
-    try {
-      const res = await emailVerificationService.sendVerificationCode({
-        name: regName.trim() || 'Cliente',
-        storeName: regStoreName.trim() || 'Minha Loja',
-        email: cleanEmail,
-        phoneWhatsapp: regPhone.trim(),
-        logoBase64: regLogoBase64,
-        address: regAddress.trim(),
-        tagline: regTagline.trim(),
-        instagramHandle: regInstagram.trim(),
-        username: regUsername.trim(),
-        password: regPassword,
-      });
-
-      if (!res.success) {
-        if (res.missingEmailProvider) {
-          setPendingGmailSendEmail(cleanEmail);
-          setEmailVerifyNotice({
-            type: 'info',
-            text: `Você pode autenticar com o Google agora mesmo ou confirmar o envio do código formal CARDAPP (No-Reply) para ${cleanEmail} pelo seu Gmail.`,
-          });
-          return;
-        }
-        setRegError(res.message);
-        return;
-      }
-
-      setEmailCodeSentTo(cleanEmail);
-      setEmailVerificationCode('');
-      setEmailCustomCodeSent(Boolean(res.customCodeEmailSent));
-      setEmailFirebaseLinkSent(Boolean(res.firebaseLinkSent));
-      setEmailResendCooldown(30);
-      setEmailVerifyNotice({
-        type: 'info',
-        text: res.customCodeEmailSent
-          ? `Enviamos um código formal de 6 dígitos via CARDAPP (No-Reply) para ${cleanEmail}. Confira sua Caixa de Entrada ou Spam.`
-          : `Enviamos uma confirmação para ${cleanEmail}. Verifique sua Caixa de Entrada ou Spam.`,
-      });
-    } finally {
-      setIsSendingEmailCode(false);
-    }
-  };
-
-  // Envia código formal CARDAPP (No-Reply) via Gmail API somente após confirmação explícita do usuário
-  const handleConfirmSendViaGmailOAuth = async () => {
-    const targetEmail = (pendingGmailSendEmail || regEmail).trim().toLowerCase();
-    if (!targetEmail) return;
-    setRegError('');
-    setIsSendingEmailCode(true);
-    try {
-      const res = await emailVerificationService.sendVerificationCodeViaGmailOAuth({
-        name: regName.trim() || 'Cliente',
-        storeName: regStoreName.trim() || 'Minha Loja',
-        email: targetEmail,
-        phoneWhatsapp: regPhone.trim(),
-        logoBase64: regLogoBase64,
-        address: regAddress.trim(),
-        tagline: regTagline.trim(),
-        instagramHandle: regInstagram.trim(),
-        username: regUsername.trim(),
-        password: regPassword,
-      });
-      if (!res.success) {
-        setRegError(res.message);
-        return;
-      }
-      setPendingGmailSendEmail(null);
-      setEmailCodeSentTo(targetEmail);
-      setEmailVerificationCode('');
-      setEmailCustomCodeSent(true);
-      setEmailFirebaseLinkSent(false);
-      setEmailResendCooldown(30);
-      setEmailVerifyNotice({
-        type: 'info',
-        text: `Enviamos o código formal de 6 dígitos via CARDAPP (No-Reply) para ${targetEmail}. Confira sua Caixa de Entrada ou Spam.`,
-      });
-    } finally {
-      setIsSendingEmailCode(false);
-    }
-  };
-
-  // Verifica autenticidade real do e-mail diretamente via Google OAuth
-  const handleVerifyEmailWithGoogleOAuth = async () => {
-    setRegError('');
-    setEmailVerifyNotice(null);
-    setPendingGmailSendEmail(null);
-    setIsGoogleEmailAuthLoading(true);
-    try {
-      const identity = await googleOAuthVerifyIdentity();
-      const cleanEmail = identity.email.trim().toLowerCase();
-
-      const validation = emailVerificationService.validateEmail(cleanEmail);
-      if (!validation.isValid) {
-        setRegError(validation.errorMessage || 'Este e-mail Google já está cadastrado ou é inválido.');
-        return;
-      }
-
-      await emailVerificationService.markEmailVerifiedViaGoogleOAuth(cleanEmail, {
-        name: regName.trim() || identity.displayName || 'Cliente',
-        storeName: regStoreName.trim() || 'Minha Loja',
-        phoneWhatsapp: regPhone.trim(),
-        logoBase64: regLogoBase64,
-        address: regAddress.trim(),
-        tagline: regTagline.trim(),
-        instagramHandle: regInstagram.trim(),
-      });
-
-      setRegEmail(cleanEmail);
-      setVerifiedEmail(cleanEmail);
-      setEmailCodeSentTo('');
-      setEmailVerificationCode('');
-      setEmailSuggestion(null);
-      setEmailVerifyNotice({
-        type: 'success',
-        text: `E-mail ${cleanEmail} autenticado pelo Google com sucesso! Avançando...`,
-      });
-      setTimeout(() => {
-        setWizardStep(6);
-      }, 450);
-    } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        setRegError('Janela do Google fechada antes de confirmar o e-mail.');
-      } else if (code === 'auth/popup-blocked') {
-        setRegError('O navegador bloqueou a janela do Google. Libere popups para continuar.');
-      } else {
-        setRegError(err?.message || 'Não foi possível confirmar o e-mail com o Google.');
-      }
-    } finally {
-      setIsGoogleEmailAuthLoading(false);
-    }
-  };
-
-  // Validar o código de 6 dígitos digitado pelo cliente
-  const handleVerifyEmailCode = async () => {
-    const cleanEmail = regEmail.trim().toLowerCase();
-    const cleanCode = emailVerificationCode.replace(/\D/g, '').trim();
-    setRegError('');
-
-    if (cleanCode.length !== 6) {
-      setRegError('Digite todos os 6 dígitos do código recebido em seu e-mail.');
-      return;
-    }
-
-    setIsVerifyingEmailCode(true);
-    try {
-      const res = await emailVerificationService.verifyCode(cleanEmail, cleanCode);
-      if (!res.success) {
-        setRegError(res.message);
-        return;
-      }
-
-      setVerifiedEmail(cleanEmail);
-      setEmailVerifyNotice({
-        type: 'success',
-        text: 'E-mail real confirmado com sucesso! Avançando para criação do seu usuário...',
-      });
-      setTimeout(() => {
-        setWizardStep(6);
-      }, 450);
-    } finally {
-      setIsVerifyingEmailCode(false);
-    }
-  };
-
-  // Verificar confirmação pelo link caso tenha recebido e-mail do Firebase
-  const handleCheckEmailLinkConfirmation = async () => {
-    const cleanEmail = regEmail.trim().toLowerCase();
-    setRegError('');
-    setIsVerifyingEmailCode(true);
-    try {
-      const res = await emailVerificationService.checkEmailVerifiedViaLink(cleanEmail);
-      if (res.verified) {
-        setVerifiedEmail(cleanEmail);
-        setEmailVerifyNotice({
-          type: 'success',
-          text: 'E-mail autenticado pelo link de segurança! Avançando...',
-        });
-        setTimeout(() => {
-          setWizardStep(6);
-        }, 450);
-      } else {
-        setRegError('Ainda não identificamos o clique no link de confirmação. Verifique sua caixa de entrada ou digite o código de 6 dígitos.');
-      }
-    } finally {
-      setIsVerifyingEmailCode(false);
-    }
-  };
-
   // Finalizar Cadastro e Entrar Imediatamente com 5 Dias Grátis
   const handleFinishRegistration = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -714,9 +423,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     const normalizedEmail = regEmail.trim().toLowerCase();
-    if (!normalizedEmail || verifiedEmail !== normalizedEmail) {
+    const emailValidation = emailVerificationService.validateEmail(normalizedEmail);
+    if (!normalizedEmail || !emailValidation.isValid) {
       setWizardStep(5);
-      setRegError('Confirme o código de verificação enviado para o seu e-mail antes de concluir o cadastro.');
+      setRegError(emailValidation.errorMessage || 'Informe um e-mail válido antes de concluir o cadastro.');
       return;
     }
 
@@ -1068,7 +778,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
             <button
               type="submit"
-              disabled={isLoginLoading || isGoogleLoginLoading}
+              disabled={isLoginLoading}
               className="w-full mt-2 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 active:scale-98 text-slate-950 font-black text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
             >
               {isLoginLoading ? (
@@ -1077,40 +787,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <>
                   <span>Entrar no Sistema</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                </>
-              )}
-            </button>
-
-            <div className="relative flex items-center py-1">
-              <div className="flex-grow border-t border-slate-200" />
-              <span className="shrink mx-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                ou
-              </span>
-              <div className="flex-grow border-t border-slate-200" />
-            </div>
-
-            {/* Botão oficial Entrar com Google (OAuth) */}
-            <button
-              type="button"
-              onClick={handleGoogleOAuthLogin}
-              disabled={isGoogleLoginLoading || isLoginLoading}
-              className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 active:scale-98 border border-slate-300 text-slate-800 font-bold text-sm flex items-center justify-center gap-3 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-            >
-              {isGoogleLoginLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                  <span>Conectando com Google...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                    <path fill="none" d="M0 0h48v48H0z" />
-                  </svg>
-                  <span>Entrar com o Google</span>
                 </>
               )}
             </button>
@@ -1196,6 +872,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </div>
                     <input
                       type="text"
+                      name="cardapp-owner-name"
+                      autoComplete="off"
                       autoFocus
                       required
                       value={regName}
@@ -1203,7 +881,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setRegName(e.target.value);
                         setRegError('');
                       }}
-                      placeholder="Ex: Carlos Eduardo Silva"
+                      placeholder="Digite seu nome completo"
                       className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                     />
                   </div>
@@ -1511,15 +1189,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <Phone className="w-4 h-4" />
                     </div>
                     <input
-                      type="text"
+                      type="tel"
+                      name="cardapp-store-whatsapp"
+                      autoComplete="off"
+                      inputMode="tel"
+                      maxLength={15}
                       autoFocus
                       required
                       value={regPhone}
                       onChange={(e) => {
-                        setRegPhone(e.target.value);
+                        setRegPhone(formatBrazilPhoneInput(e.target.value));
                         setRegError('');
                       }}
-                      placeholder="Ex: (11) 98765-4321"
+                      placeholder="(00) 00000-0000"
                       className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                     />
                   </div>
@@ -1546,7 +1228,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </form>
             )}
 
-            {/* ETAPA 5: E-MAIL OBRIGATÓRIO COM VERIFICAÇÃO REAL POR CÓDIGO NO-REPLY */}
+            {/* ETAPA 5: E-MAIL OBRIGATÓRIO */}
             {wizardStep === 5 && (
               <form onSubmit={handleNextWizardStep} className="space-y-4 animate-in fade-in duration-150">
                 <div className="space-y-1">
@@ -1557,30 +1239,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-black uppercase">
                       Obrigatório
                     </span>
-                    <span className="px-2 py-0.5 rounded-full bg-slate-900 text-amber-300 text-[10px] font-black uppercase">
-                      CARDAPP • No-Reply
-                    </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-black text-slate-950 font-display">
-                    Confirme seu e-mail oficial com código *
+                    Informe seu e-mail oficial *
                   </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Enviaremos uma mensagem formal do <strong>CARDAPP (No-Reply)</strong> com um código de 6 dígitos para confirmar que seu e-mail é verdadeiro e proteger sua conta.
+                    Utilizado para identificar sua loja e garantir a recuperação segura da sua conta sempre que precisar.
                   </p>
                 </div>
 
                 <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-800">
-                      E-mail Oficial do Responsável *
-                    </label>
-                    {verifiedEmail && verifiedEmail === regEmail.trim().toLowerCase() && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
-                        <CheckCircle2 className="w-3 h-3" />
-                        E-mail Verificado
-                      </span>
-                    )}
-                  </div>
+                  <label className="block text-xs font-bold text-slate-800">
+                    E-mail Oficial do Responsável *
+                  </label>
 
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -1588,6 +1259,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </div>
                     <input
                       type="email"
+                      name="cardapp-owner-email"
+                      autoComplete="off"
                       autoFocus
                       required
                       value={regEmail}
@@ -1595,25 +1268,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         const nextVal = e.target.value;
                         setRegEmail(nextVal);
                         setRegError('');
-                        setEmailVerifyNotice(null);
-                        setPendingGmailSendEmail(null);
                         const norm = nextVal.trim().toLowerCase();
-                        if (verifiedEmail && norm !== verifiedEmail) {
-                          setVerifiedEmail('');
-                        }
-                        if (emailCodeSentTo && norm !== emailCodeSentTo) {
-                          setEmailCodeSentTo('');
-                          setEmailVerificationCode('');
-                        }
                         const check = emailVerificationService.validateEmail(norm);
                         setEmailSuggestion(check.suggestion || null);
                       }}
-                      placeholder="Ex: seunome@gmail.com"
-                      className={`w-full pl-10 pr-3 py-3 border rounded-xl text-sm font-semibold focus:outline-none text-slate-900 transition-colors ${
-                        verifiedEmail && verifiedEmail === regEmail.trim().toLowerCase()
-                          ? 'bg-emerald-50/50 border-emerald-500'
-                          : 'bg-slate-50 border-slate-300 focus:border-amber-500 focus:bg-white'
-                      }`}
+                      placeholder="seunome@gmail.com"
+                      className="w-full pl-10 pr-3 py-3 border border-slate-300 bg-slate-50 focus:border-amber-500 focus:bg-white rounded-xl text-sm font-semibold focus:outline-none text-slate-900 transition-colors"
                     />
                   </div>
 
@@ -1632,158 +1292,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[10px] font-black uppercase">Corrigir</span>
                     </button>
                   )}
-                  {verifiedEmail !== regEmail.trim().toLowerCase() || !verifiedEmail ? (
-                    <div className="pt-1 space-y-2">
-                      <button
-                        type="button"
-                        onClick={handleVerifyEmailWithGoogleOAuth}
-                        disabled={isGoogleEmailAuthLoading || isSendingEmailCode}
-                        className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold text-xs flex items-center justify-center gap-2.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                      >
-                        {isGoogleEmailAuthLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                            <span>Autenticando e-mail com Google...</span>
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                              <path fill="none" d="M0 0h48v48H0z" />
-                            </svg>
-                            <span>Confirmar E-mail Instantaneamente com Google</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
-
-                {/* Confirmação explícita obrigatória antes de enviar código via Gmail conectado */}
-                {pendingGmailSendEmail && (
-                  <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-2.5 animate-in fade-in">
-                    <div className="flex items-start gap-2">
-                      <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                      <div className="text-xs text-slate-800 leading-relaxed">
-                        <p className="font-black text-slate-950">Confirmar envio de código via Gmail</p>
-                        <p className="mt-0.5 text-slate-700">
-                          Deseja autorizar o envio do código formal <strong>CARDAPP (No-Reply)</strong> de 6 dígitos para <strong>{pendingGmailSendEmail}</strong> usando sua conta Gmail conectada?
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPendingGmailSendEmail(null)}
-                        className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isSendingEmailCode}
-                        onClick={handleConfirmSendViaGmailOAuth}
-                        className="flex-1 py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-300 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {isSendingEmailCode ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Enviando via Gmail...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Mail className="w-3.5 h-3.5" />
-                            <span>Confirmar e Enviar Código via Gmail</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Feedback informativo / sucesso da verificação */}
-                {emailVerifyNotice && (
-                  <div
-                    className={`p-3 rounded-xl border text-xs flex items-start gap-2 animate-in fade-in ${
-                      emailVerifyNotice.type === 'success'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : 'bg-slate-50 border-slate-300 text-slate-800'
-                    }`}
-                  >
-                    {emailVerifyNotice.type === 'success' ? (
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
-                    ) : (
-                      <ShieldCheck className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-                    )}
-                    <span>{emailVerifyNotice.text}</span>
-                  </div>
-                )}
-
-                {/* Painel para digitar o código de 6 dígitos enviado por CARDAPP (No-Reply) */}
-                {emailCodeSentTo &&
-                  emailCodeSentTo === regEmail.trim().toLowerCase() &&
-                  verifiedEmail !== emailCodeSentTo && (
-                    <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-800 shadow-md animate-in fade-in">
-                      <div className="flex items-center justify-between gap-2 border-b border-slate-700/80 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
-                            CARDAPP • No-Reply
-                          </span>
-                          <span className="text-[11px] text-slate-300 font-medium truncate">
-                            no-reply@cardapp.com.br
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={isSendingEmailCode || emailResendCooldown > 0}
-                          onClick={() => handleSendEmailVerificationCode()}
-                          className="text-[11px] font-bold text-amber-300 hover:text-amber-200 disabled:text-slate-500 flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed shrink-0"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${isSendingEmailCode ? 'animate-spin' : ''}`} />
-                          <span>
-                            {emailResendCooldown > 0 ? `Reenviar (${emailResendCooldown}s)` : 'Reenviar Código'}
-                          </span>
-                        </button>
-                      </div>
-
-                      {emailCustomCodeSent ? (
-                        <div className="space-y-1.5">
-                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                            Código de Verificação (6 dígitos) *
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={6}
-                            autoFocus
-                            value={emailVerificationCode}
-                            onChange={(e) => {
-                              const onlyNums = e.target.value.replace(/\D/g, '').slice(0, 6);
-                              setEmailVerificationCode(onlyNums);
-                              setRegError('');
-                            }}
-                            placeholder="000000"
-                            className="w-full py-3 px-4 bg-slate-800 border-2 border-amber-400/70 focus:border-amber-400 rounded-xl text-center text-2xl font-mono font-black tracking-[0.45em] text-white placeholder:text-slate-600 focus:outline-none"
-                          />
-                          <p className="text-[11px] text-slate-400 text-center">
-                            Confira sua Caixa de Entrada e a pasta de Spam/Lixo Eletrônico.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 rounded-xl bg-slate-800/80 border border-slate-700 p-3 text-center">
-                          <p className="text-xs font-bold text-amber-300">
-                            Link de Confirmação Enviado
-                          </p>
-                          <p className="text-[11px] text-slate-300 leading-relaxed">
-                            Abra o e-mail enviado para <strong className="text-white">{emailCodeSentTo}</strong>, clique no link de confirmação e depois pressione o botão abaixo para concluir a verificação.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                 <div className="flex gap-2">
                   <button
@@ -1795,74 +1304,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     <span>Voltar</span>
                   </button>
 
-                  {verifiedEmail === regEmail.trim().toLowerCase() && verifiedEmail !== '' ? (
-                    <button
-                      type="submit"
-                      className="flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98"
-                    >
-                      <span>E-mail Confirmado • Avançar</span>
-                      <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                    </button>
-                  ) : emailCodeSentTo === regEmail.trim().toLowerCase() && emailCodeSentTo !== '' ? (
-                    emailCustomCodeSent ? (
-                      <button
-                        type="button"
-                        disabled={isVerifyingEmailCode || emailVerificationCode.replace(/\D/g, '').length !== 6}
-                        onClick={handleVerifyEmailCode}
-                        className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isVerifyingEmailCode ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Validando Código...</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
-                            <span>Confirmar Código e Continuar</span>
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isVerifyingEmailCode}
-                        onClick={handleCheckEmailLinkConfirmation}
-                        className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50"
-                      >
-                        {isVerifyingEmailCode ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Verificando Confirmação...</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
-                            <span>Já Confirmei no Meu E-mail</span>
-                          </>
-                        )}
-                      </button>
-                    )
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isSendingEmailCode || !regEmail.trim()}
-                      onClick={() => handleSendEmailVerificationCode()}
-                      className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isSendingEmailCode ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Enviando Código...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Mail className="w-4 h-4 stroke-[2.5]" />
-                          <span>Enviar Código de Verificação</span>
-                        </>
-                      )}
-                    </button>
-                  )}
+                  <button
+                    type="submit"
+                    disabled={!regEmail.trim()}
+                    className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Continuar para Usuário</span>
+                    <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                  </button>
                 </div>
               </form>
             )}
@@ -2518,13 +1967,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       </div>
                       <input
                         type="text"
+                        autoComplete="off"
                         required
                         value={recoverOwnerNameInput}
                         onChange={(e) => {
                           setRecoverOwnerNameInput(e.target.value);
                           setRecoverError('');
                         }}
-                        placeholder="Ex: Carlos Eduardo Silva"
+                        placeholder="Nome completo do responsável"
                         className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 focus:bg-white text-slate-900"
                       />
                     </div>

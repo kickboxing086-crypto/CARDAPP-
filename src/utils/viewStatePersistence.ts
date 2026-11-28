@@ -89,7 +89,6 @@ export interface LoginModalDraft {
   regLogoBase64: string;
   regPhone: string;
   regEmail: string;
-  verifiedEmail?: string;
   regUsername: string;
   recoverStep: 1 | 2 | 3;
   recoverIdentifier: string;

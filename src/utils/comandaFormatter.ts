@@ -67,7 +67,7 @@ export function normalizeWhatsAppPhone(phone?: string): string {
   if (!clean.startsWith('55') && (clean.length === 10 || clean.length === 11)) {
     clean = '55' + clean;
   }
-  return clean;
+  return clean.length >= 12 ? clean : '';
 }
 
 /**

@@ -24,6 +24,7 @@ import { ForkKnifeIcon } from './ForkKnifeIcon';
 import { formatCurrency } from '../utils/formatters';
 import { accountService } from '../services/accountService';
 import { SubscriptionPlan } from '../types';
+import { toWhatsAppE164 } from '../utils/phoneUtils';
 
 import heroLuxuryImg from '../assets/images/hero_luxury_restaurant_1795815749678.jpg';
 import mobileOrderingImg from '../assets/images/showcase_mobile_ordering_1795815749949.jpg';
@@ -47,13 +48,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() =>
     accountService.getSubscriptionPlans().filter((p) => p.isActive)
   );
+  const [supportWhatsapp, setSupportWhatsapp] = useState<string>(() =>
+    accountService.getSupportWhatsapp()
+  );
+  const [whatsappNotice, setWhatsappNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const syncPlans = () => {
+    const syncState = () => {
       setPlans(accountService.getSubscriptionPlans().filter((p) => p.isActive));
+      setSupportWhatsapp(accountService.getSupportWhatsapp());
     };
-    syncPlans();
-    const unsub = accountService.subscribe(syncPlans);
+    syncState();
+    const unsub = accountService.subscribe(syncState);
     return () => unsub();
   }, []);
 
@@ -77,9 +83,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   const handleOpenWhatsapp = (customTopic?: string) => {
+    const cleanPhone = toWhatsAppE164(supportWhatsapp);
+    if (!cleanPhone) {
+      setWhatsappNotice(
+        'O WhatsApp oficial de atendimento ainda não foi configurado. Cadastre sua loja grátis por 5 dias para testar agora!'
+      );
+      window.setTimeout(() => {
+        setWhatsappNotice((prev) =>
+          prev?.includes('WhatsApp oficial') ? null : prev
+        );
+      }, 6000);
+      return;
+    }
     const defaultText = `Olá! Gostaria de testar minha loja por 5 dias grátis no CARDAPP e conhecer os planos disponíveis.`;
     const textToSend = customTopic || defaultText;
-    const url = `https://wa.me/5584986113980?text=${encodeURIComponent(textToSend)}`;
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(textToSend)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -639,8 +657,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="bg-[#202C33] p-3.5 rounded-b-xl text-[11px] space-y-1 font-mono mt-1.5 leading-relaxed text-slate-200">
                       <p className="font-bold text-emerald-400">*NOVO PEDIDO CONFIRMADO*</p>
                       <p className="text-slate-500">------------------------</p>
-                      <p>*Cliente:* Mariana Souza</p>
-                      <p>*Telefone:* (55)999999999</p>
+                      <p>*Cliente:* Cliente Exemplo</p>
+                      <p>*Telefone:* (11) 90000-0000</p>
                       <p>*Modalidade:* Delivery</p>
                       <p>*Endereço:* Av. Central, 1000</p>
                       <p className="text-slate-500">------------------------</p>
@@ -1243,7 +1261,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </footer>
 
       {/* WHATSAPP FLOATING BUTTON (No animate-ping dot) */}
-      <div className="fixed bottom-6 right-6 z-50">
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+        {whatsappNotice && (
+          <div className="max-w-xs p-3.5 rounded-2xl bg-slate-900 text-slate-100 border border-amber-400/50 shadow-2xl text-xs leading-relaxed flex items-start gap-2.5 animate-in fade-in">
+            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-2 flex-1">
+              <p>{whatsappNotice}</p>
+              {onOpenRegister && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWhatsappNotice(null);
+                    onOpenRegister();
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 text-slate-950 font-bold text-[11px] uppercase tracking-wider cursor-pointer"
+                >
+                  Criar Loja Grátis
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setWhatsappNotice(null)}
+              className="text-slate-400 hover:text-white cursor-pointer text-xs font-bold"
+              aria-label="Fechar aviso"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => handleOpenWhatsapp()}

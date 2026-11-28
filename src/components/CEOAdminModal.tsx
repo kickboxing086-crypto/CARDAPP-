@@ -78,6 +78,7 @@ import {
   getPaymentMethodLabel,
   normalizeWhatsAppPhone,
 } from '../utils/comandaFormatter';
+import { formatBrazilPhoneInput, isValidBrazilPhone, toWhatsAppE164 } from '../utils/phoneUtils';
 import { ELEGANT_FONTS, getFontClass } from '../utils/typography';
 import {
   CeoTabMode,
@@ -209,12 +210,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   const currentUserCode = accountService.getAccountUserCode(currentSession);
   const [copiedUserCode, setCopiedUserCode] = useState(false);
   const [copiedRenewalMessage, setCopiedRenewalMessage] = useState(false);
+  const [supportWhatsapp, setSupportWhatsapp] = useState<string>(() => accountService.getSupportWhatsapp());
 
   // Assinar alterações da conta no accountService
   useEffect(() => {
     const unsub = accountService.subscribe(() => {
       const updated = accountService.getCurrentSession();
       setAccountSession(updated);
+      setSupportWhatsapp(accountService.getSupportWhatsapp());
       if (updated?.planStatus === 'bloqueado' && updated?.role !== 'super_admin' && !accountService.isImpersonating()) {
         setActiveTab('status');
       }
@@ -266,7 +269,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   };
 
   // =========================================================================
-  // RENOVAÇÃO DE PLANO VIA WHATSAPP OFICIAL (5584986113980) + ID DO USUÁRIO
+  // RENOVAÇÃO DE PLANO VIA WHATSAPP OFICIAL DA PLATAFORMA + ID DO USUÁRIO
   // =========================================================================
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [invoicesList, setInvoicesList] = useState<PaymentInvoice[]>(() => {
@@ -369,10 +372,11 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
     RENEWAL_PLAN_OPTIONS,
   ]);
 
-  const renewalWhatsAppUrl = useMemo(
-    () => `https://wa.me/5584986113980?text=${encodeURIComponent(renewalWhatsAppMessage)}`,
-    [renewalWhatsAppMessage]
-  );
+  const renewalWhatsAppUrl = useMemo(() => {
+    const cleanSupport = toWhatsAppE164(supportWhatsapp);
+    if (!cleanSupport) return '';
+    return `https://wa.me/${cleanSupport}?text=${encodeURIComponent(renewalWhatsAppMessage)}`;
+  }, [supportWhatsapp, renewalWhatsAppMessage]);
 
   const handleCopyUserCode = async () => {
     try {
@@ -1019,7 +1023,14 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
   // Save Store Settings
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    const toSave = { ...localSettingsRef.current };
+    const rawPhone = (localSettingsRef.current.phoneWhatsapp || '').trim();
+    const formattedPhone = rawPhone ? formatBrazilPhoneInput(rawPhone) : '';
+    const toSave = {
+      ...localSettingsRef.current,
+      phoneWhatsapp: formattedPhone,
+    };
+    localSettingsRef.current = toSave;
+    setLocalSettings(toSave);
     isSettingsDirtyRef.current = false;
     saveCeoSettingsDraft(currentStoreId, null);
     lastSettingsSnapshotRef.current = JSON.stringify(toSave);
@@ -3278,15 +3289,30 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      WhatsApp do Estabelecimento
+                      WhatsApp do Estabelecimento (com DDD)
                     </label>
                     <input
-                      type="text"
-                      value={localSettings.phoneWhatsapp}
-                      onChange={(e) => { isSettingsDirtyRef.current = true; setLocalSettings({ ...localSettings, phoneWhatsapp: e.target.value }); }}
-                      placeholder="5511999999999"
+                      type="tel"
+                      name="cardapp-store-phone"
+                      autoComplete="off"
+                      inputMode="tel"
+                      maxLength={15}
+                      value={formatBrazilPhoneInput(localSettings.phoneWhatsapp || '')}
+                      onChange={(e) => {
+                        isSettingsDirtyRef.current = true;
+                        setLocalSettings({
+                          ...localSettings,
+                          phoneWhatsapp: formatBrazilPhoneInput(e.target.value),
+                        });
+                      }}
+                      placeholder="(00) 00000-0000"
                       className="w-full text-sm p-3 rounded-xl border border-slate-300 focus:border-amber-500 outline-none"
                     />
+                    <span className="text-[11px] text-slate-500 mt-1 block">
+                      {isValidBrazilPhone(localSettings.phoneWhatsapp || '')
+                        ? `WhatsApp ativo para pedidos: +${toWhatsAppE164(localSettings.phoneWhatsapp)}`
+                        : 'Informe DDD + número (ex: (11) 98765-4321).'}
+                    </span>
                   </div>
                 </div>
 
@@ -4111,16 +4137,25 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                   </div>
 
                   {/* Botão Principal: Solicitar Renovação no WhatsApp */}
-                  <a
-                    href={renewalWhatsAppUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-3 cursor-pointer shadow-xl shadow-emerald-600/30 transition-all active:scale-98 ring-2 ring-emerald-300 no-underline"
-                  >
-                    <MessageCircle className="w-6 h-6 stroke-[2.5]" />
-                    <span>Solicitar Renovação no WhatsApp</span>
-                    <ArrowRight className="w-5 h-5 stroke-[2.5]" />
-                  </a>
+                  {renewalWhatsAppUrl ? (
+                    <a
+                      href={renewalWhatsAppUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-3 cursor-pointer shadow-xl shadow-emerald-600/30 transition-all active:scale-98 ring-2 ring-emerald-300 no-underline"
+                    >
+                      <MessageCircle className="w-6 h-6 stroke-[2.5]" />
+                      <span>Solicitar Renovação no WhatsApp</span>
+                      <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+                    </a>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs leading-relaxed flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <span>
+                        O WhatsApp oficial de atendimento ainda não foi configurado pelo administrador da plataforma. Utilize o botão <strong>"Copiar mensagem"</strong> acima para enviar os dados da sua loja.
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
