@@ -84,6 +84,8 @@ function extractStoreTargetFromLocation(): string {
     } catch {
       // keep raw
     }
+    decoded = decoded.replace(/^https?:\/\//i, '');
+    decoded = decoded.replace(/^(?:www\.)?cardapp[^\/]*\//i, '');
     return decoded.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
   };
   try {
@@ -100,6 +102,18 @@ function extractStoreTargetFromLocation(): string {
       !RESERVED_ROUTE_SLUGS.has(lowerSeg)
     ) {
       return cleanTarget(firstSegment);
+    }
+
+    // Suporte a rotas com hash em navegadores móveis (ex: #loja-da-maria ou #loja=loja-da-maria)
+    const rawHash = (window.location.hash || '').replace(/^#\/?/, '').trim();
+    if (rawHash) {
+      if (rawHash.startsWith('loja=') || rawHash.startsWith('store=')) {
+        const hashTarget = cleanTarget(rawHash.split('=')[1] || '');
+        if (hashTarget) return hashTarget;
+      } else if (!rawHash.includes('/') && !rawHash.includes('?') && !RESERVED_ROUTE_SLUGS.has(rawHash.toLowerCase())) {
+        const hashTarget = cleanTarget(rawHash);
+        if (hashTarget) return hashTarget;
+      }
     }
   } catch {}
   return '';
@@ -274,9 +288,32 @@ export default function App() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(() => storageService.getActiveOrderId());
 
   // 4 Steps for Customer (1: Cardápio, 2: Sacola, 3: Identificação & Entrega, 4: Acompanhamento)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(() =>
-    loadClientStep(initialResolvedStoreId)
-  );
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(() => {
+    const saved = loadClientStep(initialResolvedStoreId);
+    const cart = loadClientCart(initialResolvedStoreId, storageService.getProducts());
+    const hasOrder = Boolean(storageService.getActiveOrderId());
+    if ((saved === 2 || saved === 3) && cart.length === 0) {
+      return 1;
+    }
+    if (saved === 4 && !hasOrder) {
+      return 1;
+    }
+    return saved;
+  });
+
+  // Feedback visual caso o cliente tente pular etapas bloqueadas
+  const [stepNotice, setStepNotice] = useState<string | null>(null);
+  const stepNoticeTimeoutRef = useRef<number | null>(null);
+
+  const showStepNotice = (msg: string) => {
+    setStepNotice(msg);
+    if (stepNoticeTimeoutRef.current) {
+      window.clearTimeout(stepNoticeTimeoutRef.current);
+    }
+    stepNoticeTimeoutRef.current = window.setTimeout(() => {
+      setStepNotice(null);
+    }, 3800);
+  };
 
   // Cart State (restaurado por loja ao atualizar a página)
   const [cartItems, setCartItems] = useState<CartItem[]>(() =>
@@ -493,7 +530,12 @@ export default function App() {
 
           (async () => {
             try {
-              const resolved = await storageService.resolveStoreTarget(storeTarget);
+              let resolved = await storageService.resolveStoreTarget(storeTarget);
+              if (!resolved) {
+                // Tenta uma segunda vez com pequeno delay caso o servidor ou rede estejam aquecendo
+                await new Promise((r) => setTimeout(r, 600));
+                resolved = await storageService.resolveStoreTarget(storeTarget);
+              }
               if (!isMounted) return;
 
               const resolvedStoreId =
@@ -846,6 +888,48 @@ export default function App() {
   const pendingOrdersCount = useMemo(() => {
     return orders.filter((o) => o.status !== 'finalizado').length;
   }, [orders]);
+
+  // Navegação validada pelas 4 etapas do cliente
+  const handleNavigateStep = (targetStep: 1 | 2 | 3 | 4) => {
+    if (targetStep === 1) {
+      setStepNotice(null);
+      setCurrentStep(1);
+      return;
+    }
+    if (targetStep === 2) {
+      if (cartItems.length === 0) {
+        showStepNotice('Adicione pratos no cardápio antes de abrir sua sacola.');
+        return;
+      }
+      setStepNotice(null);
+      setCurrentStep(2);
+      return;
+    }
+    if (targetStep === 3) {
+      if (cartItems.length === 0) {
+        showStepNotice('Sua sacola está vazia. Adicione itens antes de ir para entrega.');
+        return;
+      }
+      if (currentStep < 2) {
+        showStepNotice('Revise sua sacola na Etapa 02 antes de prosseguir.');
+        setCurrentStep(2);
+        return;
+      }
+      setStepNotice(null);
+      setCurrentStep(3);
+      return;
+    }
+    if (targetStep === 4) {
+      const hasActive = Boolean(currentActiveOrder) || clientOrders.length > 0;
+      if (!hasActive) {
+        showStepNotice('Você ainda não tem nenhum pedido em andamento para acompanhar.');
+        return;
+      }
+      setStepNotice(null);
+      setCurrentStep(4);
+      return;
+    }
+  };
 
   // Quick Add / Customizer Add to Cart with Complements and Promotion
   const handleAddToCart = (
@@ -1422,10 +1506,28 @@ export default function App() {
           {/* 4 ETAPAS TRACKER FOR CLIENT */}
           <StepTracker
             currentStep={currentStep}
-            onStepClick={(step) => setCurrentStep(step)}
+            onStepClick={handleNavigateStep}
             cartCount={totalCartCount}
             hasActiveOrder={Boolean(currentActiveOrder) || clientOrders.length > 0}
           />
+
+          {stepNotice && (
+            <div className="max-w-md mx-auto px-4 mt-2">
+              <div className="p-2.5 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-between shadow-xs border border-amber-500 animate-in fade-in slide-in-from-top-1">
+                <span className="flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>{stepNotice}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setStepNotice(null)}
+                  className="px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 text-[10px] uppercase font-black cursor-pointer"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* MAIN CONTENT AREA */}
           <main className="flex-1 pb-24">

@@ -4418,15 +4418,29 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                 <div className="border-t-2 border-dashed border-black my-1" />
               </div>
 
-              {/* LISTA DE ITENS COM BARRA PRETA INVERTIDA ALTERNADA COMO NA FOTO */}
-              <div className="space-y-1.5">
+              {/* FITA PRETA DE AVISO QUANDO O PEDIDO CONTÉM ACOMPANHAMENTOS (NÃO ESQUECER) */}
+              {printOrder.items.some((it) => it.selectedComplements && it.selectedComplements.length > 0) && (
+                <div className="bg-black text-white font-black text-center py-1.5 px-2 my-1.5 uppercase text-[11px] tracking-wider">
+                  *** ATENÇÃO: CONTÉM ACOMPANHAMENTOS - NÃO ESQUECER ***
+                </div>
+              )}
+
+              {/* LISTA DE ITENS: FITA PRETA SOMENTE SE O ITEM TIVER ACOMPANHAMENTO */}
+              <div className="space-y-2">
                 {printOrder.items.map((it, i) => {
-                  const isHighlightedRow = i % 2 === 1;
+                  const hasComplements = Boolean(it.selectedComplements && it.selectedComplements.length > 0);
                   return (
-                    <div key={i} className="space-y-0.5">
+                    <div
+                      key={i}
+                      className={`space-y-0.5 ${
+                        hasComplements ? 'border border-black p-1 bg-neutral-50 rounded-xs' : ''
+                      }`}
+                    >
                       <div
                         className={`flex items-baseline justify-between gap-2 px-1 py-0.5 ${
-                          isHighlightedRow ? 'bg-black text-white font-bold' : 'text-black font-semibold'
+                          hasComplements
+                            ? 'bg-black text-white font-black'
+                            : 'text-black font-semibold'
                         }`}
                       >
                         <div className="flex items-baseline gap-2.5 min-w-0">
@@ -4438,11 +4452,17 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </span>
                       </div>
 
+                      {hasComplements && (
+                        <div className="bg-black text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider inline-block">
+                          ▶ ACOMPANHAMENTOS (NÃO ESQUECER):
+                        </div>
+                      )}
+
                       {it.selectedComplements && it.selectedComplements.length > 0 && (
-                        <div className="text-[11px] text-black pl-7 space-y-0.5">
+                        <div className="text-[11px] text-black pl-5 space-y-0.5 font-bold border-l-2 border-black ml-1 my-0.5">
                           {it.selectedComplements.map((c) => (
                             <p key={c.id}>
-                              - {c.name}{c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}
+                              ▪ {c.name}{c.price > 0 ? ` (+${formatCurrency(c.price)})` : ''}
                             </p>
                           ))}
                         </div>
@@ -4453,7 +4473,7 @@ export const CEOAdminModal: React.FC<CEOAdminModalProps> = ({
                         </p>
                       )}
                       {it.notes && (
-                        <p className="text-[11px] pl-7 text-black">
+                        <p className="text-[11px] pl-7 text-black font-semibold">
                           - Obs: {it.notes}
                         </p>
                       )}

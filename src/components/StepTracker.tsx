@@ -1,5 +1,5 @@
 import React from 'react';
-import { Utensils, ShoppingBag, MapPin, Clock3, Check } from 'lucide-react';
+import { Utensils, ShoppingBag, MapPin, Clock3, Check, Lock } from 'lucide-react';
 
 interface StepTrackerProps {
   currentStep: 1 | 2 | 3 | 4;
@@ -14,6 +14,19 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
   cartCount,
   hasActiveOrder = false,
 }) => {
+  const isStepAccessible = (stepNum: 1 | 2 | 3 | 4): boolean => {
+    if (!onStepClick) return false;
+    // Etapa 1: Sempre acessível para ver produtos
+    if (stepNum === 1) return true;
+    // Etapa 2: Apenas se houver produtos no carrinho
+    if (stepNum === 2) return cartCount > 0;
+    // Etapa 3: Apenas se houver itens no carrinho E o cliente estiver na etapa 2 ou 3
+    if (stepNum === 3) return cartCount > 0 && currentStep >= 2;
+    // Etapa 4: Exclusivamente quando houver pedido ativo realizado
+    if (stepNum === 4) return hasActiveOrder;
+    return false;
+  };
+
   const steps = [
     {
       num: 1 as const,
@@ -24,19 +37,19 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
     {
       num: 2 as const,
       label: 'Sacola',
-      sublabel: `${cartCount} ${cartCount === 1 ? 'item' : 'itens'}`,
+      sublabel: cartCount > 0 ? `${cartCount} ${cartCount === 1 ? 'item' : 'itens'}` : 'Vazia',
       icon: ShoppingBag,
     },
     {
       num: 3 as const,
       label: 'Entrega & Pagamento',
-      sublabel: 'Dados e endereço',
+      sublabel: cartCount > 0 ? 'Dados e endereço' : 'Adicione itens',
       icon: MapPin,
     },
     {
       num: 4 as const,
       label: 'Acompanhar Pedido',
-      sublabel: 'Status em tempo real',
+      sublabel: hasActiveOrder ? 'Status em tempo real' : 'Após enviar pedido',
       icon: Clock3,
     },
   ];
@@ -50,26 +63,30 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
             {steps.map((st) => {
               const isComp = st.num < currentStep;
               const isCurr = st.num === currentStep;
-              const isClick =
-                onStepClick && (isComp || st.num === 1 || (st.num === 2 && cartCount > 0) || (st.num === 4 && hasActiveOrder));
+              const isClick = isStepAccessible(st.num);
               return (
                 <button
                   key={st.num}
                   type="button"
                   disabled={!isClick}
                   onClick={() => isClick && onStepClick && onStepClick(st.num)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
+                  title={!isClick ? 'Preencha a etapa anterior para desbloquear' : undefined}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
                     isCurr
                       ? 'bg-amber-400 text-slate-950 font-black shadow-2xs'
                       : isComp
                       ? 'bg-amber-100 text-amber-950'
                       : isClick
                       ? 'bg-slate-100 text-slate-700 hover:bg-amber-50 cursor-pointer'
-                      : 'bg-slate-50 text-slate-400 opacity-60 cursor-default'
+                      : 'bg-slate-100 text-slate-400 opacity-40 cursor-not-allowed'
                   }`}
                 >
                   <span className="w-4 h-4 rounded-full bg-slate-950/15 flex items-center justify-center text-[10px]">
-                    {st.num}
+                    {!isClick && st.num > currentStep ? (
+                      <Lock className="w-2.5 h-2.5 stroke-[2.5]" />
+                    ) : (
+                      st.num
+                    )}
                   </span>
                   <span>{st.label}</span>
                 </button>
@@ -101,10 +118,8 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
           {steps.map((step) => {
             const isCompleted = step.num < currentStep;
             const isCurrent = step.num === currentStep;
+            const isClickable = isStepAccessible(step.num);
             const Icon = step.icon;
-
-            const isClickable =
-              onStepClick && (isCompleted || (step.num === 1 && currentStep <= 3) || (step.num === 2 && cartCount > 0) || (step.num === 4 && hasActiveOrder));
 
             return (
               <button
@@ -112,8 +127,11 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
                 type="button"
                 disabled={!isClickable}
                 onClick={() => isClickable && onStepClick && onStepClick(step.num)}
+                title={!isClickable ? 'Complete os requisitos da etapa anterior para desbloquear' : undefined}
                 className={`relative flex items-center gap-3 px-3 py-1.5 rounded-xl transition-all text-left bg-white z-10 ${
-                  isClickable ? 'cursor-pointer hover:bg-amber-50/70' : 'cursor-default'
+                  isClickable
+                    ? 'cursor-pointer hover:bg-amber-50/70'
+                    : 'cursor-not-allowed opacity-50 select-none'
                 }`}
               >
                 <div
@@ -122,10 +140,18 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
                       ? 'bg-amber-400 text-amber-950 ring-2 ring-amber-300'
                       : isCurrent
                       ? 'bg-amber-500 text-slate-950 ring-4 ring-amber-200 font-extrabold shadow-sm'
-                      : 'bg-slate-100 text-slate-400 border border-slate-200'
+                      : isClickable
+                      ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200/60'
                   }`}
                 >
-                  {isCompleted ? <Check className="w-5 h-5 stroke-[2.5]" /> : <Icon className="w-4 h-4" />}
+                  {isCompleted ? (
+                    <Check className="w-5 h-5 stroke-[2.5]" />
+                  ) : !isClickable && step.num > currentStep ? (
+                    <Lock className="w-4 h-4 stroke-[2]" />
+                  ) : (
+                    <Icon className="w-4 h-4" />
+                  )}
                 </div>
 
                 <div className="flex flex-col">
@@ -148,10 +174,15 @@ export const StepTracker: React.FC<StepTrackerProps> = ({
                         ? 'text-slate-950 font-extrabold'
                         : isCompleted
                         ? 'text-slate-800'
+                        : isClickable
+                        ? 'text-slate-700'
                         : 'text-slate-400'
                     }`}
                   >
                     {step.label}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {step.sublabel}
                   </span>
                 </div>
               </button>

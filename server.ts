@@ -599,8 +599,18 @@ function slugify(name: string): string {
     .slice(0, 80);
 }
 
+function cleanTargetParam(rawTarget: string): string {
+  let rawParam = String(rawTarget || '');
+  try {
+    rawParam = decodeURIComponent(rawParam);
+  } catch {}
+  rawParam = rawParam.replace(/^https?:\/\//i, '');
+  rawParam = rawParam.replace(/^(?:www\.)?cardapp[^\/]*\//i, '');
+  return rawParam.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
+}
+
 // API: Sincronizar dados completos da loja do CEO para o servidor
-app.post('/api/stores/sync', (req, res) => {
+app.post('/api/stores/sync', async (req, res) => {
   try {
     const { storeId, storeName, settings, categories, products, slug: customSlug } = req.body;
     if (!storeId || typeof storeId !== 'string') {
@@ -663,6 +673,43 @@ app.post('/api/stores/sync', (req, res) => {
     memoryStores[storeId] = updatedStore;
     saveStoresToDisk();
 
+    // Persistir permanentemente no Firestore Admin SDK (acessível entre múltiplos dispositivos e instâncias)
+    if (db) {
+      try {
+        await db.collection('stores').doc(storeId).set({
+          id: storeId,
+          storeName: cleanName,
+          slug: resolvedSlug,
+          updatedAt: updatedStore.updatedAt,
+          settings: mergedSettings || {},
+          categories: updatedStore.categories,
+          products: updatedStore.products,
+        }, { merge: true });
+
+        if (resolvedSlug) {
+          await db.collection('storeSlugs').doc(resolvedSlug).set({
+            slug: resolvedSlug,
+            storeId,
+            storeName: cleanName,
+            updatedAt: updatedStore.updatedAt,
+          }, { merge: true });
+        }
+
+        for (const ps of slugHistorySet) {
+          if (ps && ps !== resolvedSlug) {
+            await db.collection('storeSlugs').doc(ps).set({
+              slug: ps,
+              storeId,
+              storeName: cleanName,
+              updatedAt: updatedStore.updatedAt,
+            }, { merge: true });
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('[Server DB] Error persisting store to cloud Firestore:', cloudErr);
+      }
+    }
+
     return res.json({ success: true, store: updatedStore });
   } catch (err) {
     console.error('[Server DB] Error syncing store:', err);
@@ -690,13 +737,7 @@ const RESERVED_SERVER_ROUTE_SLUGS = new Set([
 ]);
 
 function findServerStoreByTarget(rawTarget: string): ServerStoreData | null {
-  let rawParam = String(rawTarget || '');
-  try {
-    rawParam = decodeURIComponent(rawParam);
-  } catch {
-    // keep rawParam if malformed URI
-  }
-  const target = rawParam.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
+  const target = cleanTargetParam(rawTarget);
   if (!target || target === 'default_store' || target === 'master_admin') {
     return null;
   }
@@ -722,6 +763,105 @@ function findServerStoreByTarget(rawTarget: string): ServerStoreData | null {
       prevSlugs.some((ps) => ps === targetLower || (targetSlug.length >= 2 && ps === targetSlug))
     ) {
       return s;
+    }
+  }
+
+  return null;
+}
+
+// Resolução com fallback no Firestore Admin SDK quando a loja não está na memória do processo
+async function findServerStoreByTargetAsync(rawTarget: string): Promise<ServerStoreData | null> {
+  const inMem = findServerStoreByTarget(rawTarget);
+  if (inMem) return inMem;
+
+  const target = cleanTargetParam(rawTarget);
+  if (!target || target === 'default_store' || target === 'master_admin') {
+    return null;
+  }
+
+  const targetLower = target.toLowerCase();
+  const targetSlug = slugify(target);
+
+  if (db) {
+    try {
+      // 1. Tentar carregar pelo slug registrado
+      if (targetSlug && targetSlug.length >= 2) {
+        const slugDoc = await db.collection('storeSlugs').doc(targetSlug).get();
+        if (slugDoc.exists) {
+          const sData = slugDoc.data();
+          if (sData?.storeId) {
+            const storeDoc = await db.collection('stores').doc(sData.storeId).get();
+            if (storeDoc.exists) {
+              const fullData = storeDoc.data() as any;
+              const loaded: ServerStoreData = {
+                storeId: sData.storeId,
+                storeName: fullData?.storeName || sData?.storeName || 'Minha Loja',
+                slug: targetSlug,
+                previousSlugs: [targetSlug],
+                settings: fullData?.settings || { storeName: fullData?.storeName || sData?.storeName },
+                categories: Array.isArray(fullData?.categories) ? fullData.categories : [],
+                products: Array.isArray(fullData?.products) ? fullData.products : [],
+                updatedAt: fullData?.updatedAt || new Date().toISOString(),
+              };
+              memoryStores[sData.storeId] = loaded;
+              saveStoresToDisk();
+              return loaded;
+            }
+          }
+        }
+      }
+
+      // 2. Tentar carregar diretamente pelo storeId
+      const directDoc = await db.collection('stores').doc(target).get();
+      if (directDoc.exists) {
+        const fullData = directDoc.data() as any;
+        const sName = fullData?.storeName || 'Minha Loja';
+        const sSlug = fullData?.slug || slugify(sName);
+        const loaded: ServerStoreData = {
+          storeId: target,
+          storeName: sName,
+          slug: sSlug,
+          previousSlugs: [sSlug],
+          settings: fullData?.settings || { storeName: sName },
+          categories: Array.isArray(fullData?.categories) ? fullData.categories : [],
+          products: Array.isArray(fullData?.products) ? fullData.products : [],
+          updatedAt: fullData?.updatedAt || new Date().toISOString(),
+        };
+        memoryStores[target] = loaded;
+        saveStoresToDisk();
+        return loaded;
+      }
+
+      // 3. Scan em lojas no Firestore
+      const snap = await db.collection('stores').limit(60).get();
+      for (const d of snap.docs) {
+        const full = d.data() as any;
+        const sName = full?.storeName || '';
+        const sSlug = full?.slug || slugify(sName);
+        if (
+          d.id === target ||
+          d.id.toLowerCase() === targetLower ||
+          sSlug === targetLower ||
+          (targetSlug.length >= 2 && sSlug === targetSlug) ||
+          (targetSlug.length >= 2 && slugify(sName) === targetSlug)
+        ) {
+          const loaded: ServerStoreData = {
+            storeId: d.id,
+            storeName: sName || 'Minha Loja',
+            slug: sSlug,
+            previousSlugs: [sSlug],
+            settings: full?.settings || { storeName: sName },
+            categories: Array.isArray(full?.categories) ? full.categories : [],
+            products: Array.isArray(full?.products) ? full.products : [],
+            updatedAt: full?.updatedAt || new Date().toISOString(),
+          };
+          memoryStores[d.id] = loaded;
+          saveStoresToDisk();
+          return loaded;
+        }
+      }
+    } catch (e) {
+      console.warn('[Server DB] Error querying Firestore fallback:', e);
     }
   }
 
@@ -883,9 +1023,9 @@ function injectStoreOpenGraphHtml(
 }
 
 // API: Servir a logo da loja como arquivo de imagem HTTP real para prévias do WhatsApp e redes sociais
-app.get('/api/stores/:target/logo', (req, res) => {
+app.get('/api/stores/:target/logo', async (req, res) => {
   try {
-    const store = findServerStoreByTarget(req.params.target);
+    const store = await findServerStoreByTargetAsync(req.params.target);
     if (!store) {
       return res.status(404).send('Not found');
     }
@@ -916,10 +1056,10 @@ app.get('/api/stores/:target/logo', (req, res) => {
   }
 });
 
-// API: Obter dados da loja pelo slug ou storeId (acesso imediato para clientes)
-app.get('/api/stores/:target', (req, res) => {
+// API: Obter dados da loja pelo slug ou storeId (acesso imediato para clientes cross-device)
+app.get('/api/stores/:target', async (req, res) => {
   try {
-    const store = findServerStoreByTarget(req.params.target);
+    const store = await findServerStoreByTargetAsync(req.params.target);
     if (!store) {
       return res.status(404).json({ success: false, message: 'Loja não encontrada.' });
     }
@@ -1003,6 +1143,34 @@ async function startServer() {
     return true;
   };
 
+  // Pré-aquecer lojas salvas no Firestore para a memória do servidor
+  if (db) {
+    try {
+      const snap = await db.collection('stores').limit(100).get();
+      for (const d of snap.docs) {
+        const full = d.data() as any;
+        if (d.id && !memoryStores[d.id]) {
+          const sName = full?.storeName || 'Minha Loja';
+          const sSlug = full?.slug || slugify(sName);
+          memoryStores[d.id] = {
+            storeId: d.id,
+            storeName: sName,
+            slug: sSlug,
+            previousSlugs: [sSlug],
+            settings: full?.settings || { storeName: sName },
+            categories: Array.isArray(full?.categories) ? full.categories : [],
+            products: Array.isArray(full?.products) ? full.products : [],
+            updatedAt: full?.updatedAt || new Date().toISOString(),
+          };
+        }
+      }
+      saveStoresToDisk();
+      console.log(`[Server DB] Hydrated ${Object.keys(memoryStores).length} stores into memory.`);
+    } catch (e) {
+      console.warn('[Server DB] Startup Firestore hydration notice:', e);
+    }
+  }
+
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -1016,7 +1184,7 @@ async function startServer() {
       }
       try {
         const target = extractStoreTargetFromExpressReq(req);
-        const store = target ? findServerStoreByTarget(target) : null;
+        const store = target ? await findServerStoreByTargetAsync(target) : null;
         if (!store) {
           return next();
         }
@@ -1035,14 +1203,14 @@ async function startServer() {
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath, { index: false }));
-    app.get('*', (req, res) => {
+    app.get('*', async (req, res) => {
       try {
         const distIndex = path.join(distPath, 'index.html');
         const rawHtml = fs.readFileSync(distIndex, 'utf8');
         const target = isPageNavigationCandidate(req)
           ? extractStoreTargetFromExpressReq(req)
           : '';
-        const store = target ? findServerStoreByTarget(target) : null;
+        const store = target ? await findServerStoreByTargetAsync(target) : null;
         if (store) {
           const ogHtml = injectStoreOpenGraphHtml(rawHtml, store, req);
           return res.status(200).set({ 'Content-Type': 'text/html' }).end(ogHtml);

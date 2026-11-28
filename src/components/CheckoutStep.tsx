@@ -354,6 +354,11 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
     e.preventDefault();
     setError(null);
 
+    if (items.length === 0) {
+      setError('Sua sacola está vazia. Adicione itens do cardápio para prosseguir.');
+      return;
+    }
+
     if (!name.trim()) {
       setError('Por favor, informe seu nome completo.');
       return;
@@ -418,6 +423,28 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({
 
   const completedCount = [hasName, hasPhone, hasDeliveryLocation, hasPayment].filter(Boolean).length;
   const progressPercent = Math.round((completedCount / 4) * 100);
+
+  if (items.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center animate-in fade-in duration-300">
+        <div className="w-20 h-20 bg-amber-100 text-amber-800 rounded-3xl mx-auto flex items-center justify-center mb-5 shadow-inner">
+          <UtensilsCrossed className="w-10 h-10 stroke-[1.8]" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 mb-2">Sua sacola está vazia</h2>
+        <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto mb-6">
+          Não é possível finalizar um pedido sem itens. Adicione os pratos desejados no cardápio antes de continuar.
+        </p>
+        <button
+          type="button"
+          onClick={onBackToCart}
+          className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm shadow-md transition-all active:scale-95 cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4 stroke-[3]" />
+          <span>Voltar ao Cardápio</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 animate-in fade-in duration-200">

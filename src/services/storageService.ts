@@ -441,6 +441,9 @@ export const storageService = {
     } catch {
       // keep raw
     }
+    // Remove prefixos de protocolo e domínio caso a URL inteira tenha sido passada
+    decoded = decoded.replace(/^https?:\/\//i, '');
+    decoded = decoded.replace(/^(?:www\.)?cardapp[^\/]*\//i, '');
     const clean = decoded.trim().replace(/^\/+|[\s/.,;!?)"']+$/g, '');
     if (!clean || clean === 'default_store' || clean === 'master_admin') {
       return null;
@@ -448,7 +451,12 @@ export const storageService = {
 
     const slug = slugifyStoreName(clean);
     const candidates = Array.from(
-      new Set([clean, ...(slug && slug.length >= 2 && slug !== clean.toLowerCase() ? [slug] : [])])
+      new Set([
+        clean,
+        clean.toLowerCase(),
+        ...(slug && slug.length >= 2 ? [slug] : []),
+        clean.replace(/[\s_]+/g, '-').toLowerCase(),
+      ].filter((c) => Boolean(c) && c.length >= 2 && c !== 'minha-loja'))
     );
 
     // 1. Tentar obter dados diretamente do servidor backend (rápido, cross-device instantâneo)
